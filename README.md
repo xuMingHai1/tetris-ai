@@ -46,6 +46,12 @@ mvnw.cmd --batch-mode --no-transfer-progress verify
 
 ## 质量检查
 
+格式检查：
+
+```bash
+./mvnw spotless:check
+```
+
 SpotBugs：
 
 ```bash

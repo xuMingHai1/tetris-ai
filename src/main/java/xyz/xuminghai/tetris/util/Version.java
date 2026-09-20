@@ -633,6 +633,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.time.Duration;
@@ -658,7 +659,7 @@ public final class Version {
         try {
             final URL versionUrl = ClassLoader.getSystemResource("VERSION");
             Objects.requireNonNull(versionUrl, "VERSION is null");
-            VERSION = Files.readString(Paths.get(versionUrl.toURI()));
+            VERSION = Files.readString(Paths.get(versionUrl.toURI())).strip();
         }
         catch (IOException | URISyntaxException e) {
             throw new RuntimeException(e);
@@ -668,21 +669,39 @@ public final class Version {
     /**
      * 发布地址
      */
-    public static final String RELEASE_URL = "https://github.com/xuMingHai1/game-collection/releases";
+    public static final String RELEASE_URL = "https://github.com/xuMingHai1/tetris-ai/releases";
 
     /**
      * 版本格式匹配
      */
-    private static final Pattern VERSION_PATTERN = Pattern.compile("^v(\\d+)\\.(\\d)\\.(\\d)");
+    private static final Pattern VERSION_PATTERN = Pattern.compile("^v(\\d+)\\.(\\d+)\\.(\\d+)$");
 
     /**
      * 版本地址
      */
-    private static final String VERSION_URL = "https://raw.githubusercontent.com/xuMingHai1/game-collection/master/tetris/src/main/resourcesVERSION";
+    private static final String VERSION_URL = "https://raw.githubusercontent.com/xuMingHai1/tetris-ai/main/src/main/resources/VERSION";
 
 
 
     private Version() {
+    }
+
+    static int compareVersions(String left, String right) {
+        final Matcher leftMatcher = VERSION_PATTERN.matcher(left);
+        final Matcher rightMatcher = VERSION_PATTERN.matcher(right);
+        if (!leftMatcher.matches() || !rightMatcher.matches()) {
+            return 0;
+        }
+
+        for (int group = 1; group <= 3; group++) {
+            final int comparison = Integer.compare(
+                    Integer.parseInt(leftMatcher.group(group)),
+                    Integer.parseInt(rightMatcher.group(group)));
+            if (comparison != 0) {
+                return comparison;
+            }
+        }
+        return 0;
     }
 
     public static void checkUpdate(Consumer<String> consumer) {
@@ -695,20 +714,12 @@ public final class Version {
                 urlConnection.setConnectTimeout((int) Duration.ofSeconds(3L).toMillis());
                 urlConnection.setReadTimeout((int) Duration.ofSeconds(5L).toMillis());
                 urlConnection.connect();
-                final String version = new String(urlConnection.getInputStream().readAllBytes());
-                urlConnection.getInputStream().close();
-
-                // 匹配版本号
-                final Matcher matcher = VERSION_PATTERN.matcher(VERSION);
-                final Matcher bodyMatcher = VERSION_PATTERN.matcher(version);
-                if (matcher.matches() && bodyMatcher.matches()) {
-                    final int remoteVersion = Integer.parseInt(bodyMatcher.group(1) + bodyMatcher.group(2) + bodyMatcher.group(3));
-                    final int localVersion = Integer.parseInt(matcher.group(1) + matcher.group(2) + matcher.group(3));
-                    if (remoteVersion > localVersion) {
-                        return version;
-                    }
+                final String version;
+                try (var input = urlConnection.getInputStream()) {
+                    version = new String(input.readAllBytes(), StandardCharsets.UTF_8).strip();
                 }
-                return null;
+
+                return compareVersions(version, VERSION) > 0 ? version : null;
             }
 
             @Override
