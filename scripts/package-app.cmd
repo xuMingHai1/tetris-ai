@@ -39,6 +39,7 @@ jpackage ^
   --dest target\jpackage\dist ^
   --module-path target\jpackage\modules ^
   --module xyz.xuminghai.tetris/xyz.xuminghai.tetris.TetrisApplication ^
+  --jlink-options "--no-man-pages --no-header-files" ^
   --app-version "!APP_VERSION!"
 if errorlevel 1 exit /b %errorlevel%
 

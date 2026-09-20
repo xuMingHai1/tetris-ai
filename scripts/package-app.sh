@@ -42,6 +42,7 @@ jpackage \
   --dest target/jpackage/dist \
   --module-path target/jpackage/modules \
   --module xyz.xuminghai.tetris/xyz.xuminghai.tetris.TetrisApplication \
+  --jlink-options "--no-man-pages --no-header-files" \
   --app-version "$app_version"
 
 echo "Created $package_type under target/jpackage/dist"
