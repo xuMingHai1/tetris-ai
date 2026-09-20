@@ -1,0 +1,368 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  schedule:
+    # Weekly full verification: Sunday 03:00 Singapore time (Saturday 19:00 UTC).
+    - cron: '0 19 * * 6'
+  workflow_dispatch:
+    inputs:
+      full_scan:
+        description: Run the complete quality suite
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      full_scan: ${{ steps.changes.outputs.full_scan }}
+      build_changed: ${{ steps.changes.outputs.build_changed }}
+      java_changed: ${{ steps.changes.outputs.java_changed }}
+      dependency_changed: ${{ steps.changes.outputs.dependency_changed }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+          MANUAL_FULL_SCAN: ${{ inputs.full_scan }}
+        run: |
+          set -euo pipefail
+
+          full_scan=false
+          build_changed=false
+          java_changed=false
+          dependency_changed=false
+
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            full_scan=true
+            changed_files=""
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$MANUAL_FULL_SCAN" = "true" ]; then
+            full_scan=true
+            changed_files=""
+          elif [ "$EVENT_NAME" = "pull_request" ]; then
+            changed_files="$(git diff --name-only "$PR_BASE_SHA...$PR_HEAD_SHA")"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            if [[ "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+              changed_files="$(git show --pretty='' --name-only "$PUSH_HEAD_SHA")"
+            else
+              changed_files="$(git diff --name-only "$PUSH_BEFORE_SHA...$PUSH_HEAD_SHA")"
+            fi
+          else
+            changed_files="$(git show --pretty='' --name-only HEAD)"
+          fi
+
+          echo "Changed files:"
+          printf '%s\n' "$changed_files"
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            case "$file" in
+              .github/workflows/ci.yml|pom.xml)
+                build_changed=true
+                dependency_changed=true
+                ;;
+              .java-version)
+                full_scan=true
+                build_changed=true
+                dependency_changed=true
+                ;;
+              src/main/java/*)
+                build_changed=true
+                java_changed=true
+                ;;
+              src/main/resources/*)
+                build_changed=true
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          if [ "$full_scan" = "true" ]; then
+            build_changed=true
+            java_changed=true
+            dependency_changed=true
+          fi
+
+          {
+            echo "full_scan=$full_scan"
+            echo "build_changed=$build_changed"
+            echo "java_changed=$java_changed"
+            echo "dependency_changed=$dependency_changed"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "Classification: full=$full_scan build=$build_changed java=$java_changed dependencies=$dependency_changed"
+
+  verify:
+    name: Build & Test
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.build_changed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java 27
+        uses: actions/setup-java@v6
+        with:
+          distribution: oracle-openjdk
+          java-version: '27'
+          cache: maven
+
+      - name: Verify project
+        run: mvn --batch-mode --no-transfer-progress verify
+
+  gitleaks:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Scan repository for leaked secrets
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+          PUSH_HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          report_dir="$RUNNER_TEMP/gitleaks-report"
+          rm -rf "$report_dir"
+          mkdir -p "$report_dir"
+
+          log_opts=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            merge_base="$(git merge-base "$PR_BASE_SHA" "$PR_HEAD_SHA")"
+            log_opts="--no-merges --first-parent ${merge_base}..${PR_HEAD_SHA}"
+          elif [ "$EVENT_NAME" = "push" ]; then
+            if [[ "$PUSH_BEFORE_SHA" =~ ^0+$ ]]; then
+              log_opts="-1"
+            else
+              log_opts="--no-merges --first-parent ${PUSH_BEFORE_SHA}..${PUSH_HEAD_SHA}"
+            fi
+          fi
+
+          gitleaks_args=(
+            git
+            --redact
+            --verbose
+            --exit-code=2
+            --report-format=sarif
+            --report-path=/report/results.sarif
+            --no-banner
+          )
+          if [ -n "$log_opts" ]; then
+            gitleaks_args+=("--log-opts=$log_opts")
+          fi
+          gitleaks_args+=(/repo)
+
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/repo:ro" \
+            -v "$report_dir:/report" \
+            ghcr.io/gitleaks/gitleaks:v8.24.3 \
+            "${gitleaks_args[@]}"
+
+      - name: Upload Gitleaks report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results.sarif
+          path: ${{ runner.temp }}/gitleaks-report/results.sarif
+          if-no-files-found: ignore
+
+  fast-quality-gate:
+    name: Fast Quality Gate
+    if: ${{ always() }}
+    needs:
+      - detect-changes
+      - verify
+      - gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require applicable fast checks
+        env:
+          DETECT_RESULT: ${{ needs.detect-changes.result }}
+          VERIFY_RESULT: ${{ needs.verify.result }}
+          GITLEAKS_RESULT: ${{ needs.gitleaks.result }}
+        run: |
+          failed=0
+
+          require_success() {
+            name="$1"
+            result="$2"
+            if [ "$result" != "success" ]; then
+              echo "::error::$name failed with result: $result"
+              failed=1
+            fi
+          }
+
+          require_success_or_skip() {
+            name="$1"
+            result="$2"
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::$name failed with result: $result"
+              failed=1
+            fi
+          }
+
+          require_success "Detect Changes" "$DETECT_RESULT"
+          require_success_or_skip "Build & Test" "$VERIFY_RESULT"
+          require_success "Secret Scan" "$GITLEAKS_RESULT"
+
+          if [ "$failed" -ne 0 ]; then
+            echo "Fast Quality Gate failed."
+            exit 1
+          fi
+
+          echo "Fast Quality Gate passed."
+
+  dependency-security:
+    name: Dependency Security
+    needs:
+      - detect-changes
+      - fast-quality-gate
+    if: ${{ !cancelled() && needs.fast-quality-gate.result == 'success' && needs.detect-changes.outputs.dependency_changed == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java 27
+        uses: actions/setup-java@v6
+        with:
+          distribution: oracle-openjdk
+          java-version: '27'
+          cache: maven
+
+      - name: Resolve dependencies and generate SBOM
+        run: mvn --batch-mode --no-transfer-progress -DskipTests package org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeBom
+
+      - name: Verify SBOM
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("target/bom.json")
+          if not path.exists():
+              raise SystemExit("Missing target/bom.json")
+
+          bom = json.loads(path.read_text())
+          components = bom.get("components", [])
+          if not components:
+              raise SystemExit("SBOM contains no dependency components")
+
+          print(f"Verified {len(components)} dependency components.")
+          PY
+
+      - name: Scan dependencies with OSV
+        run: |
+          docker run --rm \
+            -v "$PWD/target:/inventory:ro" \
+            ghcr.io/google/osv-scanner:v2.3.3 \
+            scan source --lockfile=/inventory/bom.json \
+            --format=json --all-packages > target/osv-results.json
+
+      - name: Upload dependency inventory and scan report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-security
+          path: |
+            target/bom.json
+            target/osv-results.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  full-quality-gate:
+    name: Full Quality Gate
+    if: ${{ always() }}
+    needs:
+      - detect-changes
+      - fast-quality-gate
+      - dependency-security
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Require all applicable quality checks
+        env:
+          DEPENDENCY_REQUIRED: ${{ needs.detect-changes.outputs.dependency_changed }}
+          FAST_GATE_RESULT: ${{ needs.fast-quality-gate.result }}
+          DEPENDENCY_SECURITY_RESULT: ${{ needs.dependency-security.result }}
+        run: |
+          failed=0
+
+          require_success() {
+            name="$1"
+            result="$2"
+            if [ "$result" != "success" ]; then
+              echo "::error::$name failed with result: $result"
+              failed=1
+            fi
+          }
+
+          require_success_or_skip() {
+            name="$1"
+            result="$2"
+            if [ "$result" != "success" ] && [ "$result" != "skipped" ]; then
+              echo "::error::$name failed with result: $result"
+              failed=1
+            fi
+          }
+
+          require_success "Fast Quality Gate" "$FAST_GATE_RESULT"
+          if [ "$DEPENDENCY_REQUIRED" = "true" ]; then
+            require_success "Dependency Security" "$DEPENDENCY_SECURITY_RESULT"
+          else
+            require_success_or_skip "Dependency Security" "$DEPENDENCY_SECURITY_RESULT"
+          fi
+
+          if [ "$failed" -ne 0 ]; then
+            echo "Full Quality Gate failed."
+            exit 1
+          fi
+
+          echo "Full Quality Gate passed for all checks applicable to this change."
