@@ -5,6 +5,7 @@
  */
 package xyz.xuminghai.tetris.ai;
 
+import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
 import java.util.List;

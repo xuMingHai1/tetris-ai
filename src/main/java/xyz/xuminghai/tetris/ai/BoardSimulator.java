@@ -5,6 +5,8 @@
  */
 package xyz.xuminghai.tetris.ai;
 
+import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.BoardRules;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.core.Tetris;
 import xyz.xuminghai.tetris.core.TetrisFactory;
@@ -32,13 +34,13 @@ final class BoardSimulator {
         int direction = Integer.signum(horizontalShift);
         for (int step = 0; step < Math.abs(horizontalShift); step++) {
             cells = horizontal(cells, direction);
-            if (!canPlace(occupied, snapshot.rows(), snapshot.cols(), cells)) {
+            if (!BoardRules.canPlace(occupied, snapshot.rows(), snapshot.cols(), cells)) {
                 return Double.NEGATIVE_INFINITY;
             }
         }
 
         List<BoardPosition> next = down(cells);
-        while (canPlace(occupied, snapshot.rows(), snapshot.cols(), next)) {
+        while (BoardRules.canPlace(occupied, snapshot.rows(), snapshot.cols(), next)) {
             cells = next;
             next = down(cells);
         }
@@ -51,7 +53,7 @@ final class BoardSimulator {
             occupied[cell.row()][cell.col()] = true;
         }
 
-        int clearedLines = clearFullRows(occupied);
+        int clearedLines = BoardRules.clearFullRows(occupied);
         return score(occupied, clearedLines);
     }
 
@@ -68,14 +70,14 @@ final class BoardSimulator {
         tetris.setCells(cells);
 
         List<BoardPosition> positions = positions(tetris);
-        if (!canPlace(occupied, snapshot.rows(), snapshot.cols(), positions)) {
+        if (!BoardRules.canPlace(occupied, snapshot.rows(), snapshot.cols(), positions)) {
             return null;
         }
 
         for (int rotation = 0; rotation < rotations; rotation++) {
             tetris.rotateClockwise();
             positions = positions(tetris);
-            if (!canPlace(occupied, snapshot.rows(), snapshot.cols(), positions)) {
+            if (!BoardRules.canPlace(occupied, snapshot.rows(), snapshot.cols(), positions)) {
                 return null;
             }
         }
@@ -96,53 +98,6 @@ final class BoardSimulator {
 
     private static List<BoardPosition> down(List<BoardPosition> cells) {
         return cells.stream().map(BoardPosition::down).toList();
-    }
-
-    private static boolean canPlace(
-            boolean[][] occupied, int rows, int cols, List<BoardPosition> cells) {
-
-        for (BoardPosition cell : cells) {
-            if (cell.col() < 0 || cell.col() >= cols || cell.row() >= rows) {
-                return false;
-            }
-            if (cell.row() >= 0 && occupied[cell.row()][cell.col()]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static int clearFullRows(boolean[][] board) {
-        int rows = board.length;
-        int cols = board[0].length;
-        int writeRow = rows - 1;
-        int cleared = 0;
-
-        for (int readRow = rows - 1; readRow >= 0; readRow--) {
-            boolean full = true;
-            for (int col = 0; col < cols; col++) {
-                if (!board[readRow][col]) {
-                    full = false;
-                    break;
-                }
-            }
-            if (full) {
-                cleared++;
-                continue;
-            }
-            if (writeRow != readRow) {
-                System.arraycopy(board[readRow], 0, board[writeRow], 0, cols);
-            }
-            writeRow--;
-        }
-
-        while (writeRow >= 0) {
-            for (int col = 0; col < cols; col++) {
-                board[writeRow][col] = false;
-            }
-            writeRow--;
-        }
-        return cleared;
     }
 
     private static double score(boolean[][] board, int clearedLines) {

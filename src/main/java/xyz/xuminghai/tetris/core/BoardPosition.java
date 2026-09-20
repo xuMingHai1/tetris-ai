@@ -3,18 +3,18 @@
  *
  * This file is part of Tetris and is distributed under the GNU GPL v3.
  */
-package xyz.xuminghai.tetris.ai;
+package xyz.xuminghai.tetris.core;
 
 /**
- * Immutable board coordinate used by the headless AI boundary.
+ * Immutable board coordinate shared by live collision checks and headless simulation.
  */
 public record BoardPosition(int row, int col) {
 
-    BoardPosition down() {
+    public BoardPosition down() {
         return new BoardPosition(row + 1, col);
     }
 
-    BoardPosition horizontal(int delta) {
+    public BoardPosition horizontal(int delta) {
         return new BoardPosition(row, col + delta);
     }
 }
