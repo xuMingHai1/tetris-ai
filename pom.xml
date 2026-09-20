@@ -637,21 +637,19 @@
     <properties>
         <main.class>xyz.xuminghai.tetris/xyz.xuminghai.tetris.TetrisApplication</main.class>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.source>23</maven.compiler.source>
-        <maven.compiler.target>23</maven.compiler.target>
-        <javafx.version>23.0.2</javafx.version>
-        <gluonfx.version>1.0.26</gluonfx.version>
+        <maven.compiler.release>27</maven.compiler.release>
+        <javafx.version>27</javafx.version>
     </properties>
 
     <dependencies>
-        <!-- 基础UI控件 -->
+        <!-- JavaFX 基础 UI 控件 -->
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
             <version>${javafx.version}</version>
         </dependency>
 
-        <!-- javafx 媒体库 -->
+        <!-- JavaFX 媒体支持，用于背景音乐和游戏音效 -->
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-media</artifactId>
@@ -659,34 +657,12 @@
         </dependency>
     </dependencies>
 
-    <profiles>
-        <profile>
-            <id>windows</id>
-            <properties>
-                <native.suffix>dll</native.suffix>
-            </properties>
-        </profile>
-        <profile>
-            <id>mac</id>
-            <properties>
-                <native.suffix>dylib</native.suffix>
-            </properties>
-        </profile>
-        <profile>
-            <id>linux</id>
-            <properties>
-                <gluonfx.version>1.0.25</gluonfx.version>
-                <native.suffix>so</native.suffix>
-            </properties>
-        </profile>
-    </profiles>
-
     <build>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.14.0</version>
+                <version>3.16.0</version>
             </plugin>
             <plugin>
                 <groupId>org.openjfx</groupId>
@@ -694,32 +670,6 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>${main.class}</mainClass>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>com.gluonhq</groupId>
-                <artifactId>gluonfx-maven-plugin</artifactId>
-                <version>${gluonfx.version}</version>
-                <configuration>
-                    <!-- 主类 -->
-                    <mainClass>${main.class}</mainClass>
-                    <verbose>true</verbose>
-                    <resourcesList>
-                        <!--suppress UnresolvedMavenProperty -->
-                        <resource>.*\\.${native.suffix}$</resource>
-                    </resourcesList>
-                    <nativeImageArgs>
-                        <nativeImageArg>--verbose</nativeImageArg>
-                        <nativeImageArg>--initialize-at-build-time=xyz.xuminghai.tetris.util.Version</nativeImageArg>
-                    </nativeImageArgs>
-                    <!-- 发布配置 -->
-                    <releaseConfiguration>
-                        <description>俄罗斯方块</description>
-                        <vendor>xyz.xuminghai</vendor>
-                        <version>${project.version}</version>
-                    </releaseConfiguration>
-                    <!-- 软件渲染 -->
-                    <enableSWRendering>true</enableSWRendering>
                 </configuration>
             </plugin>
         </plugins>
