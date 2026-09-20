@@ -1,0 +1,4 @@
+title = "Tetris AI Gitleaks configuration"
+
+[extend]
+useDefault = true

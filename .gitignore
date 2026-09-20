@@ -1,4 +1,30 @@
-.idea/
+# Maven / Java build outputs.
 target/
+out/
+bin/
+*.class
+
+# IDE-local project state. Shared formatting lives in .editorconfig.
+.idea/
 *.iml
-rebel.xml
+.vscode/
+.fleet/
+
+.classpath
+.project
+.factorypath
+.settings/
+.apt_generated/
+
+# Operating-system metadata.
+.DS_Store
+Thumbs.db
+
+# Local logs and transient files.
+*.log
+logs/
+*.tmp
+
+# Local environment files must not be committed.
+.env
+.env.*
