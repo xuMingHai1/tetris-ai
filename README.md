@@ -12,20 +12,52 @@
 
 - JDK 27
 - JavaFX 27
-- Maven 3.9+
+- Maven Wrapper（Maven 3.9.16）
 
 项目使用标准 JVM + JavaFX 运行，不再使用 GraalVM / GluonFX Native Image 打包。
 
 ## 运行
 
-```bash
-mvn javafx:run
-```
-
-## 构建
+Linux / macOS：
 
 ```bash
-mvn clean verify
+./mvnw javafx:run
 ```
+
+Windows：
+
+```bat
+mvnw.cmd javafx:run
+```
+
+## 构建与测试
+
+Linux / macOS：
+
+```bash
+./mvnw --batch-mode --no-transfer-progress verify
+```
+
+Windows：
+
+```bat
+mvnw.cmd --batch-mode --no-transfer-progress verify
+```
+
+## 质量检查
+
+SpotBugs：
+
+```bash
+./mvnw --batch-mode --no-transfer-progress -Pci-quality -DskipTests verify
+```
+
+PIT mutation testing：
+
+```bash
+./mvnw --batch-mode --no-transfer-progress -Pci-mutation verify
+```
+
+GitHub Actions 使用 self-hosted Linux x64 runner 执行构建、SpotBugs、Gitleaks、PIT 和依赖安全检查。
 
 本项目是开源的，不会写入和创建额外业务数据。

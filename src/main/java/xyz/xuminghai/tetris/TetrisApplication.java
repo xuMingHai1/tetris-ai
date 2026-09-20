@@ -627,7 +627,6 @@
 package xyz.xuminghai.tetris;
 
 import javafx.application.Application;
-import javafx.application.HostServices;
 import javafx.collections.ObservableMap;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
@@ -656,13 +655,9 @@ public class TetrisApplication extends Application {
      */
     private static final long BOOT_TIME = System.currentTimeMillis();
 
-    public static HostServices hostServices;
-
     private final GameWorld gameWorld = new GameWorld();
 
     private final GameKeyCodeAction gameKeyCodeAction = new GameKeyCodeAction(gameWorld);
-
-    private final GameView gameView = new GameView(gameWorld);
 
     public static void main(String[] args) {
         Thread.startVirtualThread(() -> {
@@ -677,17 +672,13 @@ public class TetrisApplication extends Application {
     }
 
     @Override
-    public void init() {
-        hostServices = super.getHostServices();
-    }
-
-    @Override
     public void start(Stage primaryStage) {
         primaryStage.setTitle("Tetris");
         // 加载图标
         primaryStage.getIcons().add(new Image("img/icon.png"));
         // 禁止改变大小
         primaryStage.setResizable(false);
+        final GameView gameView = new GameView(gameWorld, getHostServices());
         primaryStage.setScene(keyMonitor(new Scene(gameView)));
         primaryStage.show();
         checkUpdate(primaryStage);

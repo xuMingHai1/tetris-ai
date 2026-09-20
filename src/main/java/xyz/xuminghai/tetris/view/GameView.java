@@ -626,6 +626,7 @@
 
 package xyz.xuminghai.tetris.view;
 
+import javafx.application.HostServices;
 import javafx.geometry.HPos;
 import javafx.geometry.Insets;
 import javafx.geometry.VPos;
@@ -635,7 +636,6 @@ import javafx.scene.control.Separator;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.*;
 import javafx.scene.text.Text;
-import xyz.xuminghai.tetris.TetrisApplication;
 import xyz.xuminghai.tetris.game.GameWorld;
 import xyz.xuminghai.tetris.util.Version;
 
@@ -648,16 +648,19 @@ import java.util.ResourceBundle;
  *
  * @author xuMingHai
  */
-public class GameView extends BorderPane {
+public final class GameView extends BorderPane {
 
     private final GameWorld gameWorld;
+
+    private final HostServices hostServices;
 
     private final GameContextView gameContextView;
 
     private final NextBlockView nextBlockView;
 
-    public GameView(GameWorld gameWorld) {
+    public GameView(GameWorld gameWorld, HostServices hostServices) {
         this.gameWorld = gameWorld;
+        this.hostServices = hostServices;
         this.gameContextView = new GameContextView(gameWorld);
         this.nextBlockView = new NextBlockView(gameWorld.nextTetrisProperty());
         super.setId("game-view");
@@ -685,7 +688,7 @@ public class GameView extends BorderPane {
         final Hyperlink hyperlink = new Hyperlink(Version.VERSION);
         hyperlink.setId("version-hyperlink");
         hyperlink.setFocusTraversable(false);
-        hyperlink.setOnAction(_ -> TetrisApplication.hostServices.showDocument(Version.RELEASE_URL));
+        hyperlink.setOnAction(_ -> hostServices.showDocument(Version.RELEASE_URL));
         final AnchorPane anchorPane = new AnchorPane(hyperlink);
         AnchorPane.setBottomAnchor(hyperlink, 0.0);
         AnchorPane.setRightAnchor(hyperlink, 0.0);

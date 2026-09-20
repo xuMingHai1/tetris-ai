@@ -637,7 +637,7 @@ import java.util.stream.Collectors;
  *
  * @author xuMingHai
  */
-class GameGrid {
+final class GameGrid {
 
     /**
      * 行数

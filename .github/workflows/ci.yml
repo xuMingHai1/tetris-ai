@@ -96,7 +96,7 @@ jobs:
                 build_changed=true
                 dependency_changed=true
                 ;;
-              .java-version)
+              .java-version|mvnw|mvnw.cmd|.mvn/*)
                 full_scan=true
                 build_changed=true
                 dependency_changed=true
@@ -145,7 +145,7 @@ jobs:
           cache: maven
 
       - name: Verify project
-        run: mvn --batch-mode --no-transfer-progress verify
+        run: ./mvnw --batch-mode --no-transfer-progress verify
 
   code-quality:
     name: Code Quality
@@ -166,7 +166,7 @@ jobs:
           cache: maven
 
       - name: Run SpotBugs quality checks
-        run: mvn --batch-mode --no-transfer-progress -Pci-quality -DskipTests verify
+        run: ./mvnw --batch-mode --no-transfer-progress -Pci-quality -DskipTests verify
 
   gitleaks:
     name: Secret Scan
@@ -308,7 +308,7 @@ jobs:
           cache: maven
 
       - name: Run PIT mutation tests
-        run: mvn --batch-mode --no-transfer-progress -Pci-mutation verify
+        run: ./mvnw --batch-mode --no-transfer-progress -Pci-mutation verify
 
       - name: Upload PIT report
         if: ${{ always() }}
@@ -340,7 +340,7 @@ jobs:
           cache: maven
 
       - name: Resolve dependencies and generate SBOM
-        run: mvn --batch-mode --no-transfer-progress -DskipTests package org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeBom
+        run: ./mvnw --batch-mode --no-transfer-progress -DskipTests package org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeBom
 
       - name: Verify SBOM
         run: |

@@ -709,6 +709,9 @@ public class GameKeyCodeAction implements GameTimer {
             case A -> a = false;
             case S -> s = false;
             case D -> d = false;
+            default -> {
+                // Other key releases do not change the movement-key state.
+            }
         }
         // 按键释放
         // 设置按键补偿机制（多种组合，释放一个就不会发生按键事件）
