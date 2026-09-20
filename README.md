@@ -8,11 +8,24 @@
 
 ![img1.png](md_data/img1.png)
 
-## 原生可执行文件
+## 开发环境
 
-[发布地址](https://github.com/xuMingHai1/tetris-ai/releases)
+- JDK 27
+- JavaFX 27
+- Maven 3.9+
 
-本项目是开源的，不会写入和创建任何文件，和数据。
-绿色软件，删除后不会有任何卸载残留
+项目使用标准 JVM + JavaFX 运行，不再使用 GraalVM / GluonFX Native Image 打包。
 
-> **警告：** 因为没有代码数字签名，在运行时会出现警告
+## 运行
+
+```bash
+mvn javafx:run
+```
+
+## 构建
+
+```bash
+mvn clean verify
+```
+
+本项目是开源的，不会写入和创建额外业务数据。

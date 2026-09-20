@@ -1,95 +1,25 @@
-name: tetris CI
+name: Tetris CI
 
-on: workflow_dispatch
-
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
 
 jobs:
-  windows_job:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # Setup the Windows build environment
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Visual Studio shell
-        uses: egor-tensin/vs-shell@v2
-
-      - name: Setup GraalVM built by Gluon
-        uses: gluonhq/setup-graalvm@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Make native-image directory
-        run: New-Item -Path "native-image" -ItemType Directory
-
-      - name: Gluon build
-        run: mvn -Pwindows gluonfx:build
-
-      - name: Copy native image to native-image directory
-        run: Copy-Item -Path "target/gluonfx/x86_64-windows/tetris.exe" -Destination "native-image/"
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: tetris-windows-artifact
-          path: native-image/
-
-
-  mac_job:
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup GraalVM built by Gluon
-        uses: gluonhq/setup-graalvm@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          arch: 'aarch64'
-
-      - name: Make native-image directory
-        run: mkdir native-image
-
-      - name: Gluon build
-        run: mvn -Pmac gluonfx:build
-
-      - name: Copy native image to native-image directory
-        run: cp -r target/gluonfx/aarch64-darwin/tetris* native-image
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: tetris-mac-artifact
-          path: native-image/
-
-
-  linux_job:
+  build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      - name: Setup GraalVM built by Gluon
-        uses: gluonhq/setup-graalvm@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Install extra required to be packaged on top of ubuntu-latest
-      - name: Install libraries
-        run: sudo apt install libasound2-dev libavcodec-dev libavformat-dev libavutil-dev libgl-dev libgtk-3-dev libpango1.0-dev libxtst-dev
-
-      - name: Make native-image directory
-        run: mkdir native-image
-
-      - name: Gluon build
-        run: mvn -Plinux gluonfx:build
-
-      - name: Copy native image to native-image directory
-        run: cp -r target/gluonfx/x86_64-linux/tetris native-image
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
+      - name: Set up JDK 27
+        uses: actions/setup-java@v6
         with:
-          name: tetris-linux-artifact
-          path: native-image/
+          distribution: temurin
+          java-version: '27'
+          cache: maven
+
+      - name: Verify
+        run: mvn -B -ntp verify
