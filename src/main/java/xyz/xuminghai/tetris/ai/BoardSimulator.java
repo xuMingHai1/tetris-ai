@@ -24,18 +24,18 @@ final class BoardSimulator {
     private BoardSimulator() {
     }
 
-    static double evaluate(GameSnapshot snapshot, int rotations, int horizontalShift) {
+    static MoveCandidate simulate(GameSnapshot snapshot, int rotations, int horizontalShift) {
         boolean[][] occupied = snapshot.occupied();
         List<BoardPosition> cells = rotatedCells(snapshot, occupied, rotations);
         if (cells == null) {
-            return Double.NEGATIVE_INFINITY;
+            return null;
         }
 
         int direction = Integer.signum(horizontalShift);
         for (int step = 0; step < Math.abs(horizontalShift); step++) {
             cells = horizontal(cells, direction);
             if (!BoardRules.canPlace(occupied, snapshot.rows(), snapshot.cols(), cells)) {
-                return Double.NEGATIVE_INFINITY;
+                return null;
             }
         }
 
@@ -46,7 +46,7 @@ final class BoardSimulator {
         }
 
         if (cells.stream().anyMatch(cell -> cell.row() < 0)) {
-            return Double.NEGATIVE_INFINITY;
+            return null;
         }
 
         for (BoardPosition cell : cells) {
@@ -54,7 +54,19 @@ final class BoardSimulator {
         }
 
         int clearedLines = BoardRules.clearFullRows(occupied);
-        return score(occupied, clearedLines);
+        BoardMetrics metrics = metrics(occupied);
+        double heuristicScore = clearedLines * CLEARED_LINE_WEIGHT
+                + metrics.aggregateHeight() * AGGREGATE_HEIGHT_WEIGHT
+                + metrics.holes() * HOLE_WEIGHT
+                + metrics.bumpiness() * BUMPINESS_WEIGHT;
+
+        return new MoveCandidate(
+                new AiMove(rotations, horizontalShift),
+                clearedLines,
+                metrics.aggregateHeight(),
+                metrics.holes(),
+                metrics.bumpiness(),
+                heuristicScore);
     }
 
     private static List<BoardPosition> rotatedCells(
@@ -100,7 +112,7 @@ final class BoardSimulator {
         return cells.stream().map(BoardPosition::down).toList();
     }
 
-    private static double score(boolean[][] board, int clearedLines) {
+    private static BoardMetrics metrics(boolean[][] board) {
         int rows = board.length;
         int cols = board[0].length;
         int[] heights = new int[cols];
@@ -127,10 +139,12 @@ final class BoardSimulator {
         for (int col = 0; col < cols - 1; col++) {
             bumpiness += Math.abs(heights[col] - heights[col + 1]);
         }
+        return new BoardMetrics(aggregateHeight, holes, bumpiness);
+    }
 
-        return clearedLines * CLEARED_LINE_WEIGHT
-                + aggregateHeight * AGGREGATE_HEIGHT_WEIGHT
-                + holes * HOLE_WEIGHT
-                + bumpiness * BUMPINESS_WEIGHT;
+    private record BoardMetrics(
+            int aggregateHeight,
+            int holes,
+            int bumpiness) {
     }
 }

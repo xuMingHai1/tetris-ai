@@ -12,30 +12,29 @@ package xyz.xuminghai.tetris.ai;
  */
 public final class HeuristicTetrisAgent implements TetrisAgent {
 
+    private final MoveCandidateGenerator candidateGenerator = new MoveCandidateGenerator();
+
     @Override
     public AiMove decide(GameSnapshot snapshot) {
-        AiMove bestMove = AiMove.NONE;
-        double bestScore = Double.NEGATIVE_INFINITY;
-
-        for (int rotations = 0; rotations < snapshot.currentType().rotationStates(); rotations++) {
-            for (int shift = -snapshot.cols(); shift <= snapshot.cols(); shift++) {
-                double score = BoardSimulator.evaluate(snapshot, rotations, shift);
-                if (score > bestScore
-                        || (Double.compare(score, bestScore) == 0 && betterTieBreak(rotations, shift, bestMove))) {
-                    bestScore = score;
-                    bestMove = new AiMove(rotations, shift);
-                }
+        MoveCandidate best = null;
+        for (MoveCandidate candidate : candidateGenerator.generate(snapshot)) {
+            if (best == null
+                    || candidate.heuristicScore() > best.heuristicScore()
+                    || (Double.compare(candidate.heuristicScore(), best.heuristicScore()) == 0
+                    && betterTieBreak(candidate.move(), best.move()))) {
+                best = candidate;
             }
         }
-
-        return bestScore == Double.NEGATIVE_INFINITY ? AiMove.NONE : bestMove;
+        return best == null ? AiMove.NONE : best.move();
     }
 
-    private static boolean betterTieBreak(int rotations, int shift, AiMove current) {
-        int shiftComparison = Integer.compare(Math.abs(shift), Math.abs(current.horizontalShift()));
+    private static boolean betterTieBreak(AiMove candidate, AiMove current) {
+        int shiftComparison = Integer.compare(
+                Math.abs(candidate.horizontalShift()),
+                Math.abs(current.horizontalShift()));
         if (shiftComparison != 0) {
             return shiftComparison < 0;
         }
-        return rotations < current.clockwiseRotations();
+        return candidate.clockwiseRotations() < current.clockwiseRotations();
     }
 }
