@@ -46,6 +46,12 @@ mvnw.cmd --batch-mode --no-transfer-progress verify
 
 ## 质量检查
 
+格式检查：
+
+```bash
+./mvnw spotless:check
+```
+
 SpotBugs：
 
 ```bash
@@ -95,3 +101,5 @@ scripts\package-app.cmd msi
 ```
 
 产物位于 `target/jpackage/dist`。GitHub CI 在 Linux self-hosted runner 上验证 `app-image`，Windows/macOS 原生格式应在对应平台构建。
+
+打包脚本显式覆盖 JDK 默认的 jlink options，不执行 `--strip-debug`，因此 Linux 构建不依赖额外安装 `binutils/objcopy`。

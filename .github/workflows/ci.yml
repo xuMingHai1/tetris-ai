@@ -118,7 +118,11 @@ jobs:
                 build_changed=true
                 java_changed=true
                 ;;
-              src/main/resources/*)
+              config/spotbugs/*)
+                build_changed=true
+                java_changed=true
+                ;;
+              *.md|.editorconfig|.gitattributes|src/main/resources/*)
                 build_changed=true
                 ;;
             esac
