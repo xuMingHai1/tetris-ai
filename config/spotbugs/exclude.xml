@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!--
+        The block API intentionally exposes its mutable Cell[] because movement and rotation operate in-place and
+        GameWorld/GameGrid consume that same state. Replacing these accessors with defensive copies would change the
+        current game model rather than improve encapsulation. Keep the exclusion limited to the existing block types.
+    -->
+    <Match>
+        <Or>
+            <Class name="xyz.xuminghai.tetris.core.AbstractBlock"/>
+            <Class name="xyz.xuminghai.tetris.core.Abstract4StateBlock"/>
+            <Class name="xyz.xuminghai.tetris.core.OBlock"/>
+        </Or>
+        <Or>
+            <Bug pattern="EI_EXPOSE_REP"/>
+            <Bug pattern="EI_EXPOSE_REP2"/>
+        </Or>
+    </Match>
+
+    <!--
+        These JavaFX collaborators intentionally retain the shared GameWorld instance. It is the observable game
+        state owned by the application; copying or wrapping it would break the current view/animation collaboration.
+    -->
+    <Match>
+        <Or>
+            <Class name="xyz.xuminghai.tetris.game.GameKeyCodeAction"/>
+            <Class name="xyz.xuminghai.tetris.game.GameOverAnimation"/>
+            <Class name="xyz.xuminghai.tetris.game.TetrisLockAnimation"/>
+            <Class name="xyz.xuminghai.tetris.view.GameView"/>
+        </Or>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!--
+        GameWorld deliberately publishes JavaFX read-only property interfaces for observation by the view layer.
+        SpotBugs sees the mutable backing object, but callers receive only the read-only API at the contract boundary.
+    -->
+    <Match>
+        <Class name="xyz.xuminghai.tetris.game.GameWorld"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+
+    <!--
+        AudioManager owns one shared JavaFX player/clip per sound. Returning those runtime media objects is the
+        manager's API and avoids constructing a new native media resource for every playback.
+    -->
+    <Match>
+        <Class name="xyz.xuminghai.tetris.util.AudioManager"/>
+        <Bug pattern="MS_EXPOSE_REP"/>
+    </Match>
+</FindBugsFilter>

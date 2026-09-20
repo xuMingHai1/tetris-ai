@@ -699,13 +699,9 @@ public sealed abstract class AbstractBlockView extends Canvas
 
     private void validate(int row, int col) {
         if ((row < 0 || row >= getRows()) || (col < 0 || col >= getCols())) {
-            throw new IllegalArgumentException(String.format("""
-                    单元格位置不正确
-                    （行列坐标，从0开始）
-                    row = %d, col = %d
-                    （行列数量）
-                    rows = %d, cols = %d
-                    """, row, col, getRows(), getCols()));
+            throw new IllegalArgumentException(
+                    "单元格位置不正确%n（行列坐标，从0开始）%nrow = %d, col = %d%n（行列数量）%nrows = %d, cols = %d"
+                            .formatted(row, col, getRows(), getCols()));
         }
     }
 

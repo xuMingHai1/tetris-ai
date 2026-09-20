@@ -650,6 +650,8 @@ import java.util.function.Function;
  */
 public final class GameWorld {
 
+    private static final int MAX_LEVEL = 30;
+
     /**
      * 清除单元格
      */
@@ -686,15 +688,10 @@ public final class GameWorld {
      */
     final IntegerProperty level = new SimpleIntegerProperty(this, "level") {
 
-        /**
-         * 最大等级
-         */
-        private final int maxLevel = 30;
-
         @Override
         public void set(int newValue) {
             // 等级限制
-            if (newValue < 0 || newValue > maxLevel) {
+            if (newValue < 0 || newValue > MAX_LEVEL) {
                 return;
             }
             super.set(newValue);
@@ -706,7 +703,7 @@ public final class GameWorld {
             // 方块下落速度
             gameTimeLine.setPulse(GameTimeLine.DEFAULT_PULSE - levelValue * 16.67);
             // 背景音乐播放速度
-            AudioManager.getBgmMediaPlayer().setRate(1 + (double) levelValue / maxLevel);
+            AudioManager.getBgmMediaPlayer().setRate(1 + (double) levelValue / MAX_LEVEL);
         }
 
         {
