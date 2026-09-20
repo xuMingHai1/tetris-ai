@@ -626,10 +626,11 @@
 
 package xyz.xuminghai.tetris.game;
 
+import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.BoardRules;
 import xyz.xuminghai.tetris.core.Cell;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 2025/6/22 14:58 星期日<br/>
@@ -704,26 +705,16 @@ final class GameGrid {
      * @return 可消除行数据，不为null
      */
     public List<Cell[]> getEliminatableRows(Cell[] cells) {
-        // 获取可消除的行
-        final Set<Integer> rowIndexCollect = Arrays.stream(cells).map(Cell::getRow).collect(Collectors.toSet());
-        final List<Cell[]> list = new LinkedList<>();
-
-        for (Integer index : rowIndexCollect) {
-            final Cell[] dataRow = data[index];
-            // 判断是否是可消除的行
-            boolean eliminatable = true;
-            for (Cell c : dataRow) {
-                if (c == null) {
-                    eliminatable = false;
-                    break;
-                }
-            }
-            if (eliminatable) {
-                list.add(dataRow);
-            }
+        final Set<Integer> candidateRows = new HashSet<>();
+        for (Cell cell : cells) {
+            candidateRows.add(cell.getRow());
         }
 
-        return list;
+        final List<Cell[]> rowsToRemove = new LinkedList<>();
+        for (Integer row : BoardRules.fullRows(occupiedSnapshot(null), candidateRows)) {
+            rowsToRemove.add(data[row]);
+        }
+        return rowsToRemove;
     }
 
 
@@ -796,13 +787,12 @@ final class GameGrid {
             return false;
         }
 
-        for (Cell cell : cells) {
-            final int row = cell.getRow();
-            final int col = cell.getCol();
-            // 是否超出范围或被占用
-            if (row >= rows || col < 0 || col >= cols || data[row][col] != null) {
-                return false;
-            }
+        final List<BoardPosition> positions = Arrays.stream(cells)
+                .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                .toList();
+        if (positions.stream().anyMatch(position -> position.row() < 0)
+                || !BoardRules.canPlace(occupiedSnapshot(null), rows, cols, positions)) {
+            return false;
         }
 
         // 保存数据

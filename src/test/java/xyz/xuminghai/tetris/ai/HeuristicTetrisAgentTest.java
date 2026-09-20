@@ -6,6 +6,7 @@
 package xyz.xuminghai.tetris.ai;
 
 import org.junit.jupiter.api.Test;
+import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
 import java.util.List;

@@ -41,7 +41,7 @@ GameSnapshot ---> TetrisAgent ---> AiMove
 6. Score cleared lines, aggregate height, holes, and bumpiness.
 7. Return the highest-scoring move with deterministic tie-breaking.
 
-The simulator reuses existing tetromino rotation behavior through the `core` model so AI geometry does not become a second source of truth.
+The simulator reuses existing tetromino rotation behavior and `core.BoardRules`. Live `GameGrid` uses the same board rules for placement and full-row detection, so collision and row semantics do not become a second source of truth.
 
 ## Runtime integration
 
@@ -55,4 +55,5 @@ The AI decision is made only when a new piece is spawned. Existing manual input 
 - JavaFX animation/audio/input classes must not enter the `ai` package.
 - A candidate selected by the simulator must still pass the live `GameWorld` collision checks.
 - Invalid live moves restore the previous grid state; failed movement must not remove the falling piece from collision data.
+- Shared board semantics belong in `core.BoardRules`; AI-only heuristics belong in `ai`.
 - Search improvements should extend the current state/action boundary rather than create a second game engine with duplicated rules.
