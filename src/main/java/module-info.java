@@ -11,6 +11,7 @@ module xyz.xuminghai.tetris {
     requires tools.jackson.databind;
 
     exports xyz.xuminghai.tetris to javafx.graphics;
+    opens xyz.xuminghai.tetris.integration.typesafe to tools.jackson.databind;
     // 模块资源访问
     opens img;
     opens css;

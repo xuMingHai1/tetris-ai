@@ -8,10 +8,12 @@ package xyz.xuminghai.tetris.ai.jev;
 import org.junit.jupiter.api.Test;
 import xyz.xuminghai.tetris.ai.AiMove;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
-import xyz.xuminghai.tetris.ai.MoveCandidateGeneratorTest;
+import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.TetrominoType;
 import xyz.xuminghai.tetris.integration.typesafe.TypeSafeChoiceClient;
 import xyz.xuminghai.tetris.integration.typesafe.TypeSafeChoiceResult;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
@@ -40,7 +42,7 @@ class JevTetrisAgentTest {
                             24));
         };
 
-        GameSnapshot snapshot = MoveCandidateGeneratorTest.lineCompletionSnapshot();
+        GameSnapshot snapshot = lineCompletionSnapshot();
         JevDecision decision = new JevTetrisAgent(client)
                 .decideDetailed(snapshot)
                 .toCompletableFuture()
@@ -51,6 +53,23 @@ class JevTetrisAgentTest {
         assertEquals(0.91, decision.confidence());
         assertEquals(200, decision.inputTokens());
         assertEquals(24, decision.outputTokens());
+    }
+
+    private static GameSnapshot lineCompletionSnapshot() {
+        boolean[][] board = new boolean[20][10];
+        for (int col = 0; col < 6; col++) {
+            board[19][col] = true;
+        }
+        return new GameSnapshot(
+                20,
+                10,
+                board,
+                TetrominoType.I,
+                List.of(
+                        new BoardPosition(-1, 3),
+                        new BoardPosition(-1, 4),
+                        new BoardPosition(-1, 5),
+                        new BoardPosition(-1, 6)));
     }
 
     private static boolean isLineClearingMove(Object value) {

@@ -71,7 +71,7 @@ class TypeSafeSystemOneClientTest {
         TypeSafeChoiceResult result = client.choose(
                         Map.of("board", List.of("....")),
                         "Choose a move",
-                        Map.of("move_000", null, "move_001", Map.of("cleared_lines", 1)))
+                        Map.of("move_000", Map.of(), "move_001", Map.of("cleared_lines", 1)))
                 .toCompletableFuture()
                 .join();
 
