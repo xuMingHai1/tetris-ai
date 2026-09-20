@@ -761,6 +761,31 @@ final class GameGrid {
 
 
     /**
+     * 创建当前网格占用快照，并排除仍在下落的方块。
+     *
+     * @param excludedCells 需要从快照中排除的当前方块坐标
+     * @return 与实时网格隔离的占用矩阵
+     */
+    boolean[][] occupiedSnapshot(Cell[] excludedCells) {
+        boolean[][] occupied = new boolean[rows][cols];
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < cols; col++) {
+                occupied[row][col] = data[row][col] != null;
+            }
+        }
+        if (excludedCells != null) {
+            for (Cell cell : excludedCells) {
+                if (cell.getRow() >= 0 && cell.getRow() < rows
+                        && cell.getCol() >= 0 && cell.getCol() < cols) {
+                    occupied[cell.getRow()][cell.getCol()] = false;
+                }
+            }
+        }
+        return occupied;
+    }
+
+
+    /**
      * 规则检测并设置数据
      *
      * @param cells 单元格列表

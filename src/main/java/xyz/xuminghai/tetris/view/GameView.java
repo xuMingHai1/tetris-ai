@@ -741,6 +741,13 @@ public final class GameView extends BorderPane {
         GridPane.setValignment(gameDurationText, VPos.TOP);
         GridPane.setHalignment(gameDurationValueText, HPos.RIGHT);
 
+        final Text aiText = new Text("AI：");
+        final Text aiValueText = new Text();
+        aiValueText.textProperty().bind(gameWorld.aiEnabledProperty().map(enabled -> enabled ? "ON" : "OFF"));
+        gameDataPane.addRow(3, aiText, aiValueText);
+        GridPane.setValignment(aiText, VPos.TOP);
+        GridPane.setHalignment(aiValueText, HPos.RIGHT);
+
         return gameDataPane;
     }
 
@@ -753,7 +760,8 @@ public final class GameView extends BorderPane {
             rightArrowKeyLabel = new Label(), rightArrowKeyActionLabel = new Label(),
             plusKeyLabel = new Label(), plusKeyActionLabel = new Label(),
             minusKeyLabel = new Label(), minusKeyActionLabel = new Label(),
-            spaceKeyLabel = new Label(), spaceKeyActionLabel = new Label();
+            spaceKeyLabel = new Label(), spaceKeyActionLabel = new Label(),
+            aiKeyLabel = new Label(), aiKeyActionLabel = new Label();
 
 
     private void setLocalText(Locale locale) {
@@ -794,6 +802,9 @@ public final class GameView extends BorderPane {
         // 空格键语言
         spaceKeyLabel.setText(resourceBundle.getString("spaceKey"));
         spaceKeyActionLabel.setText(resourceBundle.getString("spaceKeyAction"));
+
+        aiKeyLabel.setText(resourceBundle.getString("aiKey"));
+        aiKeyActionLabel.setText(resourceBundle.getString("aiKeyAction"));
     }
 
 
@@ -834,6 +845,7 @@ public final class GameView extends BorderPane {
 
         // 空格键说明
         descriptionPane.addRow(rowIndex++, spaceKeyLabel, spaceKeyActionLabel);
+        descriptionPane.addRow(rowIndex++, aiKeyLabel, aiKeyActionLabel);
 
         // Control + Tab键说明
         descriptionPane.addRow(rowIndex, new Label("Ctrl + Tab"), new Label("中文/English"));

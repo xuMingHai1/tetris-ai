@@ -630,9 +630,16 @@ import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.scene.input.KeyCode;
 import javafx.scene.robot.Robot;
+import xyz.xuminghai.tetris.ai.AiMove;
+import xyz.xuminghai.tetris.ai.BoardPosition;
+import xyz.xuminghai.tetris.ai.GameSnapshot;
+import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
+import xyz.xuminghai.tetris.ai.TetrisAgent;
+import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.Cell;
+import xyz.xuminghai.tetris.core.PieceGenerator;
 import xyz.xuminghai.tetris.core.Tetris;
-import xyz.xuminghai.tetris.core.TetrisFactory;
+import xyz.xuminghai.tetris.core.TetrominoType;
 import xyz.xuminghai.tetris.util.AudioManager;
 
 import java.time.Duration;
@@ -651,6 +658,12 @@ import java.util.function.Function;
 public final class GameWorld {
 
     private static final int MAX_LEVEL = 30;
+
+    private final PieceGenerator pieceGenerator = new BagPieceGenerator();
+
+    private final TetrisAgent aiAgent = new HeuristicTetrisAgent();
+
+    private final BooleanProperty aiEnabled = new SimpleBooleanProperty(this, "aiEnabled");
 
     /**
      * 清除单元格
@@ -743,7 +756,8 @@ public final class GameWorld {
         @Override
         public void run() {
             // 初始化当前方块
-            if (currentTetris.get() == null) {
+            final boolean spawned = currentTetris.get() == null;
+            if (spawned) {
                 currentTetris.set(nextTetris.get());
             }
             final Tetris tetris = currentTetris.get();
@@ -754,6 +768,9 @@ public final class GameWorld {
                     .ifPresent(gameGrid::clearCells);
             if (gameGrid.saveCellsData(cells)) {
                 currentCells.set(gameGrid.checkCells(tetris.copy()));
+                if (spawned && aiEnabled.get()) {
+                    applyAiMove(aiAgent.decide(createAiSnapshot()));
+                }
             }
             // 添加失败
             else {
@@ -810,7 +827,8 @@ public final class GameWorld {
     /**
      * 下一个方块
      */
-    private final ObjectProperty<Tetris> nextTetris = new SimpleObjectProperty<>(this, "nextTetris", TetrisFactory.randomCreateTetris());
+    private final ObjectProperty<Tetris> nextTetris =
+            new SimpleObjectProperty<>(this, "nextTetris", pieceGenerator.next());
 
     /**
      * 当前单元格列表
@@ -824,7 +842,7 @@ public final class GameWorld {
         @Override
         protected void invalidated() {
             if (super.get() != null) {
-                nextTetris.set(TetrisFactory.randomCreateTetris());
+                nextTetris.set(pieceGenerator.next());
             }
         }
     };
@@ -848,6 +866,17 @@ public final class GameWorld {
 
     public ReadOnlyObjectProperty<Tetris> nextTetrisProperty() {
         return nextTetris;
+    }
+
+    public ReadOnlyBooleanProperty aiEnabledProperty() {
+        return aiEnabled;
+    }
+
+    /**
+     * 切换自动 AI。新状态会从下一次新方块生成开始生效。
+     */
+    public void toggleAi() {
+        aiEnabled.set(!aiEnabled.get());
     }
 
     public ReadOnlyObjectProperty<Cell[]> currentCellsProperty() {
@@ -913,7 +942,7 @@ public final class GameWorld {
 
     private enum ActionEnum {
         DOWN_MOVE,
-        LEIF_MOVE,
+        LEFT_MOVE,
         RIGHT_MOVE,
         ROTATE_CLOCKWISE,
         ROTATE_COUNTER_CLOCKWISE
@@ -925,62 +954,101 @@ public final class GameWorld {
      * @param action   行为
      * @param function 行为函数
      */
-    private void tetrisAction(ActionEnum action, Function<Tetris, Cell[]> function) {
+    private boolean tetrisAction(ActionEnum action, Function<Tetris, Cell[]> function, boolean playAudio) {
         final Tetris tetris = currentTetris.get();
         if (tetris != null) {
             final Cell[] copyCells = tetris.copy();
             final Cell[] cells = gameGrid.checkCells(function.apply(tetris));
-            // 不相同时执行
-            if (!Arrays.equals(copyCells, cells)) {
-                // 清除上次保存的数据
-                gameGrid.clearCells(currentCells.get());
-                if (gameGrid.saveCellsData(cells)) {
+            if (Arrays.equals(copyCells, cells)) {
+                return false;
+            }
+
+            final Cell[] previousCells = currentCells.get();
+            if (previousCells != null) {
+                gameGrid.clearCells(previousCells);
+            }
+            if (gameGrid.saveCellsData(cells)) {
+                if (playAudio) {
                     switch (action) {
-                        case DOWN_MOVE, LEIF_MOVE, RIGHT_MOVE -> AudioManager.getMoveAudioClip().play();
+                        case DOWN_MOVE, LEFT_MOVE, RIGHT_MOVE -> AudioManager.getMoveAudioClip().play();
                         case ROTATE_CLOCKWISE, ROTATE_COUNTER_CLOCKWISE -> AudioManager.getRotateAudioClip().play();
                     }
-                    currentCells.set(gameGrid.checkCells(tetris.copy()));
                 }
-                else {
-                    tetris.setCells(copyCells);
-                }
+                currentCells.set(gameGrid.checkCells(tetris.copy()));
+                return true;
+            }
+
+            tetris.setCells(copyCells);
+            if (previousCells != null) {
+                gameGrid.saveCellsData(previousCells);
             }
         }
+        return false;
     }
 
     /**
      * 向下移动
      */
     void downMove() {
-        tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove);
+        tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, true);
     }
 
     /**
      * 向左移动
      */
     void leftMove() {
-        tetrisAction(ActionEnum.LEIF_MOVE, Tetris::leftMove);
+        tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, true);
     }
 
     /**
      * 向右移动
      */
     void rightMove() {
-        tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove);
+        tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, true);
     }
 
     /**
      * 顺时针旋转
      */
     public void rotateClockwise() {
-        tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise);
+        tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, true);
     }
 
     /**
      * 逆时针旋转
      */
     public void rotateCounterClockwise() {
-        tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise);
+        tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, true);
+    }
+
+    private GameSnapshot createAiSnapshot() {
+        final Tetris tetris = currentTetris.get();
+        final Cell[] cells = tetris.getCells();
+        return new GameSnapshot(
+                gameGrid.getRows(),
+                gameGrid.getCols(),
+                gameGrid.occupiedSnapshot(cells),
+                TetrominoType.from(tetris),
+                Arrays.stream(cells)
+                        .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                        .toList());
+    }
+
+    private void applyAiMove(AiMove move) {
+        for (int rotation = 0; rotation < move.clockwiseRotations(); rotation++) {
+            if (!tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, false)) {
+                return;
+            }
+        }
+
+        final ActionEnum action = move.horizontalShift() < 0 ? ActionEnum.LEFT_MOVE : ActionEnum.RIGHT_MOVE;
+        final Function<Tetris, Cell[]> movement =
+                move.horizontalShift() < 0 ? Tetris::leftMove : Tetris::rightMove;
+        for (int step = 0; step < Math.abs(move.horizontalShift()); step++) {
+            if (!tetrisAction(action, movement, false)) {
+                return;
+            }
+        }
     }
 
     /**
