@@ -18,14 +18,15 @@ GitHub 当前 default branch 是源码事实来源，不假设主分支名称固
 
 ## Current Structure
 
-- `xyz.xuminghai.tetris.core`：俄罗斯方块领域模型，包括 Cell、七种方块、移动、旋转、复制和随机生成。这里应尽量保持与 JavaFX Scene/View 无关；当前颜色仍使用 JavaFX `Color`，修改该边界前需要评估兼容性和 AI/测试影响。
+- `xyz.xuminghai.tetris.core`：俄罗斯方块领域模型，包括 Cell、七种方块、移动、旋转、复制，以及可注入的 `PieceGenerator` / deterministic `BagPieceGenerator`。这里应尽量保持与 JavaFX Scene/View 无关；当前颜色仍使用 JavaFX `Color`，修改该边界前需要评估兼容性和 AI/测试影响。
+- `xyz.xuminghai.tetris.ai`：headless 决策边界。只消费不可变 `GameSnapshot`，模拟候选落点并输出 `AiMove`；不得依赖 JavaFX Property、Animation、Audio、Robot 或 View。当前 `HeuristicTetrisAgent` 是单步启发式实现，不是通用 Agent/Plugin 框架。
 - `xyz.xuminghai.tetris.game`：游戏规则和运行状态，包括网格、计分、等级、时间线、输入动作和动画协作。规则变化应优先在这里表达，不把规则复制到 View。
 - `xyz.xuminghai.tetris.view`：JavaFX 展示层。负责观察状态并渲染，不应成为游戏规则的第二事实来源。
 - `xyz.xuminghai.tetris.util`：音频和版本等辅助能力。不要把业务规则沉淀为通用 util。
 - `TetrisApplication`：JavaFX 应用启动和顶层输入装配。保持 bootstrap 职责，不把核心游戏算法堆积到入口类。
 - `src/main/resources`：CSS、图片、国际化、音频等运行资源。WAV/MIDI/图片按二进制资源处理。
 
-当前没有独立 AI 模块。新增 AI 前先根据真实需求确定状态快照、动作模型、评估器和执行边界，不提前建立通用 Agent/Plugin/DSL 框架。
+AI 已通过 `GameSnapshot -> TetrisAgent -> AiMove` 建立最小边界。新增搜索深度、look-ahead 或其他算法时应复用该状态/动作契约，不把 JavaFX runtime 引入搜索路径，也不提前建立通用 Agent/Plugin/DSL 框架。
 
 ## Build and Tooling
 
