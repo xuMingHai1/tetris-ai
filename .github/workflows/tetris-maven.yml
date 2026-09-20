@@ -17,7 +17,7 @@ jobs:
       - name: Set up JDK 27
         uses: actions/setup-java@v6
         with:
-          distribution: temurin
+          distribution: oracle-openjdk
           java-version: '27'
           cache: maven
 
