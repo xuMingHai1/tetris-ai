@@ -29,6 +29,7 @@ concurrency:
 jobs:
   detect-changes:
     name: Detect Changes
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 5
     outputs:
@@ -169,6 +170,7 @@ jobs:
 
   gitleaks:
     name: Secret Scan
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 10
 
@@ -236,7 +238,7 @@ jobs:
 
   fast-quality-gate:
     name: Fast Quality Gate
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs:
       - detect-changes
       - verify
@@ -379,7 +381,7 @@ jobs:
 
   full-quality-gate:
     name: Full Quality Gate
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     needs:
       - detect-changes
       - fast-quality-gate
