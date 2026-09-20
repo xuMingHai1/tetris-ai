@@ -100,7 +100,7 @@ jobs:
                 build_changed=true
                 dependency_changed=true
                 ;;
-              src/main/java/*)
+              src/main/java/*|src/test/java/*)
                 build_changed=true
                 java_changed=true
                 ;;
