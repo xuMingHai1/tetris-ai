@@ -61,3 +61,37 @@ PIT mutation testing：
 GitHub Actions 使用 self-hosted Linux x64 runner 执行构建、SpotBugs、Gitleaks、PIT 和依赖安全检查。
 
 本项目是开源的，不会写入和创建额外业务数据。
+
+## 桌面应用打包
+
+项目使用 JDK 27 自带的 `jpackage` 生成自包含桌面应用，不使用 GraalVM Native Image。原生安装包必须在目标操作系统上构建，不能跨平台生成。
+
+Linux / macOS 默认生成 application image：
+
+```bash
+./scripts/package-app.sh
+```
+
+Linux 还可以在安装了相应系统打包工具后生成：
+
+```bash
+./scripts/package-app.sh deb
+./scripts/package-app.sh rpm
+```
+
+macOS：
+
+```bash
+./scripts/package-app.sh dmg
+./scripts/package-app.sh pkg
+```
+
+Windows：
+
+```bat
+scripts\package-app.cmd
+scripts\package-app.cmd exe
+scripts\package-app.cmd msi
+```
+
+产物位于 `target/jpackage/dist`。GitHub CI 在 Linux self-hosted runner 上验证 `app-image`，Windows/macOS 原生格式应在对应平台构建。
