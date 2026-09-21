@@ -5,6 +5,8 @@
  */
 package xyz.xuminghai.tetris.ai;
 
+import TetrominoType;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -125,7 +127,7 @@ public final class JevTetrisAgent implements TetrisAgent {
 
     private static Map<String, Object> candidateDescription(
             PlacementCandidate candidate,
-            Optional<xyz.xuminghai.tetris.core.TetrominoType> nextType) {
+            Optional<TetrominoType> nextType) {
         Map<String, Object> move = new LinkedHashMap<>();
         move.put("clockwise_rotations", candidate.move().clockwiseRotations());
         move.put("horizontal_shift", candidate.move().horizontalShift());
@@ -142,7 +144,7 @@ public final class JevTetrisAgent implements TetrisAgent {
 
     private static Map<String, Object> nextPieceOutlook(
             PlacementCandidate candidate,
-            xyz.xuminghai.tetris.core.TetrominoType nextType) {
+            TetrominoType nextType) {
         List<PlacementCandidate> nextCandidates = HeuristicTetrisAgent.rankCandidates(
                 BoardSimulator.candidatesForSpawnedPiece(candidate.resultingBoard(), nextType));
 
