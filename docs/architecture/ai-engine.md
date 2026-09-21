@@ -57,3 +57,31 @@ The AI decision is made only when a new piece is spawned. Existing manual input 
 - Invalid live moves restore the previous grid state; failed movement must not remove the falling piece from collision data.
 - Shared board semantics belong in `core.BoardRules`; AI-only heuristics belong in `ai`.
 - Search improvements should extend the current state/action boundary rather than create a second game engine with duplicated rules.
+
+## TypeSafe Jev integration
+
+The network-backed path is intentionally separate from the synchronous local heuristic agent:
+
+```text
+GameSnapshot
+    |
+    v
+MoveCandidateGenerator
+    |
+    +--> HeuristicTetrisAgent
+    |
+    +--> JevTetrisAgent
+              |
+              v
+      TypeSafeChoiceClient
+              |
+              v
+ POST /v1/systemone
+ model = jev-latest
+```
+
+Java remains responsible for enumerating legal rotate-then-shift placements and calculating deterministic board features. `JevTetrisAgent` sends those candidates as a TypeSafe `Choice` question and maps the selected option back to the original `AiMove`.
+
+The TypeSafe client uses JDK `HttpClient` asynchronously and Jackson for structured JSON. It reads the API key from `TYPESAFE_API_KEY`. HTTP 429 and 529 responses use exponential backoff; authentication or validation failures are not hidden by fallback inside the integration layer.
+
+The JavaFX runtime must not block its UI thread on Jev. Runtime selection, pausing while a remote decision is pending, and any heuristic fallback policy belong to a separate integration change.

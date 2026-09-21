@@ -75,3 +75,17 @@ GitHub Actions 使用 self-hosted Linux x64 runner 执行构建、SpotBugs、Git
 AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射回现有游戏动作。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
 
 架构说明见 `docs/architecture/ai-engine.md`。
+
+## TypeSafe Jev
+
+项目提供 `JevTetrisAgent`，通过 TypeSafe System One HTTP API 调用 `jev-latest`。Jev 只在 Java 已经生成并验证的合法候选中做 `Choice`，不会直接生成坐标或绕过本地碰撞规则。
+
+运行真实 Jev 请求前设置：
+
+```bash
+export TYPESAFE_API_KEY=...
+```
+
+API key 不应写入源码、配置文件或 Git 历史。网络调用是异步的，TypeSafe 返回 429 或 529 时客户端会使用指数退避重试。
+
+当前 PR 只建立 TypeSafe integration 与 `JevTetrisAgent`；JavaFX 游戏模式的异步接线单独交付，避免网络生命周期与基础 API integration 混在同一个 PR。
