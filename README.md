@@ -131,3 +131,43 @@ API key 不应写入仓库或配置文件。当前 Jev adapter 使用官方 `jev
 AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射回现有游戏动作。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
 
 架构说明见 `docs/architecture/ai-engine.md`。
+
+## AI Benchmark
+
+项目提供独立的 headless benchmark，不启动 JavaFX View、动画、音频或实时 gravity。它使用 deterministic 7-bag seed，并直接复用 `BoardSimulator` 的合法候选和 resulting board 推进游戏，因此不会建立第二套 Tetris 规则。
+
+默认运行 1 局、最多 50 个方块、seed 从 1 开始，使用本地 heuristic：
+
+```bash
+./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication javafx:run
+```
+
+可通过环境变量调整：
+
+- `TETRIS_BENCHMARK_AGENT`: `heuristic`（默认）或 `jev`
+- `TETRIS_BENCHMARK_GAMES`: 局数，默认 `1`
+- `TETRIS_BENCHMARK_MAX_PIECES`: 每局最多方块数，默认 `50`
+- `TETRIS_BENCHMARK_SEED`: 第一局 seed，后续每局递增，默认 `1`
+- `TYPESAFE_API_KEY`: Jev benchmark 必需
+
+例如使用相同 seed 跑 10 局本地 heuristic：
+
+```bash
+TETRIS_BENCHMARK_GAMES=10 \
+TETRIS_BENCHMARK_MAX_PIECES=500 \
+TETRIS_BENCHMARK_SEED=1000 \
+./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication javafx:run
+```
+
+Jev benchmark 会真实调用 TypeSafe API，因此会产生网络延迟和 token 使用量：
+
+```bash
+TETRIS_BENCHMARK_AGENT=jev \
+TETRIS_BENCHMARK_GAMES=1 \
+TETRIS_BENCHMARK_MAX_PIECES=50 \
+TETRIS_BENCHMARK_SEED=1000 \
+TYPESAFE_API_KEY=<your-key> \
+./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication javafx:run
+```
+
+输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，Jev 还会汇总 `average confidence / input tokens / output tokens / average candidate count`。benchmark 的 latency 是完整 agent 调用耗时，用于策略评估；它不模拟桌面游戏中的实时 gravity deadline。
