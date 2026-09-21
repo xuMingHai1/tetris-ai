@@ -147,6 +147,7 @@ jobs:
           cp "$RUNNER_TEMP/benchmark-output.log" target/benchmark/raw.log
           grep -E '^(agent|heuristic|jev),' target/benchmark/raw.log > target/benchmark/results.csv
           grep '^# ' target/benchmark/raw.log > target/benchmark/summary.txt
+          grep '^jev_decision,' target/benchmark/raw.log > target/benchmark/jev-decisions.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -166,7 +167,7 @@ jobs:
             cat target/benchmark/summary.txt
             echo '~~~'
             echo
-            echo "Artifact contains per-game CSV, summary, metadata, and the raw Maven/application log."
+            echo "Artifact contains per-game CSV, Jev decision telemetry when applicable, summary, metadata, and the raw Maven/application log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
@@ -176,6 +177,7 @@ jobs:
           name: ai-benchmark-${{ inputs.agent }}-${{ github.run_id }}
           path: |
             target/benchmark/results.csv
+            target/benchmark/jev-decisions.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log

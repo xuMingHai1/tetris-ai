@@ -6,15 +6,24 @@
 package xyz.xuminghai.tetris.ai;
 
 /**
- * Provider telemetry emitted after one successful Jev Choice evaluation.
+ * Observational telemetry emitted after one valid Jev Choice decision.
  *
- * <p>This record is observational only; gameplay decisions remain represented by {@link AiMove}.</p>
+ * <p>The selected rank is one-based within the heuristic safety shortlist. Metric deltas are
+ * {@code selected - heuristicTopCandidate}; positive aggregate-height, holes or bumpiness deltas
+ * therefore mean the remote choice made the immediate board metric worse than the local heuristic
+ * first choice, while a positive cleared-lines delta means it cleared more lines immediately.
+ * These values never participate in gameplay decisions.</p>
  */
 public record JevDecisionObservation(
         double confidence,
         long inputTokens,
         long outputTokens,
-        int candidateCount) {
+        int candidateCount,
+        int selectedRank,
+        int clearedLinesDelta,
+        int aggregateHeightDelta,
+        int holesDelta,
+        int bumpinessDelta) {
 
     public JevDecisionObservation {
         if (confidence < 0.0 || confidence > 1.0) {
@@ -25,6 +34,9 @@ public record JevDecisionObservation(
         }
         if (candidateCount <= 0) {
             throw new IllegalArgumentException("candidateCount must be greater than 0");
+        }
+        if (selectedRank <= 0 || selectedRank > candidateCount) {
+            throw new IllegalArgumentException("selectedRank must be within the candidate shortlist");
         }
     }
 }

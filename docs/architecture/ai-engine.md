@@ -77,7 +77,7 @@ A remote decision owns the snapshot only until the next live-state mutation. Bef
 
 `BenchmarkApplication` runs one or more seeded games and reports gameplay outcome plus decision latency. A primary strategy may be paired with a local fallback; primary exceptions or illegal moves are counted before fallback is applied. The runner also aggregates the selected `PlacementCandidate` health facts (aggregate height, holes and bumpiness) as final, average and maximum values. These metrics are observed from production candidates rather than recalculated by benchmark-specific board logic.
 
-For Jev evaluation, `JevDecisionObservation` exposes successful Choice confidence, token usage and candidate count without changing the `TetrisAgent -> AiMove` contract. The benchmark aggregates this provider telemetry. These observations do not participate in gameplay decisions.
+For Jev evaluation, `JevDecisionObservation` exposes successful valid Choice confidence, token usage, shortlist size, the one-based selected heuristic rank, and immediate selected-minus-heuristic-top metric deltas without changing the `TetrisAgent -> AiMove` contract. The benchmark aggregates these values and emits per-decision telemetry so confidence can be evaluated against actual deviations before any confidence gate is introduced. These observations do not participate in gameplay decisions.
 
 The headless benchmark intentionally does not emulate JavaFX gravity deadlines. It measures raw strategy quality, provider reliability and full decision cost; interactive deadline behavior remains owned and tested by `GameWorld`.
 
