@@ -134,7 +134,7 @@ AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射�
 
 ## AI Benchmark
 
-项目提供独立的 headless benchmark，不启动 JavaFX View、动画、音频或实时 gravity。它使用 deterministic 7-bag seed，并直接复用 `BoardSimulator` 的合法候选和 resulting board 推进游戏，因此不会建立第二套 Tetris 规则。
+项目提供独立的 headless benchmark，不启动 JavaFX View、动画、音频或实时 gravity。它使用 deterministic 7-bag seed，并直接复用 `BoardSimulator` 的合法候选和 resulting board 推进游戏，因此不会建立第二套 Tetris 规则。每个新方块在构造 AI snapshot 前会先执行一次与 `GameWorld` 相同的初始自动 `downMove()`，保证 benchmark 与桌面运行时从相同的方块坐标边界开始决策。
 
 默认运行 1 局、最多 50 个方块、seed 从 1 开始，使用本地 heuristic：
 
