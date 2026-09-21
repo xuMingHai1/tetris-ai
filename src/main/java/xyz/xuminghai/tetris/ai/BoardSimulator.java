@@ -10,6 +10,7 @@ import xyz.xuminghai.tetris.core.BoardRules;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.core.Tetris;
 import xyz.xuminghai.tetris.core.TetrisFactory;
+import xyz.xuminghai.tetris.core.TetrominoType;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -39,6 +40,36 @@ public final class BoardSimulator {
             }
         }
         return List.copyOf(candidates);
+    }
+
+    /**
+     * Enumerates legal placements for a known preview piece at the same spawn boundary used by
+     * {@code GameWorld}: the piece is created at its normal factory coordinates and receives the
+     * first automatic gravity move before candidate generation.
+     *
+     * <p>This keeps look-ahead inside the deterministic rules engine instead of teaching a strategy
+     * how tetromino spawning, rotation or collision works.</p>
+     */
+    static List<PlacementCandidate> candidatesForSpawnedPiece(
+            boolean[][] occupied,
+            TetrominoType type) {
+        Objects.requireNonNull(occupied, "occupied");
+        Objects.requireNonNull(type, "type");
+        if (occupied.length == 0 || occupied[0].length == 0) {
+            throw new IllegalArgumentException("occupied board dimensions must be positive");
+        }
+
+        int rows = occupied.length;
+        int cols = occupied[0].length;
+        Tetris tetris = TetrisFactory.create(type);
+        tetris.downMove();
+        GameSnapshot snapshot = new GameSnapshot(
+                rows,
+                cols,
+                occupied,
+                type,
+                positions(tetris));
+        return candidates(snapshot);
     }
 
     private static PlacementCandidate simulate(GameSnapshot snapshot, int rotations, int horizontalShift) {
