@@ -1045,7 +1045,9 @@ public final class GameWorld {
         final AiDecisionExecutor.AiDecision decision = aiDecisionExecutor.submit(createAiSnapshot());
         decision.result().whenComplete((move, failure) -> {
             if (failure != null) {
-                System.err.printf("AI decision failed: %s%n", failure.getMessage());
+                if (aiDecisionExecutor.isCurrent(decision)) {
+                    System.err.printf("AI decision failed: %s%n", failure.getMessage());
+                }
                 return;
             }
             Platform.runLater(() -> {

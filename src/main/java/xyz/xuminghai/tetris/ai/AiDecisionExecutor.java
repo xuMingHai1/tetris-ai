@@ -7,6 +7,7 @@ package xyz.xuminghai.tetris.ai;
 
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -81,7 +82,7 @@ public final class AiDecisionExecutor {
     /**
      * One asynchronous decision request.
      */
-    public record AiDecision(long generation, CompletableFuture<AiMove> result) {
+    public record AiDecision(long generation, CompletionStage<AiMove> result) {
 
         public AiDecision {
             Objects.requireNonNull(result, "result");
