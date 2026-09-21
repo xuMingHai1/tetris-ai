@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - heuristic
+          - lookahead
           - jev
           - compare
       games:
@@ -119,6 +120,20 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
             javafx:run | tee "$RUNNER_TEMP/benchmark-output.log"
 
+      - name: Run local lookahead benchmark
+        if: ${{ inputs.agent == 'lookahead' || inputs.agent == 'compare' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: lookahead
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+            javafx:run | tee -a "$RUNNER_TEMP/benchmark-output.log"
+
       - name: Run Jev benchmark
         if: ${{ inputs.agent == 'jev' || inputs.agent == 'compare' }}
         shell: bash
@@ -154,7 +169,7 @@ jobs:
               }
               next
             }
-            /^(heuristic|jev),/ {
+            /^(heuristic|lookahead|jev),/ {
               print
             }
           ' target/benchmark/raw.log > target/benchmark/results.csv
