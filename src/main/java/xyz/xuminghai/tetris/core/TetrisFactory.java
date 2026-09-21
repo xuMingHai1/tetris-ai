@@ -628,9 +628,6 @@ package xyz.xuminghai.tetris.core;
 
 import javafx.scene.paint.Color;
 
-import java.util.LinkedList;
-import java.util.List;
-import java.util.function.Supplier;
 import java.util.random.RandomGenerator;
 
 /**
@@ -650,25 +647,35 @@ public final class TetrisFactory {
     private TetrisFactory() {
     }
 
-    /*
-        袋式随机生成
-     */
-    private static final List<Supplier<Tetris>> ORIGINAL_BAG = List.of(IBlock::new, JBlock::new,
-            LBlock::new, OBlock::new, SBlock::new, TBlock::new, ZBlock::new);
-
-    private static final List<Supplier<Tetris>> BAG = new LinkedList<>();
+    private static final PieceGenerator DEFAULT_GENERATOR = new BagPieceGenerator();
 
     /**
-     * 基于袋式随机生成方块
-     * @return 方块
+     * 创建指定类型的方块。
+     *
+     * @param type 方块类型
+     * @return 新的方块实例
+     */
+    public static Tetris create(TetrominoType type) {
+        return switch (type) {
+            case I -> new IBlock();
+            case J -> new JBlock();
+            case L -> new LBlock();
+            case O -> new OBlock();
+            case S -> new SBlock();
+            case T -> new TBlock();
+            case Z -> new ZBlock();
+        };
+    }
+
+    /**
+     * 使用默认 7-bag 生成器创建方块。
+     *
+     * <p>新代码应优先持有独立的 {@link BagPieceGenerator}，避免共享默认生成器影响可重复模拟。</p>
+     *
+     * @return 新的方块实例
      */
     public static Tetris randomCreateTetris() {
-        if (BAG.isEmpty()) {
-            BAG.addAll(ORIGINAL_BAG);
-        }
-        final int index = RANDOM_GENERATOR.nextInt(BAG.size());
-        final Supplier<Tetris> tetrisSupplier = BAG.remove(index);
-        return tetrisSupplier.get();
+        return DEFAULT_GENERATOR.next();
     }
 
     /**
