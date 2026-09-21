@@ -20,7 +20,7 @@ GameSnapshot ---> BoardSimulator ---> PlacementCandidate(s)
                                       AiMove
 ```
 
-`GameSnapshot` contains board occupancy, the current tetromino type, and current cell coordinates. The occupied board excludes the falling piece.
+`GameSnapshot` contains board occupancy, the current tetromino type, current cell coordinates, and the optional known preview-piece type. The occupied board excludes the falling piece. Live runtime and deterministic benchmark snapshots populate the preview piece; nested simulations may intentionally omit it.
 
 `BoardSimulator` is the deterministic candidate generator. It owns rotate-then-move reachability, drop simulation, row clearing and board metrics, and returns only legal `PlacementCandidate` values. Each candidate contains the `AiMove`, resulting board and objective facts such as cleared lines, aggregate height, holes and bumpiness; it contains no strategy-specific weight or score.
 
@@ -67,7 +67,7 @@ A remote decision owns the snapshot only until the next live-state mutation. Bef
 
 `TetrisAgentFactory` selects the runtime strategy from environment configuration. The default is `HeuristicTetrisAgent`; `TETRIS_AI_AGENT=jev` explicitly selects `JevTetrisAgent` and requires `TYPESAFE_API_KEY`.
 
-`JevTetrisAgent` is a hybrid strategy rather than an unrestricted remote selector. `BoardSimulator` first generates every legal placement, then the existing heuristic ranking retains at most the top five candidates as a deterministic safety shortlist. Jev asks TypeSafe System One to answer one Choice question only over that shortlist. Candidate ids (`c0`, `c1`, ...) map to the shortlisted `PlacementCandidate` instances; the provider receives the current board, metric semantics, and each shortlisted move/resulting board/objective metrics. A returned id must exist in that local map before it can become an `AiMove`. The shortlist constrains catastrophic choices and reduces remote context while still leaving Jev room to distinguish among strong local candidates.
+`JevTetrisAgent` is a hybrid strategy rather than an unrestricted remote selector. `BoardSimulator` first generates every legal placement, then the existing heuristic ranking retains at most the top five candidates as a deterministic safety shortlist. When the preview piece is known, `BoardSimulator` also evaluates that piece from the same post-spawn gravity boundary used by `GameWorld` against each shortlisted resulting board. Jev receives the preview-piece identity, legal next-placement count and the existing heuristic's best next-response metrics; the second resulting board is deliberately omitted to limit provider context. Jev asks TypeSafe System One to answer one Choice question only over the current shortlist. Candidate ids (`c0`, `c1`, ...) map to the shortlisted `PlacementCandidate` instances. A returned id must exist in that local map before it can become an `AiMove`. The shortlist constrains catastrophic choices while deterministic one-piece outlook exposes immediate trajectory consequences without moving Tetris rules into the model.
 
 `TypeSafeSystemOneClient` is the provider adapter. It uses JDK `HttpClient`, the documented `POST https://api.typesafe.ai/v1/systemone` endpoint, `jev-latest`, bearer authentication and Jackson 3 for JSON. HTTP 429 and 529 responses are retried with bounded exponential backoff. Other provider, transport or response-shape failures are surfaced to `AiDecisionExecutor`, which falls back to the local heuristic agent.
 
