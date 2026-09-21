@@ -19,7 +19,7 @@ GitHub 当前 default branch 是源码事实来源，不假设主分支名称固
 ## Current Structure
 
 - `xyz.xuminghai.tetris.core`：俄罗斯方块领域模型，包括 Cell、七种方块、移动、旋转、复制、共享 `BoardRules`，以及可注入的 `PieceGenerator` / deterministic `BagPieceGenerator`。这里应尽量保持与 JavaFX Scene/View 无关；当前颜色仍使用 JavaFX `Color`，修改该边界前需要评估兼容性和 AI/测试影响。
-- `xyz.xuminghai.tetris.ai`：headless 决策边界。只消费不可变 `GameSnapshot`；snapshot 可携带运行时已知的 preview piece。`BoardSimulator` 统一生成合法 `PlacementCandidate`（动作、落地后棋盘和客观指标），并负责从真实 post-spawn gravity 边界计算 preview piece 的 deterministic one-piece outlook；具体 `TetrisAgent` 只负责从这些确定性事实中选择 `AiMove`。不得依赖 JavaFX Property、Animation、Audio、Robot 或 View。当前包含本地 `HeuristicTetrisAgent` 与 opt-in 的 `JevTetrisAgent`；Jev 只在本地 heuristic 排序后的前 5 个合法候选中选择，并接收下一块的合法落点数量和本地最佳下一步 metrics，避免把全部合法落点或第二套游戏规则交给远程模型；`TypeSafeSystemOneClient` 只负责官方 HTTP API、JSON、认证和 429/529 重试；`AiDecisionExecutor` 负责在 virtual thread 上执行可能阻塞的 Agent、提供 heuristic fallback，并用 generation 标识最新请求。它不是通用 Agent/Plugin 框架。
+- `xyz.xuminghai.tetris.ai`：headless 决策边界。只消费不可变 `GameSnapshot`；snapshot 可携带运行时已知的 preview piece。`BoardSimulator` 统一生成合法 `PlacementCandidate`（动作、落地后棋盘和客观指标），并负责从真实 post-spawn gravity 边界计算 preview piece 的 deterministic one-piece outlook；具体 `TetrisAgent` 只负责从这些确定性事实中选择 `AiMove`。不得依赖 JavaFX Property、Animation、Audio、Robot 或 View。当前包含本地 `HeuristicTetrisAgent`、用于评估 deterministic next-piece 收益的 `NextPieceHeuristicTetrisAgent`，以及 opt-in 的 `JevTetrisAgent`；Jev 只在本地 heuristic 排序后的前 5 个合法候选中选择，并接收下一块的合法落点数量和本地最佳下一步 metrics，避免把全部合法落点或第二套游戏规则交给远程模型；`TypeSafeSystemOneClient` 只负责官方 HTTP API、JSON、认证和 429/529 重试；`AiDecisionExecutor` 负责在 virtual thread 上执行可能阻塞的 Agent、提供 heuristic fallback，并用 generation 标识最新请求。它不是通用 Agent/Plugin 框架。
 - `xyz.xuminghai.tetris.ai.benchmark`：headless evaluation 工具。使用 seeded `BagPieceGenerator` 和生产 `BoardSimulator` / `PlacementCandidate` 推进状态；新方块在生成 AI snapshot 前必须先执行与 `GameWorld` 相同的一次初始自动 `downMove()`，保证候选可达性从相同坐标边界开始。记录 gameplay outcome、decision latency、fallback，以及 selected candidate 的 aggregate height / holes / bumpiness 局面健康度；Jev 额外记录 confidence/token usage、selected heuristic rank 和相对 heuristic top candidate 的 immediate metric delta，并可输出逐 decision CSV。telemetry 只用于评估，不能反向影响 gameplay decision。benchmark 不启动 JavaFX runtime，也不复制游戏规则或重新计算这些指标。
 - `xyz.xuminghai.tetris.game`：游戏规则和运行状态，包括网格、计分、等级、时间线、输入动作和动画协作。规则变化应优先在这里表达，不把规则复制到 View。
 - `xyz.xuminghai.tetris.view`：JavaFX 展示层。负责观察状态并渲染，不应成为游戏规则的第二事实来源。
@@ -85,7 +85,7 @@ Windows 对应使用 `mvnw.cmd`。
 
 GitHub Actions 使用 `[self-hosted, linux, x64]`。
 
-`.github/workflows/ai-benchmark.yml` 仅允许 `workflow_dispatch` 手动运行，不属于普通 CI。默认运行本地 heuristic baseline；`compare` 模式会对相同 seed/参数顺序运行 heuristic 与 Jev，并生成同一份 artifact。Jev benchmark（含 `compare` 中的 Jev 部分）只有显式确认外部调用成本并存在 `TYPESAFE_API_KEY` repository secret 时才能运行，且单次最多 200 个潜在 Jev decision。benchmark 结果应上传 artifact，不提交生成结果到源码仓库。
+`.github/workflows/ai-benchmark.yml` 仅允许 `workflow_dispatch` 手动运行，不属于普通 CI。默认运行本地 heuristic baseline；`compare` 模式会对相同 seed/参数顺序运行 heuristic、纯本地 lookahead 与 Jev，并生成同一份 artifact。Jev benchmark（含 `compare` 中的 Jev 部分）只有显式确认外部调用成本并存在 `TYPESAFE_API_KEY` repository secret 时才能运行，且单次最多 200 个潜在 Jev decision。benchmark 结果应上传 artifact，不提交生成结果到源码仓库。
 
 由于仓库是 public repository：
 - 外部 fork PR 不允许在 self-hosted runner 上执行任意代码。
