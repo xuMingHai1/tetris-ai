@@ -626,10 +626,11 @@
 
 package xyz.xuminghai.tetris.game;
 
+import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.BoardRules;
 import xyz.xuminghai.tetris.core.Cell;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * 2025/6/22 14:58 星期日<br/>
@@ -704,26 +705,16 @@ final class GameGrid {
      * @return 可消除行数据，不为null
      */
     public List<Cell[]> getEliminatableRows(Cell[] cells) {
-        // 获取可消除的行
-        final Set<Integer> rowIndexCollect = Arrays.stream(cells).map(Cell::getRow).collect(Collectors.toSet());
-        final List<Cell[]> list = new LinkedList<>();
-
-        for (Integer index : rowIndexCollect) {
-            final Cell[] dataRow = data[index];
-            // 判断是否是可消除的行
-            boolean eliminatable = true;
-            for (Cell c : dataRow) {
-                if (c == null) {
-                    eliminatable = false;
-                    break;
-                }
-            }
-            if (eliminatable) {
-                list.add(dataRow);
-            }
+        final Set<Integer> candidateRows = new HashSet<>();
+        for (Cell cell : cells) {
+            candidateRows.add(cell.getRow());
         }
 
-        return list;
+        final List<Cell[]> rowsToRemove = new LinkedList<>();
+        for (Integer row : BoardRules.fullRows(occupiedSnapshot(null), candidateRows)) {
+            rowsToRemove.add(data[row]);
+        }
+        return rowsToRemove;
     }
 
 
@@ -761,6 +752,31 @@ final class GameGrid {
 
 
     /**
+     * 创建当前网格占用快照，并排除仍在下落的方块。
+     *
+     * @param excludedCells 需要从快照中排除的当前方块坐标
+     * @return 与实时网格隔离的占用矩阵
+     */
+    boolean[][] occupiedSnapshot(Cell[] excludedCells) {
+        boolean[][] occupied = new boolean[rows][cols];
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < cols; col++) {
+                occupied[row][col] = data[row][col] != null;
+            }
+        }
+        if (excludedCells != null) {
+            for (Cell cell : excludedCells) {
+                if (cell.getRow() >= 0 && cell.getRow() < rows
+                        && cell.getCol() >= 0 && cell.getCol() < cols) {
+                    occupied[cell.getRow()][cell.getCol()] = false;
+                }
+            }
+        }
+        return occupied;
+    }
+
+
+    /**
      * 规则检测并设置数据
      *
      * @param cells 单元格列表
@@ -771,13 +787,12 @@ final class GameGrid {
             return false;
         }
 
-        for (Cell cell : cells) {
-            final int row = cell.getRow();
-            final int col = cell.getCol();
-            // 是否超出范围或被占用
-            if (row >= rows || col < 0 || col >= cols || data[row][col] != null) {
-                return false;
-            }
+        final List<BoardPosition> positions = Arrays.stream(cells)
+                .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                .toList();
+        if (positions.stream().anyMatch(position -> position.row() < 0)
+                || !BoardRules.canPlace(occupiedSnapshot(null), rows, cols, positions)) {
+            return false;
         }
 
         // 保存数据

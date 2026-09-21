@@ -712,6 +712,7 @@ public class TetrisApplication extends Application {
         accelerators.put(new KeyCodeCombination(KeyCode.EQUALS), gameWorld::levelPlus);
         accelerators.put(new KeyCodeCombination(KeyCode.MINUS), gameWorld::levelMinus);
         accelerators.put(new KeyCodeCombination(KeyCode.SPACE), gameWorld::startOrPauseGame);
+        accelerators.put(new KeyCodeCombination(KeyCode.F2), gameWorld::toggleAi);
         accelerators.put(new KeyCodeCombination(KeyCode.TAB, KeyCombination.CONTROL_DOWN), gameWorld::switchLanguage);
         return scene;
     }

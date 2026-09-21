@@ -103,3 +103,11 @@ scripts\package-app.cmd msi
 产物位于 `target/jpackage/dist`。GitHub CI 在 Linux self-hosted runner 上验证 `app-image`，Windows/macOS 原生格式应在对应平台构建。
 
 打包脚本显式覆盖 JDK 默认的 jlink options，不执行 `--strip-debug`，因此 Linux 构建不依赖额外安装 `binutils/objcopy`。
+
+## AI 自动玩
+
+游戏运行后按 `F2` 切换 AI 自动玩。当前实现使用 one-ply heuristic search，在独立状态快照上枚举旋转和水平位置，并根据消行、堆叠高度、空洞和表面起伏评分。
+
+AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射回现有游戏动作。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
+
+架构说明见 `docs/architecture/ai-engine.md`。
