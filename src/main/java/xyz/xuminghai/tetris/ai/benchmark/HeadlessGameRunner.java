@@ -86,6 +86,10 @@ public final class HeadlessGameRunner {
 
         while (piecesPlaced < pieceLimit) {
             Tetris piece = pieceGenerator.next();
+            // Live GameWorld requests AI only after the newly spawned piece has completed the
+            // first automatic gravity move. Mirror that exact decision boundary here so top-edge
+            // reachability and rotation checks are evaluated from the same coordinates.
+            piece.downMove();
             GameSnapshot snapshot = snapshot(board, piece);
             List<PlacementCandidate> candidates = BoardSimulator.candidates(snapshot);
             if (candidates.isEmpty()) {
