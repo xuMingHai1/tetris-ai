@@ -46,7 +46,10 @@ public final class BenchmarkApplication {
 
         System.out.println(
                 "agent,seed,piece_limit,pieces_placed,lines_cleared,decisions,primary_failures,"
-                        + "fallback_decisions,avg_decision_ms,max_decision_ms,reached_piece_limit");
+                        + "fallback_decisions,avg_decision_ms,max_decision_ms,"
+                        + "final_aggregate_height,avg_aggregate_height,max_aggregate_height,"
+                        + "final_holes,avg_holes,max_holes,"
+                        + "final_bumpiness,avg_bumpiness,max_bumpiness,reached_piece_limit");
         for (int game = 0; game < configuration.games(); game++) {
             long seed = configuration.seed() + game;
             GameBenchmarkResult result =
@@ -54,7 +57,7 @@ public final class BenchmarkApplication {
             results.add(result);
             System.out.printf(
                     Locale.ROOT,
-                    "%s,%d,%d,%d,%d,%d,%d,%d,%.3f,%.3f,%s%n",
+                    "%s,%d,%d,%d,%d,%d,%d,%d,%.3f,%.3f,%d,%.3f,%d,%d,%.3f,%d,%d,%.3f,%d,%s%n",
                     configuration.agent(),
                     result.seed(),
                     result.pieceLimit(),
@@ -65,6 +68,15 @@ public final class BenchmarkApplication {
                     result.fallbackDecisions(),
                     result.averageDecisionMillis(),
                     result.maxDecisionMillis(),
+                    result.boardHealth().finalAggregateHeight(),
+                    result.boardHealth().averageAggregateHeight(),
+                    result.boardHealth().maxAggregateHeight(),
+                    result.boardHealth().finalHoles(),
+                    result.boardHealth().averageHoles(),
+                    result.boardHealth().maxHoles(),
+                    result.boardHealth().finalBumpiness(),
+                    result.boardHealth().averageBumpiness(),
+                    result.boardHealth().maxBumpiness(),
                     result.reachedPieceLimit());
         }
 
@@ -99,12 +111,39 @@ public final class BenchmarkApplication {
         long fallbacks = results.stream().mapToLong(GameBenchmarkResult::fallbackDecisions).sum();
         long decisionNanos = results.stream().mapToLong(GameBenchmarkResult::totalDecisionNanos).sum();
         long maxDecisionNanos = results.stream().mapToLong(GameBenchmarkResult::maxDecisionNanos).max().orElse(0L);
+        double aggregateHeightSum = results.stream()
+                .mapToDouble(result -> result.boardHealth().averageAggregateHeight() * result.piecesPlaced())
+                .sum();
+        double holesSum = results.stream()
+                .mapToDouble(result -> result.boardHealth().averageHoles() * result.piecesPlaced())
+                .sum();
+        double bumpinessSum = results.stream()
+                .mapToDouble(result -> result.boardHealth().averageBumpiness() * result.piecesPlaced())
+                .sum();
+        int maxAggregateHeight = results.stream()
+                .mapToInt(result -> result.boardHealth().maxAggregateHeight())
+                .max()
+                .orElse(0);
+        int maxHoles = results.stream()
+                .mapToInt(result -> result.boardHealth().maxHoles())
+                .max()
+                .orElse(0);
+        int maxBumpiness = results.stream()
+                .mapToInt(result -> result.boardHealth().maxBumpiness())
+                .max()
+                .orElse(0);
 
         double averageMillis = decisions == 0 ? 0.0 : decisionNanos / 1_000_000.0 / decisions;
+        double averageAggregateHeight = pieces == 0 ? 0.0 : aggregateHeightSum / pieces;
+        double averageHoles = pieces == 0 ? 0.0 : holesSum / pieces;
+        double averageBumpiness = pieces == 0 ? 0.0 : bumpinessSum / pieces;
         System.out.printf(
                 Locale.ROOT,
                 "# summary agent=%s games=%d pieces=%d lines=%d decisions=%d primary_failures=%d "
-                        + "fallbacks=%d avg_decision_ms=%.3f max_decision_ms=%.3f%n",
+                        + "fallbacks=%d avg_decision_ms=%.3f max_decision_ms=%.3f "
+                        + "avg_aggregate_height=%.3f max_aggregate_height=%d "
+                        + "avg_holes=%.3f max_holes=%d "
+                        + "avg_bumpiness=%.3f max_bumpiness=%d%n",
                 configuration.agent(),
                 configuration.games(),
                 pieces,
@@ -113,7 +152,13 @@ public final class BenchmarkApplication {
                 failures,
                 fallbacks,
                 averageMillis,
-                maxDecisionNanos / 1_000_000.0);
+                maxDecisionNanos / 1_000_000.0,
+                averageAggregateHeight,
+                maxAggregateHeight,
+                averageHoles,
+                maxHoles,
+                averageBumpiness,
+                maxBumpiness);
 
         if (telemetry.samples > 0) {
             System.out.printf(
