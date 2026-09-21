@@ -62,6 +62,8 @@ class TypeSafeSystemOneClientTest {
 
         assertEquals("c1", result.choice());
         assertEquals(0.82, result.confidence(), 0.0001);
+        assertEquals(100, result.inputTokens());
+        assertEquals(20, result.outputTokens());
         assertEquals("Bearer test-key",
                 capturedRequest.get().headers().firstValue("Authorization").orElseThrow());
 
@@ -80,7 +82,7 @@ class TypeSafeSystemOneClientTest {
                 new TypeSafeSystemOneClient.RawResponse(
                         200,
                         """
-                        {"answers":{"move":{"type":"choice","choice":"c0","confidence":0.7}}}
+                        {"answers":{"move":{"type":"choice","choice":"c0","confidence":0.7}},"usage":{"input_tokens":12,"output_tokens":4}}
                         """)));
         List<Duration> sleeps = new ArrayList<>();
         TypeSafeSystemOneClient client =

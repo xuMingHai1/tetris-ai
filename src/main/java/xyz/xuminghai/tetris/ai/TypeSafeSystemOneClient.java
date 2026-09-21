@@ -180,7 +180,19 @@ public final class TypeSafeSystemOneClient {
         if (confidence < 0.0 || confidence > 1.0) {
             throw new IllegalStateException("TypeSafe Choice confidence is outside [0, 1]");
         }
-        return new ChoiceResult(choiceNode.asText(), confidence);
+
+        JsonNode usage = root.path("usage");
+        JsonNode inputTokensNode = usage.path("input_tokens");
+        JsonNode outputTokensNode = usage.path("output_tokens");
+        if (!inputTokensNode.isIntegralNumber() || !outputTokensNode.isIntegralNumber()) {
+            throw new IllegalStateException("TypeSafe response is missing token usage");
+        }
+
+        return new ChoiceResult(
+                choiceNode.asText(),
+                confidence,
+                inputTokensNode.longValue(),
+                outputTokensNode.longValue());
     }
 
     private static boolean isSuccessful(int statusCode) {
@@ -206,12 +218,19 @@ public final class TypeSafeSystemOneClient {
         return duration;
     }
 
-    public record ChoiceResult(String choice, double confidence) {
+    public record ChoiceResult(
+            String choice,
+            double confidence,
+            long inputTokens,
+            long outputTokens) {
 
         public ChoiceResult {
             choice = requireText(choice, "choice");
             if (confidence < 0.0 || confidence > 1.0) {
                 throw new IllegalArgumentException("confidence must be within [0, 1]");
+            }
+            if (inputTokens < 0 || outputTokens < 0) {
+                throw new IllegalArgumentException("token usage must not be negative");
             }
         }
     }

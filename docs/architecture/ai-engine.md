@@ -71,6 +71,16 @@ A remote decision owns the snapshot only until the next live-state mutation. Bef
 
 `TypeSafeSystemOneClient` is the provider adapter. It uses JDK `HttpClient`, the documented `POST https://api.typesafe.ai/v1/systemone` endpoint, `jev-latest`, bearer authentication and Jackson 3 for JSON. HTTP 429 and 529 responses are retried with bounded exponential backoff. Other provider, transport or response-shape failures are surfaced to `AiDecisionExecutor`, which falls back to the local heuristic agent.
 
+## Headless evaluation
+
+`ai.benchmark.HeadlessGameRunner` provides a deterministic evaluation path that does not start the JavaFX runtime. For each seeded 7-bag piece it builds the same `GameSnapshot`, asks the strategy for an `AiMove`, matches that move to the already-generated legal `PlacementCandidate`, and advances the board using that candidate's resulting board. It does not duplicate rotation, collision, drop or row-clear rules.
+
+`BenchmarkApplication` runs one or more seeded games and reports gameplay outcome plus decision latency. A primary strategy may be paired with a local fallback; primary exceptions or illegal moves are counted before fallback is applied.
+
+For Jev evaluation, `JevDecisionObservation` exposes successful Choice confidence, token usage and candidate count without changing the `TetrisAgent -> AiMove` contract. The benchmark aggregates this provider telemetry. These observations do not participate in gameplay decisions.
+
+The headless benchmark intentionally does not emulate JavaFX gravity deadlines. It measures raw strategy quality, provider reliability and full decision cost; interactive deadline behavior remains owned and tested by `GameWorld`.
+
 ## Constraints
 
 - AI code must not mutate the live board while searching.
@@ -83,3 +93,5 @@ A remote decision owns the snapshot only until the next live-state mutation. Bef
 - Jev is opt-in through `TETRIS_AI_AGENT=jev`; presence of an API key alone must not enable remote calls.
 - Provider credentials come from environment variables and must not be committed or logged.
 - Search improvements should extend the current state/action boundary rather than create a second game engine with duplicated rules.
+- Benchmark simulations must advance state from `BoardSimulator` / `PlacementCandidate` results rather than reimplement placement or row clearing.
+- Jev benchmark runs are opt-in and may consume paid/provider quota; CI must not call the real TypeSafe API by default.

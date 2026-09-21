@@ -12,6 +12,7 @@ import xyz.xuminghai.tetris.core.TetrominoType;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -22,7 +23,7 @@ class JevTetrisAgentTest {
     void mapsReturnedChoiceBackToDeterministicCandidate() {
         TypeSafeSystemOneClient client = client(
                 """
-                {"answers":{"move":{"type":"choice","choice":"c0","confidence":0.75}}}
+                {"answers":{"move":{"type":"choice","choice":"c0","confidence":0.75}},"usage":{"input_tokens":120,"output_tokens":16}}
                 """);
 
         AiMove move = new JevTetrisAgent(client).decide(snapshot());
@@ -31,10 +32,26 @@ class JevTetrisAgentTest {
     }
 
     @Test
+    void emitsProviderTelemetryAfterSuccessfulChoice() {
+        AtomicReference<JevDecisionObservation> observed = new AtomicReference<>();
+        TypeSafeSystemOneClient client = client(
+                """
+                {"answers":{"move":{"type":"choice","choice":"c0","confidence":0.75}},"usage":{"input_tokens":120,"output_tokens":16}}
+                """);
+
+        new JevTetrisAgent(client, observed::set).decide(snapshot());
+
+        assertEquals(0.75, observed.get().confidence(), 0.0001);
+        assertEquals(120, observed.get().inputTokens());
+        assertEquals(16, observed.get().outputTokens());
+        assertEquals(BoardSimulator.candidates(snapshot()).size(), observed.get().candidateCount());
+    }
+
+    @Test
     void rejectsUnknownChoiceSoExecutorCanFallback() {
         TypeSafeSystemOneClient client = client(
                 """
-                {"answers":{"move":{"type":"choice","choice":"invented","confidence":0.75}}}
+                {"answers":{"move":{"type":"choice","choice":"invented","confidence":0.75}},"usage":{"input_tokens":120,"output_tokens":16}}
                 """);
 
         assertThrows(IllegalStateException.class, () -> new JevTetrisAgent(client).decide(snapshot()));
