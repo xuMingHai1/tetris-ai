@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class JevTetrisAgentTest {
 
     @Test
-    void mapsReturnedChoiceBackToDeterministicCandidate() {
+    void mapsReturnedChoiceBackToBestCandidateInHeuristicShortlist() {
         TypeSafeSystemOneClient client = client(
                 """
                 {"answers":{"move":{"type":"choice","choice":"c0","confidence":0.75}},"usage":{"input_tokens":120,"output_tokens":16}}
@@ -28,11 +28,24 @@ class JevTetrisAgentTest {
 
         AiMove move = new JevTetrisAgent(client).decide(snapshot());
 
-        assertEquals(new AiMove(0, -3), move);
+        assertEquals(new HeuristicTetrisAgent().decide(snapshot()), move);
     }
 
     @Test
-    void emitsProviderTelemetryAfterSuccessfulChoice() {
+    void canChooseAnotherCandidateWithinHeuristicShortlist() {
+        List<PlacementCandidate> ranked = HeuristicTetrisAgent.rankCandidates(snapshot());
+        TypeSafeSystemOneClient client = client(
+                """
+                {"answers":{"move":{"type":"choice","choice":"c4","confidence":0.75}},"usage":{"input_tokens":120,"output_tokens":16}}
+                """);
+
+        AiMove move = new JevTetrisAgent(client).decide(snapshot());
+
+        assertEquals(ranked.get(4).move(), move);
+    }
+
+    @Test
+    void emitsProviderTelemetryForOnlyTheSafetyShortlist() {
         AtomicReference<JevDecisionObservation> observed = new AtomicReference<>();
         TypeSafeSystemOneClient client = client(
                 """
@@ -44,7 +57,9 @@ class JevTetrisAgentTest {
         assertEquals(0.75, observed.get().confidence(), 0.0001);
         assertEquals(120, observed.get().inputTokens());
         assertEquals(16, observed.get().outputTokens());
-        assertEquals(BoardSimulator.candidates(snapshot()).size(), observed.get().candidateCount());
+        assertEquals(
+                Math.min(JevTetrisAgent.MAX_REMOTE_CANDIDATES, BoardSimulator.candidates(snapshot()).size()),
+                observed.get().candidateCount());
     }
 
     @Test

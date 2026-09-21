@@ -13,19 +13,24 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * Jev-backed agent that asks TypeSafe to choose among deterministic legal placements.
+ * Jev-backed hybrid agent that asks TypeSafe to choose among a deterministic safety shortlist.
  *
- * <p>Jev never generates a Tetris action directly. Board simulation remains the source of truth:
- * this agent sends only candidates already validated by {@link BoardSimulator} and maps the
- * returned Choice id back to the original {@link AiMove}.</p>
+ * <p>Jev never generates a Tetris action directly. Board simulation remains the source of truth,
+ * while the local heuristic removes clearly weaker placements before any remote call. Jev then
+ * chooses only among those already-legal shortlisted candidates and the returned id is mapped back
+ * to the original {@link AiMove}.</p>
  */
 public final class JevTetrisAgent implements TetrisAgent {
 
+    static final int MAX_REMOTE_CANDIDATES = 5;
+
     private static final String QUESTION_ID = "move";
     private static final String INSTRUCTIONS =
-            "Choose the strongest legal Tetris placement for long-term survival and line-clearing potential. "
-                    + "Every option is already reachable and legal. Prefer boards with fewer holes and lower "
-                    + "dangerous stacking while considering cleared lines and surface stability.";
+            "Choose the safest Tetris placement for long-term survival from the supplied legal options. "
+                    + "Avoid top-out above all. Holes are severe long-term risk; prefer fewer holes and "
+                    + "lower aggregate height. Cleared lines are beneficial when they do not create a much "
+                    + "riskier board. Lower bumpiness is useful but must not outweigh holes or dangerous "
+                    + "stack height. Do not sacrifice survival for a smoother surface.";
 
     private static final Consumer<JevDecisionObservation> NOOP_OBSERVER = _ -> {
     };
@@ -58,10 +63,12 @@ public final class JevTetrisAgent implements TetrisAgent {
 
     @Override
     public AiMove decide(GameSnapshot snapshot) {
-        List<PlacementCandidate> candidates = BoardSimulator.candidates(snapshot);
-        if (candidates.isEmpty()) {
+        List<PlacementCandidate> rankedCandidates = HeuristicTetrisAgent.rankCandidates(snapshot);
+        if (rankedCandidates.isEmpty()) {
             return AiMove.NONE;
         }
+        List<PlacementCandidate> candidates =
+                rankedCandidates.subList(0, Math.min(MAX_REMOTE_CANDIDATES, rankedCandidates.size()));
 
         Map<String, PlacementCandidate> candidatesById = new LinkedHashMap<>();
         Map<String, Object> criteria = new LinkedHashMap<>();
@@ -87,6 +94,12 @@ public final class JevTetrisAgent implements TetrisAgent {
     }
 
     private static Map<String, Object> state(GameSnapshot snapshot) {
+        Map<String, Object> metricSemantics = new LinkedHashMap<>();
+        metricSemantics.put("cleared_lines", "higher is beneficial when board safety is preserved");
+        metricSemantics.put("aggregate_height", "lower is safer; high values approach top-out");
+        metricSemantics.put("holes", "lower is strongly preferred; buried empty cells create long-term risk");
+        metricSemantics.put("bumpiness", "lower is generally better, but less important than holes and height");
+
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("game", "Tetris");
         state.put("current_piece", snapshot.currentType().name());
@@ -94,6 +107,7 @@ public final class JevTetrisAgent implements TetrisAgent {
         state.put("current_board", boardRows(snapshot.occupied()));
         state.put("rows", snapshot.rows());
         state.put("cols", snapshot.cols());
+        state.put("metric_semantics", metricSemantics);
         return state;
     }
 

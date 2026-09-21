@@ -19,7 +19,7 @@ GitHub 当前 default branch 是源码事实来源，不假设主分支名称固
 ## Current Structure
 
 - `xyz.xuminghai.tetris.core`：俄罗斯方块领域模型，包括 Cell、七种方块、移动、旋转、复制、共享 `BoardRules`，以及可注入的 `PieceGenerator` / deterministic `BagPieceGenerator`。这里应尽量保持与 JavaFX Scene/View 无关；当前颜色仍使用 JavaFX `Color`，修改该边界前需要评估兼容性和 AI/测试影响。
-- `xyz.xuminghai.tetris.ai`：headless 决策边界。只消费不可变 `GameSnapshot`；`BoardSimulator` 统一生成合法 `PlacementCandidate`（动作、落地后棋盘和客观指标），具体 `TetrisAgent` 只负责从这些确定性事实中选择 `AiMove`。不得依赖 JavaFX Property、Animation、Audio、Robot 或 View。当前包含本地 `HeuristicTetrisAgent` 与 opt-in 的 `JevTetrisAgent`；`TypeSafeSystemOneClient` 只负责官方 HTTP API、JSON、认证和 429/529 重试；`AiDecisionExecutor` 负责在 virtual thread 上执行可能阻塞的 Agent、提供 heuristic fallback，并用 generation 标识最新请求。它不是通用 Agent/Plugin 框架。
+- `xyz.xuminghai.tetris.ai`：headless 决策边界。只消费不可变 `GameSnapshot`；`BoardSimulator` 统一生成合法 `PlacementCandidate`（动作、落地后棋盘和客观指标），具体 `TetrisAgent` 只负责从这些确定性事实中选择 `AiMove`。不得依赖 JavaFX Property、Animation、Audio、Robot 或 View。当前包含本地 `HeuristicTetrisAgent` 与 opt-in 的 `JevTetrisAgent`；Jev 只在本地 heuristic 排序后的前 5 个合法候选中选择，避免把全部合法落点直接交给远程模型；`TypeSafeSystemOneClient` 只负责官方 HTTP API、JSON、认证和 429/529 重试；`AiDecisionExecutor` 负责在 virtual thread 上执行可能阻塞的 Agent、提供 heuristic fallback，并用 generation 标识最新请求。它不是通用 Agent/Plugin 框架。
 - `xyz.xuminghai.tetris.ai.benchmark`：headless evaluation 工具。使用 seeded `BagPieceGenerator` 和生产 `BoardSimulator` / `PlacementCandidate` 推进状态，记录 gameplay outcome、decision latency、fallback，以及 selected candidate 的 aggregate height / holes / bumpiness 局面健康度；Jev 额外记录 confidence/token usage。benchmark 不启动 JavaFX runtime，也不复制游戏规则或重新计算这些指标。
 - `xyz.xuminghai.tetris.game`：游戏规则和运行状态，包括网格、计分、等级、时间线、输入动作和动画协作。规则变化应优先在这里表达，不把规则复制到 View。
 - `xyz.xuminghai.tetris.view`：JavaFX 展示层。负责观察状态并渲染，不应成为游戏规则的第二事实来源。
@@ -65,7 +65,7 @@ Windows 对应使用 `mvnw.cmd`。
 - 远程或可能阻塞的 AI 实现只能实现 `TetrisAgent` 决策契约，并通过 `AiDecisionExecutor` 执行；不要在 JavaFX application thread 或 `GameWorld` 内直接进行网络 I/O。
 - 远程 AI 的结果只能作用于它读取的原始 snapshot：应用前必须校验当前方块坐标仍完全一致；下一次自动下落若先到达，则必须先废弃远程 generation 并在状态变化前执行本地 fallback。手动输入优先并取消该方块的 pending remote decision。
 - AI 策略不得自行重新实现碰撞、旋转、下落或消行规则；候选合法性和落地事实统一来自 `BoardSimulator` / `PlacementCandidate`。策略可以改变评分或选择方式，但不能建立第二套游戏规则。
-- Jev 必须通过 `TETRIS_AI_AGENT=jev` 显式启用，`TYPESAFE_API_KEY` 仅作为凭据，不得因为 key 存在就自动开启远程调用；secret 不写入仓库、不输出到日志。
+- Jev 必须通过 `TETRIS_AI_AGENT=jev` 显式启用，`TYPESAFE_API_KEY` 仅作为凭据，不得因为 key 存在就自动开启远程调用；secret 不写入仓库、不输出到日志。远程 Choice 只能接收本地 heuristic shortlist（当前最多 5 个）；shortlist 复用 `HeuristicTetrisAgent` 的既有评分和 tie-break，不复制第二套权重。
 - TypeSafe 当前没有 Java SDK，Java 集成使用 JDK `HttpClient` 调用官方 System One HTTP API；JSON 使用 Jackson 3，不手写 JSON parser。
 - Benchmark 默认必须完全本地且 deterministic；真实 Jev benchmark 只能显式选择并使用环境变量 secret，CI 默认不得调用外部模型或消耗 provider quota。
 - Benchmark 状态推进必须来自 `BoardSimulator` 返回的 `PlacementCandidate.resultingBoard`，不得为 benchmark 单独实现旋转、碰撞、下落或消行规则。
