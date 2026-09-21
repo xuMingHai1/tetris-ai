@@ -85,7 +85,7 @@ Windows 对应使用 `mvnw.cmd`。
 
 GitHub Actions 使用 `[self-hosted, linux, x64]`。
 
-`.github/workflows/ai-benchmark.yml` 仅允许 `workflow_dispatch` 手动运行，不属于普通 CI。默认运行本地 heuristic baseline；Jev benchmark 只有显式选择、确认外部调用成本并存在 `TYPESAFE_API_KEY` repository secret 时才能运行，且单次最多 200 个潜在 decision。benchmark 结果应上传 artifact，不提交生成结果到源码仓库。
+`.github/workflows/ai-benchmark.yml` 仅允许 `workflow_dispatch` 手动运行，不属于普通 CI。默认运行本地 heuristic baseline；`compare` 模式会对相同 seed/参数顺序运行 heuristic 与 Jev，并生成同一份 artifact。Jev benchmark（含 `compare` 中的 Jev 部分）只有显式确认外部调用成本并存在 `TYPESAFE_API_KEY` repository secret 时才能运行，且单次最多 200 个潜在 Jev decision。benchmark 结果应上传 artifact，不提交生成结果到源码仓库。
 
 由于仓库是 public repository：
 - 外部 fork PR 不允许在 self-hosted runner 上执行任意代码。

@@ -172,9 +172,9 @@ TYPESAFE_API_KEY=<your-key> \
 
 输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。Jev 还会汇总 confidence 范围、token、candidate count、selected heuristic rank、top-1 agreement，以及相对 heuristic 第一名的 immediate metric delta。手动 workflow 还会把逐 decision Jev telemetry 保存为 `jev-decisions.csv`，用于在不改变策略的前提下分析 confidence 与偏离 heuristic 的关系。这些 board-health 数值直接来自生产 `PlacementCandidate`，benchmark 不重复计算规则或启发式指标。benchmark 的 latency 是完整 agent 调用耗时，用于策略评估；它不模拟桌面游戏中的实时 gravity deadline。
 
-也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。
+也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。 workflow 还提供 `compare` 模式：使用同一组 `games / max_pieces / seed` 先跑 heuristic，再跑 Jev，并把两组结果放入同一个 artifact，适合做成对策略对照。
 
-Jev workflow 不会自动执行。选择 `jev` 时必须同时：
+Jev workflow 不会自动执行。选择 `jev` 或 `compare` 时必须同时：
 
 1. 在 repository Actions secrets 中配置 `TYPESAFE_API_KEY`；
 2. 显式勾选 `confirm_jev_cost`；
