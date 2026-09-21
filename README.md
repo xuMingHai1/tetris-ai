@@ -106,7 +106,27 @@ scripts\package-app.cmd msi
 
 ## AI 自动玩
 
-游戏运行后按 `F2` 切换 AI 自动玩。当前实现使用 one-ply heuristic search，在独立状态快照上枚举旋转和水平位置，并根据消行、堆叠高度、空洞和表面起伏评分。
+游戏运行后按 `F2` 切换 AI 自动玩。默认使用本地 one-ply heuristic agent；它在独立状态快照上枚举合法候选，并根据消行、堆叠高度、空洞和表面起伏评分。
+
+项目也支持 TypeSafe AI 的 Jev。Jev 只从 `BoardSimulator` 已验证的合法 `PlacementCandidate` 中选择，不负责碰撞、旋转、下落或消行规则。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
+
+Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。
+
+Linux / macOS：
+
+```bash
+TETRIS_AI_AGENT=jev TYPESAFE_API_KEY=<your-key> ./mvnw javafx:run
+```
+
+Windows CMD：
+
+```bat
+set TETRIS_AI_AGENT=jev
+set TYPESAFE_API_KEY=<your-key>
+mvnw.cmd javafx:run
+```
+
+API key 不应写入仓库或配置文件。当前 Jev adapter 使用官方 `jev-latest` 模型和 `/v1/systemone` Choice API，对 HTTP 429 / 529 进行有限指数退避重试。
 
 AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射回现有游戏动作。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
 

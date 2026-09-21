@@ -57,9 +57,19 @@ The AI decision is requested only when a new piece is spawned. Existing manual i
 
 `TetrisAgent` remains a synchronous decision contract, while `AiDecisionExecutor` owns runtime execution. Each request runs on a virtual thread so a future remote agent cannot block the JavaFX application thread. If the configured primary agent throws, the executor evaluates the same immutable snapshot with the local `HeuristicTetrisAgent` fallback.
 
-Each submission advances a decision generation. Completion is marshalled back through `Platform.runLater` and is applied only when the request is still current, AI mode is still enabled, the game is active, and the live falling piece is the exact piece that produced the snapshot. A newer request or an explicit AI-mode change invalidates older work, preventing a slow remote response from controlling a later piece.
+Each submission advances a decision generation. Completion is marshalled back through `Platform.runLater` and is applied only when the request is still current, AI mode is still enabled, the game is active, the live falling piece is the exact piece that produced the snapshot, and its cell coordinates still exactly match the snapshot.
 
-`GameWorld(TetrisAgent)` is the injection boundary for future remote implementations. Network/client details stay outside `GameWorld`; the world continues to consume only `GameSnapshot -> TetrisAgent -> AiMove`.
+A remote decision owns the snapshot only until the next live-state mutation. Before the next automatic gravity tick changes the piece, `GameWorld` checks the pending decision. If it has not completed, the remote generation is invalidated and the local heuristic fallback is evaluated immediately against the still-unchanged snapshot, then the game continues. Manual movement cancels the pending remote decision instead, so player input always wins. This makes the gameplay tick, rather than an arbitrary HTTP timeout, the effective deadline for a remote decision.
+
+`GameWorld(TetrisAgent)` is the injection boundary for remote implementations. Network/client details stay outside `GameWorld`; the world continues to consume only `GameSnapshot -> TetrisAgent -> AiMove`.
+
+### Jev provider
+
+`TetrisAgentFactory` selects the runtime strategy from environment configuration. The default is `HeuristicTetrisAgent`; `TETRIS_AI_AGENT=jev` explicitly selects `JevTetrisAgent` and requires `TYPESAFE_API_KEY`.
+
+`JevTetrisAgent` asks TypeSafe System One to answer one Choice question. Candidate ids (`c0`, `c1`, ...) are generated locally and map to `PlacementCandidate` instances. The provider receives the current board plus, for each legal candidate, the move, resulting board and objective metrics. A returned id must exist in that local map before it can become an `AiMove`.
+
+`TypeSafeSystemOneClient` is the provider adapter. It uses JDK `HttpClient`, the documented `POST https://api.typesafe.ai/v1/systemone` endpoint, `jev-latest`, bearer authentication and Jackson 3 for JSON. HTTP 429 and 529 responses are retried with bounded exponential backoff. Other provider, transport or response-shape failures are surfaced to `AiDecisionExecutor`, which falls back to the local heuristic agent.
 
 ## Constraints
 
@@ -70,4 +80,6 @@ Each submission advances a decision generation. Completion is marshalled back th
 - A candidate selected by the simulator must still pass the live `GameWorld` collision checks.
 - Invalid live moves restore the previous grid state; failed movement must not remove the falling piece from collision data.
 - Shared board semantics belong in `core.BoardRules`; AI-only heuristics belong in `ai`.
+- Jev is opt-in through `TETRIS_AI_AGENT=jev`; presence of an API key alone must not enable remote calls.
+- Provider credentials come from environment variables and must not be committed or logged.
 - Search improvements should extend the current state/action boundary rather than create a second game engine with duplicated rules.

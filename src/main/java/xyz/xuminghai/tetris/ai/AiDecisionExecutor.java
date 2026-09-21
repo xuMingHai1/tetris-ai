@@ -54,6 +54,21 @@ public final class AiDecisionExecutor {
     }
 
     /**
+     * Supersedes the current primary decision and evaluates the local fallback immediately.
+     *
+     * <p>This is used when the live game is about to mutate the snapshot that a remote decision
+     * was based on. The fallback therefore gets the last chance to act on that unchanged state.</p>
+     *
+     * @param snapshot immutable state that is still current in the live game
+     * @return fallback move for the snapshot
+     */
+    public AiMove fallbackNow(GameSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        generation.incrementAndGet();
+        return requireMove(fallbackAgent.decide(snapshot));
+    }
+
+    /**
      * Returns whether this decision is still the newest request known to the executor.
      */
     public boolean isCurrent(AiDecision decision) {

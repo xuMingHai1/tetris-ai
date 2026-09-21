@@ -87,6 +87,25 @@ class AiDecisionExecutorTest {
     }
 
     @Test
+    void immediateFallbackInvalidatesPendingDecision() {
+        AtomicInteger fallbackCalls = new AtomicInteger();
+        AiMove fallbackMove = new AiMove(0, -2);
+        AiDecisionExecutor executor = new AiDecisionExecutor(
+                snapshot -> AiMove.NONE,
+                snapshot -> {
+                    fallbackCalls.incrementAndGet();
+                    return fallbackMove;
+                });
+        AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
+
+        AiMove move = executor.fallbackNow(snapshot());
+
+        assertEquals(fallbackMove, move);
+        assertEquals(1, fallbackCalls.get());
+        assertFalse(executor.isCurrent(decision));
+    }
+
+    @Test
     void exposesFallbackFailureAndPreservesPrimaryFailure() {
         AiDecisionExecutor executor = new AiDecisionExecutor(
                 snapshot -> {
