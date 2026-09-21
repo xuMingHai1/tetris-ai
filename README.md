@@ -76,7 +76,7 @@ GitHub Actions 使用 self-hosted Linux x64 runner 执行构建、SpotBugs、Git
 MANUAL -> HEURISTIC -> JEV -> MANUAL
 ```
 
-HEURISTIC 使用 one-ply search，在独立状态快照上枚举旋转和水平位置，并根据消行、堆叠高度、空洞和表面起伏评分。
+HEURISTIC 使用 one-ply search，在独立状态快照上枚举旋转和水平位置，并根据消行、堆叠高度、空洞和表面起伏评分。F2 切换会立即作用于当前方块：切入自动模式马上决策，切回 MANUAL 马上恢复人工控制。
 
 AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射回现有游戏动作。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
 

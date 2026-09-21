@@ -45,7 +45,7 @@ The simulator reuses existing tetromino rotation behavior and `core.BoardRules`.
 
 ## Runtime integration
 
-`F2` cycles `MANUAL -> HEURISTIC -> JEV -> MANUAL`. The current mode and Jev state are shown in the side panel.
+`F2` cycles `MANUAL -> HEURISTIC -> JEV -> MANUAL`. The current mode and Jev state are shown in the side panel. Mode changes take effect on the current piece immediately; switching back to MANUAL invalidates any pending remote response and restores player input.
 
 HEURISTIC remains synchronous at the spawn boundary. JEV is asynchronous:
 

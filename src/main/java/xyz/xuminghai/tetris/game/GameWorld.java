@@ -796,7 +796,7 @@ public final class GameWorld {
             if (gameGrid.saveCellsData(cells)) {
                 currentCells.set(gameGrid.checkCells(tetris.copy()));
                 if (spawned) {
-                    decideSpawnedPiece(tetris);
+                    decideCurrentPiece(tetris);
                 }
             }
             // 添加失败
@@ -908,9 +908,9 @@ public final class GameWorld {
     }
 
     /**
-     * 循环切换 MANUAL / HEURISTIC / JEV。新模式从下一次新方块生成开始生效。
+     * 循环切换 MANUAL / HEURISTIC / JEV，并立即把新模式应用到当前方块。
      *
-     * <p>如果切换发生在 Jev 请求等待期间，会立即恢复当前方块下落，并使迟到的远程响应失效。</p>
+     * <p>如果切换发生在 Jev 请求等待期间，会立即使旧请求失效；切回 MANUAL 后当前方块立即恢复人工控制。</p>
      */
     public void cycleAiMode() {
         aiDecisionGeneration++;
@@ -920,6 +920,11 @@ public final class GameWorld {
             case MANUAL, HEURISTIC -> AiDecisionState.IDLE;
             case JEV -> jevAgent.isPresent() ? AiDecisionState.IDLE : AiDecisionState.UNAVAILABLE;
         });
+
+        final Tetris tetris = currentTetris.get();
+        if (tetris != null && currentCells.get() != null && aiMode.get() != AiMode.MANUAL) {
+            decideCurrentPiece(tetris);
+        }
     }
 
     public boolean acceptsPlayerInput() {
@@ -1078,7 +1083,7 @@ public final class GameWorld {
         }
     }
 
-    private void decideSpawnedPiece(Tetris spawnedTetris) {
+    private void decideCurrentPiece(Tetris spawnedTetris) {
         switch (aiMode.get()) {
             case MANUAL -> aiDecisionState.set(AiDecisionState.IDLE);
             case HEURISTIC -> {
