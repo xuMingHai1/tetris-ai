@@ -632,8 +632,8 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.robot.Robot;
 import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.AiDecisionExecutor;
-import xyz.xuminghai.tetris.ai.AiMove;
 import xyz.xuminghai.tetris.ai.AiPlan;
+import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
@@ -689,7 +689,18 @@ public final class GameWorld {
      * @param aiAgent primary AI decision implementation
      */
     public GameWorld(TetrisAgent aiAgent) {
-        this.aiDecisionExecutor = new AiDecisionExecutor(aiAgent, new HeuristicTetrisAgent());
+        this(AiPlanningAgent.fromPlacementAgent(aiAgent));
+    }
+
+    /**
+     * Creates a game world with an action-native primary AI. The local heuristic remains the safe
+     * fallback and is adapted to the same plan contract.
+     *
+     * @param aiAgent primary action-planning implementation
+     */
+    public GameWorld(AiPlanningAgent aiAgent) {
+        this.aiDecisionExecutor = new AiDecisionExecutor(
+                aiAgent, AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()));
     }
 
     /**
@@ -1083,7 +1094,7 @@ public final class GameWorld {
             AiDecisionExecutor.AiDecision decision,
             GameSnapshot snapshot,
             Tetris expectedTetris,
-            AiMove move,
+            AiPlan plan,
             Throwable failure) {
         if (pendingAiDecision != decision || !aiDecisionExecutor.isCurrent(decision)) {
             return;
@@ -1098,7 +1109,7 @@ public final class GameWorld {
             System.err.printf("AI decision failed: %s%n", failure.getMessage());
             return;
         }
-        applyAiPlan(AiPlan.fromPlacement(move));
+        applyAiPlan(plan);
     }
 
     /**
@@ -1119,9 +1130,9 @@ public final class GameWorld {
         var result = pendingAiDecision.result().toCompletableFuture();
         if (result.isDone()) {
             try {
-                AiMove move = result.join();
+                AiPlan plan = result.join();
                 clearPendingAiDecision();
-                applyAiPlan(AiPlan.fromPlacement(move));
+                applyAiPlan(plan);
             }
             catch (RuntimeException failure) {
                 clearPendingAiDecision();
@@ -1132,9 +1143,9 @@ public final class GameWorld {
 
         final GameSnapshot snapshot = pendingAiSnapshot;
         try {
-            AiMove fallbackMove = aiDecisionExecutor.fallbackNow(snapshot);
+            AiPlan fallbackPlan = aiDecisionExecutor.fallbackNow(snapshot);
             clearPendingAiDecision();
-            applyAiPlan(AiPlan.fromPlacement(fallbackMove));
+            applyAiPlan(fallbackPlan);
         }
         catch (RuntimeException failure) {
             clearPendingAiDecision();
