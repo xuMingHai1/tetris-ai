@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * Jev-backed agent that asks TypeSafe to choose among deterministic legal placements.
@@ -26,14 +27,33 @@ public final class JevTetrisAgent implements TetrisAgent {
                     + "Every option is already reachable and legal. Prefer boards with fewer holes and lower "
                     + "dangerous stacking while considering cleared lines and surface stability.";
 
+    private static final Consumer<JevDecisionObservation> NOOP_OBSERVER = _ -> {
+    };
+
     private final TypeSafeSystemOneClient client;
+    private final Consumer<JevDecisionObservation> observer;
 
     public JevTetrisAgent(String apiKey) {
-        this(new TypeSafeSystemOneClient(apiKey));
+        this(new TypeSafeSystemOneClient(apiKey), NOOP_OBSERVER);
+    }
+
+    /**
+     * Creates a Jev agent with an observer for evaluation telemetry.
+     *
+     * <p>The observer is notified only after a successful TypeSafe Choice response and never
+     * participates in move selection.</p>
+     */
+    public JevTetrisAgent(String apiKey, Consumer<JevDecisionObservation> observer) {
+        this(new TypeSafeSystemOneClient(apiKey), observer);
     }
 
     JevTetrisAgent(TypeSafeSystemOneClient client) {
+        this(client, NOOP_OBSERVER);
+    }
+
+    JevTetrisAgent(TypeSafeSystemOneClient client, Consumer<JevDecisionObservation> observer) {
         this.client = Objects.requireNonNull(client, "client");
+        this.observer = Objects.requireNonNull(observer, "observer");
     }
 
     @Override
@@ -54,6 +74,11 @@ public final class JevTetrisAgent implements TetrisAgent {
 
         TypeSafeSystemOneClient.ChoiceResult result =
                 client.choose(QUESTION_ID, state(snapshot), INSTRUCTIONS, criteria);
+        observer.accept(new JevDecisionObservation(
+                result.confidence(),
+                result.inputTokens(),
+                result.outputTokens(),
+                candidates.size()));
         PlacementCandidate selected = candidatesById.get(result.choice());
         if (selected == null) {
             throw new IllegalStateException("TypeSafe selected an unknown placement candidate: " + result.choice());
