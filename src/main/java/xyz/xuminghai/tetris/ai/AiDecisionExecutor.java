@@ -27,10 +27,6 @@ public final class AiDecisionExecutor {
     private final AiPlanningAgent fallbackAgent;
     private final AtomicLong generation = new AtomicLong();
 
-    public AiDecisionExecutor(TetrisAgent primaryAgent, TetrisAgent fallbackAgent) {
-        this(AiPlanningAgent.fromPlacementAgent(primaryAgent), AiPlanningAgent.fromPlacementAgent(fallbackAgent));
-    }
-
     /**
      * Creates an executor for action-native planning agents.
      */
