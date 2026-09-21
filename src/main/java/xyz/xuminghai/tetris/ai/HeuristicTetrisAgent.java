@@ -12,30 +12,41 @@ package xyz.xuminghai.tetris.ai;
  */
 public final class HeuristicTetrisAgent implements TetrisAgent {
 
+    private static final double CLEARED_LINE_WEIGHT = 0.760666;
+    private static final double AGGREGATE_HEIGHT_WEIGHT = -0.510066;
+    private static final double HOLE_WEIGHT = -0.35663;
+    private static final double BUMPINESS_WEIGHT = -0.184483;
+
     @Override
     public AiMove decide(GameSnapshot snapshot) {
         AiMove bestMove = AiMove.NONE;
         double bestScore = Double.NEGATIVE_INFINITY;
 
-        for (int rotations = 0; rotations < snapshot.currentType().rotationStates(); rotations++) {
-            for (int shift = -snapshot.cols(); shift <= snapshot.cols(); shift++) {
-                double score = BoardSimulator.evaluate(snapshot, rotations, shift);
-                if (score > bestScore
-                        || (Double.compare(score, bestScore) == 0 && betterTieBreak(rotations, shift, bestMove))) {
-                    bestScore = score;
-                    bestMove = new AiMove(rotations, shift);
-                }
+        for (PlacementCandidate candidate : BoardSimulator.candidates(snapshot)) {
+            double score = score(candidate);
+            if (score > bestScore
+                    || (Double.compare(score, bestScore) == 0 && betterTieBreak(candidate.move(), bestMove))) {
+                bestScore = score;
+                bestMove = candidate.move();
             }
         }
 
         return bestScore == Double.NEGATIVE_INFINITY ? AiMove.NONE : bestMove;
     }
 
-    private static boolean betterTieBreak(int rotations, int shift, AiMove current) {
-        int shiftComparison = Integer.compare(Math.abs(shift), Math.abs(current.horizontalShift()));
+    private static double score(PlacementCandidate candidate) {
+        return candidate.clearedLines() * CLEARED_LINE_WEIGHT
+                + candidate.aggregateHeight() * AGGREGATE_HEIGHT_WEIGHT
+                + candidate.holes() * HOLE_WEIGHT
+                + candidate.bumpiness() * BUMPINESS_WEIGHT;
+    }
+
+    private static boolean betterTieBreak(AiMove candidate, AiMove current) {
+        int shiftComparison =
+                Integer.compare(Math.abs(candidate.horizontalShift()), Math.abs(current.horizontalShift()));
         if (shiftComparison != 0) {
             return shiftComparison < 0;
         }
-        return rotations < current.clockwiseRotations();
+        return candidate.clockwiseRotations() < current.clockwiseRotations();
     }
 }

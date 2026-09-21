@@ -13,29 +13,46 @@ import xyz.xuminghai.tetris.core.TetrisFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 final class BoardSimulator {
-
-    private static final double CLEARED_LINE_WEIGHT = 0.760666;
-    private static final double AGGREGATE_HEIGHT_WEIGHT = -0.510066;
-    private static final double HOLE_WEIGHT = -0.35663;
-    private static final double BUMPINESS_WEIGHT = -0.184483;
 
     private BoardSimulator() {
     }
 
-    static double evaluate(GameSnapshot snapshot, int rotations, int horizontalShift) {
+    /**
+     * Enumerates every move reachable through the live rotate-then-horizontal-move control path.
+     *
+     * <p>Candidate order is deterministic: rotation count first, then horizontal shift from left to
+     * right. Invalid paths are omitted instead of being represented by sentinel scores.</p>
+     */
+    static List<PlacementCandidate> candidates(GameSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+
+        List<PlacementCandidate> candidates = new ArrayList<>();
+        for (int rotations = 0; rotations < snapshot.currentType().rotationStates(); rotations++) {
+            for (int shift = -snapshot.cols(); shift <= snapshot.cols(); shift++) {
+                PlacementCandidate candidate = simulate(snapshot, rotations, shift);
+                if (candidate != null) {
+                    candidates.add(candidate);
+                }
+            }
+        }
+        return List.copyOf(candidates);
+    }
+
+    private static PlacementCandidate simulate(GameSnapshot snapshot, int rotations, int horizontalShift) {
         boolean[][] occupied = snapshot.occupied();
         List<BoardPosition> cells = rotatedCells(snapshot, occupied, rotations);
         if (cells == null) {
-            return Double.NEGATIVE_INFINITY;
+            return null;
         }
 
         int direction = Integer.signum(horizontalShift);
         for (int step = 0; step < Math.abs(horizontalShift); step++) {
             cells = horizontal(cells, direction);
             if (!BoardRules.canPlace(occupied, snapshot.rows(), snapshot.cols(), cells)) {
-                return Double.NEGATIVE_INFINITY;
+                return null;
             }
         }
 
@@ -46,7 +63,7 @@ final class BoardSimulator {
         }
 
         if (cells.stream().anyMatch(cell -> cell.row() < 0)) {
-            return Double.NEGATIVE_INFINITY;
+            return null;
         }
 
         for (BoardPosition cell : cells) {
@@ -54,7 +71,38 @@ final class BoardSimulator {
         }
 
         int clearedLines = BoardRules.clearFullRows(occupied);
-        return score(occupied, clearedLines);
+        return describe(new AiMove(rotations, horizontalShift), occupied, clearedLines);
+    }
+
+    private static PlacementCandidate describe(AiMove move, boolean[][] board, int clearedLines) {
+        int rows = board.length;
+        int cols = board[0].length;
+        int[] heights = new int[cols];
+        int aggregateHeight = 0;
+        int holes = 0;
+
+        for (int col = 0; col < cols; col++) {
+            boolean blockSeen = false;
+            for (int row = 0; row < rows; row++) {
+                if (board[row][col]) {
+                    if (!blockSeen) {
+                        heights[col] = rows - row;
+                        aggregateHeight += heights[col];
+                        blockSeen = true;
+                    }
+                }
+                else if (blockSeen) {
+                    holes++;
+                }
+            }
+        }
+
+        int bumpiness = 0;
+        for (int col = 0; col < cols - 1; col++) {
+            bumpiness += Math.abs(heights[col] - heights[col + 1]);
+        }
+
+        return new PlacementCandidate(move, board, clearedLines, aggregateHeight, holes, bumpiness);
     }
 
     private static List<BoardPosition> rotatedCells(
@@ -98,39 +146,5 @@ final class BoardSimulator {
 
     private static List<BoardPosition> down(List<BoardPosition> cells) {
         return cells.stream().map(BoardPosition::down).toList();
-    }
-
-    private static double score(boolean[][] board, int clearedLines) {
-        int rows = board.length;
-        int cols = board[0].length;
-        int[] heights = new int[cols];
-        int aggregateHeight = 0;
-        int holes = 0;
-
-        for (int col = 0; col < cols; col++) {
-            boolean blockSeen = false;
-            for (int row = 0; row < rows; row++) {
-                if (board[row][col]) {
-                    if (!blockSeen) {
-                        heights[col] = rows - row;
-                        aggregateHeight += heights[col];
-                        blockSeen = true;
-                    }
-                }
-                else if (blockSeen) {
-                    holes++;
-                }
-            }
-        }
-
-        int bumpiness = 0;
-        for (int col = 0; col < cols - 1; col++) {
-            bumpiness += Math.abs(heights[col] - heights[col + 1]);
-        }
-
-        return clearedLines * CLEARED_LINE_WEIGHT
-                + aggregateHeight * AGGREGATE_HEIGHT_WEIGHT
-                + holes * HOLE_WEIGHT
-                + bumpiness * BUMPINESS_WEIGHT;
     }
 }
