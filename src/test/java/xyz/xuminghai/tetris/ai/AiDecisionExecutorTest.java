@@ -95,7 +95,7 @@ class AiDecisionExecutorTest {
         AtomicInteger fallbackCalls = new AtomicInteger();
         AiMove fallbackMove = new AiMove(0, -2);
         AiDecisionExecutor executor = new AiDecisionExecutor(
-                (AiPlanningAgent) snapshot -> AiMove.NONE,
+                (AiPlanningAgent) snapshot -> AiPlan.fromPlacement(AiMove.NONE),
                 snapshot -> {
                     fallbackCalls.incrementAndGet();
                     return AiPlan.fromPlacement(fallbackMove);
