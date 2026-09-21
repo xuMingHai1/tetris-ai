@@ -70,7 +70,13 @@ GitHub Actions 使用 self-hosted Linux x64 runner 执行构建、SpotBugs、Git
 
 ## AI 自动玩
 
-游戏运行后按 `F2` 切换 AI 自动玩。当前实现使用 one-ply heuristic search，在独立状态快照上枚举旋转和水平位置，并根据消行、堆叠高度、空洞和表面起伏评分。
+游戏运行后按 `F2` 循环切换：
+
+```text
+MANUAL -> HEURISTIC -> JEV -> MANUAL
+```
+
+HEURISTIC 使用 one-ply search，在独立状态快照上枚举旋转和水平位置，并根据消行、堆叠高度、空洞和表面起伏评分。
 
 AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射回现有游戏动作。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
 
@@ -88,4 +94,4 @@ export TYPESAFE_API_KEY=...
 
 API key 不应写入源码、配置文件或 Git 历史。网络调用是异步的，TypeSafe 返回 429 或 529 时客户端会使用指数退避重试。
 
-当前 PR 只建立 TypeSafe integration 与 `JevTetrisAgent`；JavaFX 游戏模式的异步接线单独交付，避免网络生命周期与基础 API integration 混在同一个 PR。
+JEV 模式在新方块生成时异步请求 TypeSafe。请求等待期间当前方块暂停下落，但 JavaFX thread 不会阻塞；成功后回到 FX thread 应用 `AiMove`。远程调用失败时明确切换为 `JEV · FALLBACK` 并使用 heuristic placement；没有配置 API key 时显示 `JEV · UNAVAILABLE` 并使用同样的本地 fallback。
