@@ -61,7 +61,7 @@ public final class TypeSafeSystemOneClient {
         this.requestTimeout = DEFAULT_REQUEST_TIMEOUT;
         this.maxAttempts = DEFAULT_MAX_ATTEMPTS;
         this.initialBackoff = DEFAULT_INITIAL_BACKOFF;
-        this.transport = request -> {
+        this.transport = (request, requestBody) -> {
             HttpResponse<String> response =
                     httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             return new RawResponse(response.statusCode(), response.body());
@@ -133,15 +133,15 @@ public final class TypeSafeSystemOneClient {
                 .POST(HttpRequest.BodyPublishers.ofString(json, StandardCharsets.UTF_8))
                 .build();
 
-        RawResponse response = sendWithRetry(request);
+        RawResponse response = sendWithRetry(request, json);
         return parseChoice(response.body(), normalizedQuestionId);
     }
 
-    private RawResponse sendWithRetry(HttpRequest request) {
+    private RawResponse sendWithRetry(HttpRequest request, String requestBody) {
         Duration backoff = initialBackoff;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                RawResponse response = transport.send(request);
+                RawResponse response = transport.send(request, requestBody);
                 if (isSuccessful(response.statusCode())) {
                     return response;
                 }
@@ -218,7 +218,7 @@ public final class TypeSafeSystemOneClient {
 
     @FunctionalInterface
     interface Transport {
-        RawResponse send(HttpRequest request) throws IOException, InterruptedException;
+        RawResponse send(HttpRequest request, String requestBody) throws IOException, InterruptedException;
     }
 
     @FunctionalInterface
