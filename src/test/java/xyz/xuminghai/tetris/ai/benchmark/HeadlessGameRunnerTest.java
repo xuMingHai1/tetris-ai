@@ -24,7 +24,23 @@ class HeadlessGameRunnerTest {
         assertEquals(first.piecesPlaced(), second.piecesPlaced());
         assertEquals(first.linesCleared(), second.linesCleared());
         assertEquals(first.decisions(), second.decisions());
+        assertEquals(first.boardHealth(), second.boardHealth());
         assertEquals(first.reachedPieceLimit(), second.reachedPieceLimit());
+    }
+
+    @Test
+    void recordsBoardHealthFromSelectedProductionCandidates() {
+        HeadlessGameRunner runner = new HeadlessGameRunner();
+
+        GameBenchmarkResult result = runner.run(42L, 25, new HeuristicTetrisAgent());
+
+        BoardHealthSummary health = result.boardHealth();
+        assertTrue(health.averageAggregateHeight() >= 0);
+        assertTrue(health.averageHoles() >= 0);
+        assertTrue(health.averageBumpiness() >= 0);
+        assertTrue(health.maxAggregateHeight() >= health.finalAggregateHeight());
+        assertTrue(health.maxHoles() >= health.finalHoles());
+        assertTrue(health.maxBumpiness() >= health.finalBumpiness());
     }
 
     @Test
