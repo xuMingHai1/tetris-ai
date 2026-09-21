@@ -14,7 +14,9 @@ import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.Tetris;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,7 +41,9 @@ class HeadlessGameRunnerTest {
     @Test
     void startsAiDecisionFromTheSamePostSpawnGravityPositionAsRuntime() {
         long seed = 42L;
-        Tetris expectedPiece = new BagPieceGenerator(seed).next();
+        BagPieceGenerator expectedGenerator = new BagPieceGenerator(seed);
+        Tetris expectedPiece = expectedGenerator.next();
+        Tetris expectedNextPiece = expectedGenerator.next();
         expectedPiece.downMove();
         AtomicReference<GameSnapshot> observed = new AtomicReference<>();
 
@@ -55,6 +59,20 @@ class HeadlessGameRunnerTest {
                         .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
                         .toList(),
                 snapshot.currentCells());
+        assertEquals(TetrominoType.from(expectedNextPiece), snapshot.nextType().orElseThrow());
+    }
+
+    @Test
+    void advancesThePreviewPieceWithoutSkippingTheBagSequence() {
+        List<GameSnapshot> snapshots = new ArrayList<>();
+
+        new HeadlessGameRunner().run(42L, 2, snapshot -> {
+            snapshots.add(snapshot);
+            return new HeuristicTetrisAgent().decide(snapshot);
+        });
+
+        assertEquals(2, snapshots.size());
+        assertEquals(snapshots.getFirst().nextType().orElseThrow(), snapshots.get(1).currentType());
     }
 
     @Test
