@@ -630,8 +630,10 @@ import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.scene.input.KeyCode;
 import javafx.scene.robot.Robot;
+import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.AiDecisionExecutor;
 import xyz.xuminghai.tetris.ai.AiMove;
+import xyz.xuminghai.tetris.ai.AiPlan;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
@@ -1096,7 +1098,7 @@ public final class GameWorld {
             System.err.printf("AI decision failed: %s%n", failure.getMessage());
             return;
         }
-        applyAiMove(move);
+        applyAiPlan(AiPlan.fromPlacement(move));
     }
 
     /**
@@ -1119,7 +1121,7 @@ public final class GameWorld {
             try {
                 AiMove move = result.join();
                 clearPendingAiDecision();
-                applyAiMove(move);
+                applyAiPlan(AiPlan.fromPlacement(move));
             }
             catch (RuntimeException failure) {
                 clearPendingAiDecision();
@@ -1132,7 +1134,7 @@ public final class GameWorld {
         try {
             AiMove fallbackMove = aiDecisionExecutor.fallbackNow(snapshot);
             clearPendingAiDecision();
-            applyAiMove(fallbackMove);
+            applyAiPlan(AiPlan.fromPlacement(fallbackMove));
         }
         catch (RuntimeException failure) {
             clearPendingAiDecision();
@@ -1181,28 +1183,37 @@ public final class GameWorld {
                 TetrominoType.from(nextTetris.get()));
     }
 
-    private void applyAiMove(AiMove move) {
-        for (int rotation = 0; rotation < move.clockwiseRotations(); rotation++) {
-            if (!tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, false)) {
+    /**
+     * Executes an AI plan against the live model in order.
+     *
+     * <p>Every non-hard-drop action must succeed or the remainder of the plan is abandoned. Hard
+     * drop repeatedly applies the existing downward movement until collision; lock, row clearing
+     * and next-piece lifecycle remain owned by the normal gravity path.</p>
+     */
+    private void applyAiPlan(AiPlan plan) {
+        for (AiAction action : plan.actions()) {
+            if (!applyAiAction(action)) {
                 return;
             }
         }
+    }
 
-        final ActionEnum action = move.horizontalShift() < 0 ? ActionEnum.LEFT_MOVE : ActionEnum.RIGHT_MOVE;
-        final Function<Tetris, Cell[]> movement =
-                move.horizontalShift() < 0 ? Tetris::leftMove : Tetris::rightMove;
-        for (int step = 0; step < Math.abs(move.horizontalShift()); step++) {
-            if (!tetrisAction(action, movement, false)) {
-                return;
+    private boolean applyAiAction(AiAction action) {
+        return switch (action) {
+            case LEFT -> tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, false);
+            case RIGHT -> tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, false);
+            case ROTATE_CLOCKWISE ->
+                    tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, false);
+            case ROTATE_COUNTER_CLOCKWISE ->
+                    tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, false);
+            case SOFT_DROP -> tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false);
+            case HARD_DROP -> {
+                while (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
+                    // Keep descending until the next row would collide.
+                }
+                yield true;
             }
-        }
-
-        // AI candidates represent their final landing placement. Once rotation and horizontal
-        // movement have reached that placement's column, descend immediately instead of waiting
-        // for one gravity pulse per row.
-        while (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
-            // Keep descending until the next row would collide.
-        }
+        };
     }
 
     /**
