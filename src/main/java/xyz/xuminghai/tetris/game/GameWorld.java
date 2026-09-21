@@ -1177,7 +1177,8 @@ public final class GameWorld {
                 TetrominoType.from(tetris),
                 Arrays.stream(cells)
                         .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
-                        .toList());
+                        .toList(),
+                TetrominoType.from(nextTetris.get()));
     }
 
     private void applyAiMove(AiMove move) {
