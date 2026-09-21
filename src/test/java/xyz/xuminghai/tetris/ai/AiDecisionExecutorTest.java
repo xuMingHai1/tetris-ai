@@ -38,7 +38,7 @@ class AiDecisionExecutorTest {
 
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
-        assertEquals(expected, decision.result().toCompletableFuture().join());
+        assertEquals(AiPlan.fromPlacement(expected), decision.result().toCompletableFuture().join());
         assertTrue(virtualThread.get());
         assertEquals(0, fallbackCalls.get());
         assertTrue(executor.isCurrent(decision));
@@ -59,7 +59,7 @@ class AiDecisionExecutorTest {
 
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
-        assertEquals(fallbackMove, decision.result().toCompletableFuture().join());
+        assertEquals(AiPlan.fromPlacement(fallbackMove), decision.result().toCompletableFuture().join());
         assertEquals(1, fallbackCalls.get());
     }
 
@@ -98,11 +98,35 @@ class AiDecisionExecutorTest {
                 });
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
-        AiMove move = executor.fallbackNow(snapshot());
+        AiPlan plan = executor.fallbackNow(snapshot());
 
-        assertEquals(fallbackMove, move);
+        assertEquals(AiPlan.fromPlacement(fallbackMove), plan);
         assertEquals(1, fallbackCalls.get());
         assertFalse(executor.isCurrent(decision));
+    }
+
+    @Test
+    void acceptsActionNativePrimaryPlan() {
+        AiPlan expected = new AiPlan(List.of(
+                AiAction.LEFT,
+                AiAction.SOFT_DROP,
+                AiAction.ROTATE_CLOCKWISE,
+                AiAction.HARD_DROP));
+        AiDecisionExecutor executor = new AiDecisionExecutor(
+                (AiPlanningAgent) snapshot -> expected,
+                (AiPlanningAgent) snapshot -> AiPlan.fromPlacement(AiMove.NONE));
+
+        assertEquals(expected, executor.submit(snapshot()).result().toCompletableFuture().join());
+    }
+
+    @Test
+    void fallsBackWhenPrimaryPlanIsStructurallyInvalid() {
+        AiPlan fallback = AiPlan.fromPlacement(new AiMove(0, 1));
+        AiDecisionExecutor executor = new AiDecisionExecutor(
+                (AiPlanningAgent) snapshot -> new AiPlan(List.of(AiAction.HARD_DROP, AiAction.LEFT)),
+                (AiPlanningAgent) snapshot -> fallback);
+
+        assertEquals(fallback, executor.submit(snapshot()).result().toCompletableFuture().join());
     }
 
     @Test
