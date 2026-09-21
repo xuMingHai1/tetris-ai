@@ -108,7 +108,7 @@ scripts\package-app.cmd msi
 
 游戏运行后按 `F2` 切换 AI 自动玩。默认使用本地 one-ply heuristic agent；它在独立状态快照上枚举合法候选，并根据消行、堆叠高度、空洞和表面起伏评分。
 
-项目也支持 TypeSafe AI 的 Jev。Jev 不直接在全部合法落点中裸选：`BoardSimulator` 先生成所有合法 `PlacementCandidate`，本地 heuristic 复用相同评分和 tie-break 排序后只保留前 5 个安全候选，再由 Jev 在这个 shortlist 中做二次选择。Jev 不负责碰撞、旋转、下落或消行规则。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
+项目也支持 TypeSafe AI 的 Jev。Jev 不直接在全部合法落点中裸选：`BoardSimulator` 先生成所有合法 `PlacementCandidate`，本地 heuristic 复用相同评分和 tie-break 排序后只保留前 5 个安全候选，再由 Jev 在这个 shortlist 中做二次选择。运行时已知的 preview piece 会进入 `GameSnapshot`；对于每个 shortlist candidate，本地 `BoardSimulator` 还会用同一套规则计算下一块的合法落点数量，以及 heuristic 最佳下一步的客观 metrics，作为 deterministic one-piece outlook 提供给 Jev。Jev 不负责碰撞、旋转、下落或消行规则。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
 
 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。
 

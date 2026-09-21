@@ -5,11 +5,14 @@
  */
 package xyz.xuminghai.tetris.ai;
 
+import xyz.xuminghai.tetris.core.TetrominoType;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
@@ -30,7 +33,9 @@ public final class JevTetrisAgent implements TetrisAgent {
                     + "Avoid top-out above all. Holes are severe long-term risk; prefer fewer holes and "
                     + "lower aggregate height. Cleared lines are beneficial when they do not create a much "
                     + "riskier board. Lower bumpiness is useful but must not outweigh holes or dangerous "
-                    + "stack height. Do not sacrifice survival for a smoother surface.";
+                    + "stack height. Do not sacrifice survival for a smoother surface. When a deterministic "
+                    + "next_piece_outlook is provided, use it to avoid current placements that leave the known "
+                    + "preview piece with dangerous or impossible follow-up placements.";
 
     private static final Consumer<JevDecisionObservation> NOOP_OBSERVER = _ -> {
     };
@@ -76,7 +81,7 @@ public final class JevTetrisAgent implements TetrisAgent {
             String id = "c" + index;
             PlacementCandidate candidate = candidates.get(index);
             candidatesById.put(id, candidate);
-            criteria.put(id, candidateDescription(candidate));
+            criteria.put(id, candidateDescription(candidate, snapshot.nextType()));
         }
 
         TypeSafeSystemOneClient.ChoiceResult result =
@@ -111,6 +116,7 @@ public final class JevTetrisAgent implements TetrisAgent {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("game", "Tetris");
         state.put("current_piece", snapshot.currentType().name());
+        snapshot.nextType().ifPresent(type -> state.put("next_piece", type.name()));
         state.put("board_encoding", "# = occupied, . = empty");
         state.put("current_board", boardRows(snapshot.occupied()));
         state.put("rows", snapshot.rows());
@@ -119,22 +125,46 @@ public final class JevTetrisAgent implements TetrisAgent {
         return state;
     }
 
-    private static Map<String, Object> candidateDescription(PlacementCandidate candidate) {
+    private static Map<String, Object> candidateDescription(
+            PlacementCandidate candidate,
+            Optional<TetrominoType> nextType) {
         Map<String, Object> move = new LinkedHashMap<>();
         move.put("clockwise_rotations", candidate.move().clockwiseRotations());
         move.put("horizontal_shift", candidate.move().horizontalShift());
 
+        Map<String, Object> description = new LinkedHashMap<>();
+        description.put("move", move);
+        description.put("metrics", metrics(candidate));
+        description.put("resulting_board", boardRows(candidate.resultingBoard()));
+        nextType.ifPresent(type -> description.put(
+                "next_piece_outlook",
+                nextPieceOutlook(candidate, type)));
+        return description;
+    }
+
+    private static Map<String, Object> nextPieceOutlook(
+            PlacementCandidate candidate,
+            TetrominoType nextType) {
+        List<PlacementCandidate> nextCandidates = HeuristicTetrisAgent.rankCandidates(
+                BoardSimulator.candidatesForSpawnedPiece(candidate.resultingBoard(), nextType));
+
+        Map<String, Object> outlook = new LinkedHashMap<>();
+        outlook.put("piece", nextType.name());
+        outlook.put("legal_placements", nextCandidates.size());
+        outlook.put("can_place", !nextCandidates.isEmpty());
+        if (!nextCandidates.isEmpty()) {
+            outlook.put("best_local_response_metrics", metrics(nextCandidates.getFirst()));
+        }
+        return outlook;
+    }
+
+    private static Map<String, Object> metrics(PlacementCandidate candidate) {
         Map<String, Object> metrics = new LinkedHashMap<>();
         metrics.put("cleared_lines", candidate.clearedLines());
         metrics.put("aggregate_height", candidate.aggregateHeight());
         metrics.put("holes", candidate.holes());
         metrics.put("bumpiness", candidate.bumpiness());
-
-        Map<String, Object> description = new LinkedHashMap<>();
-        description.put("move", move);
-        description.put("metrics", metrics);
-        description.put("resulting_board", boardRows(candidate.resultingBoard()));
-        return description;
+        return metrics;
     }
 
     private static List<String> boardRows(boolean[][] board) {

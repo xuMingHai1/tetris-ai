@@ -7,8 +7,11 @@ package xyz.xuminghai.tetris.ai;
 
 import org.junit.jupiter.api.Test;
 import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.Tetris;
+import xyz.xuminghai.tetris.core.TetrisFactory;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -49,6 +52,27 @@ class BoardSimulatorTest {
         assertEquals(0, candidate.holes());
         assertEquals(0, candidate.bumpiness());
         assertFalse(hasOccupiedCell(candidate.resultingBoard()));
+    }
+
+    @Test
+    void previewPieceCandidatesUseTheLivePostSpawnGravityBoundary() {
+        boolean[][] board = new boolean[20][10];
+        Tetris expectedPiece = TetrisFactory.create(TetrominoType.T);
+        expectedPiece.downMove();
+        GameSnapshot expectedSnapshot = new GameSnapshot(
+                20,
+                10,
+                board,
+                TetrominoType.T,
+                Arrays.stream(expectedPiece.getCells())
+                        .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                        .toList());
+
+        assertEquals(
+                BoardSimulator.candidates(expectedSnapshot).stream().map(PlacementCandidate::move).toList(),
+                BoardSimulator.candidatesForSpawnedPiece(board, TetrominoType.T).stream()
+                        .map(PlacementCandidate::move)
+                        .toList());
     }
 
     @Test
