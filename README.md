@@ -171,3 +171,13 @@ TYPESAFE_API_KEY=<your-key> \
 ```
 
 输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，Jev 还会汇总 `average confidence / input tokens / output tokens / average candidate count`。benchmark 的 latency 是完整 agent 调用耗时，用于策略评估；它不模拟桌面游戏中的实时 gravity deadline。
+
+也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。
+
+Jev workflow 不会自动执行。选择 `jev` 时必须同时：
+
+1. 在 repository Actions secrets 中配置 `TYPESAFE_API_KEY`；
+2. 显式勾选 `confirm_jev_cost`；
+3. 保持单次潜在 decision 数 `games × max_pieces <= 200`。
+
+这个限制用于避免误触发大量外部模型调用；普通 CI、push、PR 和定时质量检查都不会运行真实 Jev benchmark。
