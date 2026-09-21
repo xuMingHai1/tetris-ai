@@ -37,6 +37,7 @@ jobs:
       build_changed: ${{ steps.changes.outputs.build_changed }}
       java_changed: ${{ steps.changes.outputs.java_changed }}
       dependency_changed: ${{ steps.changes.outputs.dependency_changed }}
+      packaging_changed: ${{ steps.changes.outputs.packaging_changed }}
 
     steps:
       - name: Checkout repository
@@ -61,6 +62,7 @@ jobs:
           build_changed=false
           java_changed=false
           dependency_changed=false
+          packaging_changed=false
 
           if [ "$EVENT_NAME" = "schedule" ]; then
             full_scan=true
@@ -91,15 +93,26 @@ jobs:
                 build_changed=true
                 java_changed=true
                 dependency_changed=true
+                packaging_changed=true
                 ;;
               pom.xml)
                 build_changed=true
                 dependency_changed=true
+                packaging_changed=true
                 ;;
               .java-version|mvnw|mvnw.cmd|.mvn/*)
                 full_scan=true
                 build_changed=true
                 dependency_changed=true
+                ;;
+              scripts/package-app.sh|scripts/package-app.cmd)
+                build_changed=true
+                packaging_changed=true
+                ;;
+              src/main/java/module-info.java)
+                build_changed=true
+                java_changed=true
+                packaging_changed=true
                 ;;
               src/main/java/*|src/test/java/*)
                 build_changed=true
@@ -119,6 +132,7 @@ jobs:
             build_changed=true
             java_changed=true
             dependency_changed=true
+            packaging_changed=true
           fi
 
           {
@@ -126,9 +140,10 @@ jobs:
             echo "build_changed=$build_changed"
             echo "java_changed=$java_changed"
             echo "dependency_changed=$dependency_changed"
+            echo "packaging_changed=$packaging_changed"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Classification: full=$full_scan build=$build_changed java=$java_changed dependencies=$dependency_changed"
+          echo "Classification: full=$full_scan build=$build_changed java=$java_changed dependencies=$dependency_changed packaging=$packaging_changed"
 
   verify:
     name: Build & Test
@@ -323,6 +338,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+
+  desktop-image:
+    name: Desktop Image
+    needs:
+      - detect-changes
+      - fast-quality-gate
+    if: ${{ !cancelled() && needs.fast-quality-gate.result == 'success' && needs.detect-changes.outputs.packaging_changed == 'true' }}
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java 27
+        uses: actions/setup-java@v6
+        with:
+          distribution: oracle-openjdk
+          java-version: '27'
+          cache: maven
+
+      - name: Build Linux application image
+        run: ./scripts/package-app.sh app-image
+
+      - name: Verify packaged launcher
+        run: test -x target/jpackage/dist/Tetris/bin/Tetris
+
   dependency-security:
     name: Dependency Security
     needs:
@@ -391,6 +433,7 @@ jobs:
       - fast-quality-gate
       - mutation-test
       - dependency-security
+      - desktop-image
     runs-on: [self-hosted, linux, x64]
     timeout-minutes: 5
 
@@ -401,6 +444,8 @@ jobs:
           FAST_GATE_RESULT: ${{ needs.fast-quality-gate.result }}
           MUTATION_RESULT: ${{ needs.mutation-test.result }}
           DEPENDENCY_SECURITY_RESULT: ${{ needs.dependency-security.result }}
+          PACKAGING_REQUIRED: ${{ needs.detect-changes.outputs.packaging_changed }}
+          DESKTOP_IMAGE_RESULT: ${{ needs.desktop-image.result }}
         run: |
           failed=0
 
@@ -428,6 +473,11 @@ jobs:
             require_success "Dependency Security" "$DEPENDENCY_SECURITY_RESULT"
           else
             require_success_or_skip "Dependency Security" "$DEPENDENCY_SECURITY_RESULT"
+          fi
+          if [ "$PACKAGING_REQUIRED" = "true" ]; then
+            require_success "Desktop Image" "$DESKTOP_IMAGE_RESULT"
+          else
+            require_success_or_skip "Desktop Image" "$DESKTOP_IMAGE_RESULT"
           fi
 
           if [ "$failed" -ne 0 ]; then
