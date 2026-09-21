@@ -45,9 +45,18 @@ The simulator reuses existing tetromino rotation behavior and `core.BoardRules`.
 
 ## Runtime integration
 
-`F2` toggles AI mode. The current mode is shown in the side panel.
+`F2` cycles `MANUAL -> HEURISTIC -> JEV -> MANUAL`. The current mode and Jev state are shown in the side panel. Mode changes take effect on the current piece immediately; switching back to MANUAL invalidates any pending remote response and restores player input.
 
-The AI decision is made only when a new piece is spawned. Existing manual input remains available. AI calculation is intentionally small enough to run synchronously at the spawn boundary; deeper search must re-evaluate this latency assumption before being added.
+HEURISTIC remains synchronous at the spawn boundary. JEV is asynchronous:
+
+1. The newly spawned piece is captured as an immutable `GameSnapshot`.
+2. The current piece is frozen while the remote decision is pending; the JavaFX thread keeps running.
+3. The completion callback is marshalled back through `Platform.runLater`.
+4. The response is applied only if its generation token, mode, and spawned piece still match.
+5. A stale response is ignored.
+6. A remote error or missing API key uses the local heuristic fallback and exposes `FALLBACK` or `UNAVAILABLE` state.
+
+Manual movement is accepted only in MANUAL mode, preventing player input from invalidating an automated decision after its snapshot was taken.
 
 ## Constraints
 
@@ -84,4 +93,4 @@ Java remains responsible for enumerating legal rotate-then-shift placements and 
 
 The TypeSafe client uses JDK `HttpClient` asynchronously and Jackson for structured JSON. It reads the API key from `TYPESAFE_API_KEY`. HTTP 429 and 529 responses use exponential backoff; authentication or validation failures are not hidden by fallback inside the integration layer.
 
-The JavaFX runtime must not block its UI thread on Jev. Runtime selection, pausing while a remote decision is pending, and any heuristic fallback policy belong to a separate integration change.
+The JavaFX runtime never blocks its UI thread on Jev. `TetrisApplication` creates the optional Jev agent from `TYPESAFE_API_KEY` and injects it into `GameWorld`; the game runtime owns mode selection, pending/stale-response protection, FX-thread application, and the explicit heuristic fallback policy.

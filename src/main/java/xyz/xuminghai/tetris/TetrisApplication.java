@@ -636,12 +636,16 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
+import xyz.xuminghai.tetris.ai.AsyncTetrisAgent;
+import xyz.xuminghai.tetris.ai.jev.JevTetrisAgent;
 import xyz.xuminghai.tetris.game.GameKeyCodeAction;
 import xyz.xuminghai.tetris.game.GameWorld;
+import xyz.xuminghai.tetris.integration.typesafe.TypeSafeSystemOneClient;
 import xyz.xuminghai.tetris.util.AudioManager;
 import xyz.xuminghai.tetris.util.Version;
 import xyz.xuminghai.tetris.view.GameView;
 
+import java.util.Optional;
 
 /**
  * 2024/1/15 20:30 星期一<br/>
@@ -655,9 +659,14 @@ public class TetrisApplication extends Application {
      */
     private static final long BOOT_TIME = System.currentTimeMillis();
 
-    private final GameWorld gameWorld = new GameWorld();
+    private final GameWorld gameWorld = new GameWorld(createJevAgent());
 
     private final GameKeyCodeAction gameKeyCodeAction = new GameKeyCodeAction(gameWorld);
+
+    private static Optional<AsyncTetrisAgent> createJevAgent() {
+        return TypeSafeSystemOneClient.fromEnvironment()
+                .<AsyncTetrisAgent>map(JevTetrisAgent::new);
+    }
 
     public static void main(String[] args) {
         Thread.startVirtualThread(() -> {
@@ -689,7 +698,7 @@ public class TetrisApplication extends Application {
     private Scene keyMonitor(Scene scene) {
         // 移动按键键入
         scene.setOnKeyPressed(event -> {
-            if (gameWorld.getGameActive()) {
+            if (gameWorld.acceptsPlayerInput()) {
                 gameKeyCodeAction.keyCodePressed(event.getCode());
             }
         });
@@ -699,20 +708,20 @@ public class TetrisApplication extends Application {
         final ObservableMap<KeyCombination, Runnable> accelerators = scene.getAccelerators();
         // 逆时针旋转
         accelerators.put(new KeyCodeCombination(KeyCode.LEFT), () -> {
-            if (gameWorld.getGameActive()) {
+            if (gameWorld.acceptsPlayerInput()) {
                 gameWorld.rotateCounterClockwise();
             }
         });
         // 顺时针旋转
         accelerators.put(new KeyCodeCombination(KeyCode.RIGHT), () -> {
-            if (gameWorld.getGameActive()) {
+            if (gameWorld.acceptsPlayerInput()) {
                 gameWorld.rotateClockwise();
             }
         });
         accelerators.put(new KeyCodeCombination(KeyCode.EQUALS), gameWorld::levelPlus);
         accelerators.put(new KeyCodeCombination(KeyCode.MINUS), gameWorld::levelMinus);
         accelerators.put(new KeyCodeCombination(KeyCode.SPACE), gameWorld::startOrPauseGame);
-        accelerators.put(new KeyCodeCombination(KeyCode.F2), gameWorld::toggleAi);
+        accelerators.put(new KeyCodeCombination(KeyCode.F2), gameWorld::cycleAiMode);
         accelerators.put(new KeyCodeCombination(KeyCode.TAB, KeyCombination.CONTROL_DOWN), gameWorld::switchLanguage);
         return scene;
     }

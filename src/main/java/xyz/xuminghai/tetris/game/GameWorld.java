@@ -630,7 +630,10 @@ import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.scene.input.KeyCode;
 import javafx.scene.robot.Robot;
+import xyz.xuminghai.tetris.ai.AiDecisionState;
+import xyz.xuminghai.tetris.ai.AiMode;
 import xyz.xuminghai.tetris.ai.AiMove;
+import xyz.xuminghai.tetris.ai.AsyncTetrisAgent;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
@@ -647,6 +650,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 
 /**
@@ -661,9 +665,28 @@ public final class GameWorld {
 
     private final PieceGenerator pieceGenerator = new BagPieceGenerator();
 
-    private final TetrisAgent aiAgent = new HeuristicTetrisAgent();
+    private final TetrisAgent heuristicAgent = new HeuristicTetrisAgent();
 
-    private final BooleanProperty aiEnabled = new SimpleBooleanProperty(this, "aiEnabled");
+    private final Optional<AsyncTetrisAgent> jevAgent;
+
+    private final ObjectProperty<AiMode> aiMode =
+            new SimpleObjectProperty<>(this, "aiMode", AiMode.MANUAL);
+
+    private final ObjectProperty<AiDecisionState> aiDecisionState =
+            new SimpleObjectProperty<>(this, "aiDecisionState", AiDecisionState.IDLE);
+
+    private final BooleanProperty aiDecisionPending =
+            new SimpleBooleanProperty(this, "aiDecisionPending");
+
+    private long aiDecisionGeneration;
+
+    public GameWorld() {
+        this(Optional.empty());
+    }
+
+    public GameWorld(Optional<AsyncTetrisAgent> jevAgent) {
+        this.jevAgent = Optional.ofNullable(jevAgent).orElseGet(Optional::empty);
+    }
 
     /**
      * 清除单元格
@@ -755,6 +778,10 @@ public final class GameWorld {
 
         @Override
         public void run() {
+            if (aiDecisionPending.get()) {
+                return;
+            }
+
             // 初始化当前方块
             final boolean spawned = currentTetris.get() == null;
             if (spawned) {
@@ -768,8 +795,8 @@ public final class GameWorld {
                     .ifPresent(gameGrid::clearCells);
             if (gameGrid.saveCellsData(cells)) {
                 currentCells.set(gameGrid.checkCells(tetris.copy()));
-                if (spawned && aiEnabled.get()) {
-                    applyAiMove(aiAgent.decide(createAiSnapshot()));
+                if (spawned) {
+                    decideCurrentPiece(tetris);
                 }
             }
             // 添加失败
@@ -868,15 +895,40 @@ public final class GameWorld {
         return nextTetris;
     }
 
-    public ReadOnlyBooleanProperty aiEnabledProperty() {
-        return aiEnabled;
+    public ReadOnlyObjectProperty<AiMode> aiModeProperty() {
+        return aiMode;
+    }
+
+    public ReadOnlyObjectProperty<AiDecisionState> aiDecisionStateProperty() {
+        return aiDecisionState;
+    }
+
+    public ReadOnlyBooleanProperty aiDecisionPendingProperty() {
+        return aiDecisionPending;
     }
 
     /**
-     * 切换自动 AI。新状态会从下一次新方块生成开始生效。
+     * 循环切换 MANUAL / HEURISTIC / JEV，并立即把新模式应用到当前方块。
+     *
+     * <p>如果切换发生在 Jev 请求等待期间，会立即使旧请求失效；切回 MANUAL 后当前方块立即恢复人工控制。</p>
      */
-    public void toggleAi() {
-        aiEnabled.set(!aiEnabled.get());
+    public void cycleAiMode() {
+        aiDecisionGeneration++;
+        aiDecisionPending.set(false);
+        aiMode.set(aiMode.get().next());
+        aiDecisionState.set(switch (aiMode.get()) {
+            case MANUAL, HEURISTIC -> AiDecisionState.IDLE;
+            case JEV -> jevAgent.isPresent() ? AiDecisionState.IDLE : AiDecisionState.UNAVAILABLE;
+        });
+
+        final Tetris tetris = currentTetris.get();
+        if (tetris != null && currentCells.get() != null && aiMode.get() != AiMode.MANUAL) {
+            decideCurrentPiece(tetris);
+        }
+    }
+
+    public boolean acceptsPlayerInput() {
+        return gameActive && aiMode.get() == AiMode.MANUAL && !aiDecisionPending.get();
     }
 
     public ReadOnlyObjectProperty<Cell[]> currentCellsProperty() {
@@ -990,35 +1042,104 @@ public final class GameWorld {
      * 向下移动
      */
     void downMove() {
-        tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, true);
+        if (acceptsPlayerInput()) {
+            tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, true);
+        }
     }
 
     /**
      * 向左移动
      */
     void leftMove() {
-        tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, true);
+        if (acceptsPlayerInput()) {
+            tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, true);
+        }
     }
 
     /**
      * 向右移动
      */
     void rightMove() {
-        tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, true);
+        if (acceptsPlayerInput()) {
+            tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, true);
+        }
     }
 
     /**
      * 顺时针旋转
      */
     public void rotateClockwise() {
-        tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, true);
+        if (acceptsPlayerInput()) {
+            tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, true);
+        }
     }
 
     /**
      * 逆时针旋转
      */
     public void rotateCounterClockwise() {
-        tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, true);
+        if (acceptsPlayerInput()) {
+            tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, true);
+        }
+    }
+
+    private void decideCurrentPiece(Tetris spawnedTetris) {
+        switch (aiMode.get()) {
+            case MANUAL -> aiDecisionState.set(AiDecisionState.IDLE);
+            case HEURISTIC -> {
+                final GameSnapshot snapshot = createAiSnapshot();
+                applyAiMove(heuristicAgent.decide(snapshot));
+                aiDecisionState.set(AiDecisionState.IDLE);
+            }
+            case JEV -> decideWithJev(spawnedTetris);
+        }
+    }
+
+    private void decideWithJev(Tetris spawnedTetris) {
+        final GameSnapshot snapshot = createAiSnapshot();
+        final long generation = ++aiDecisionGeneration;
+
+        if (jevAgent.isEmpty()) {
+            applyAiMove(heuristicAgent.decide(snapshot));
+            aiDecisionState.set(AiDecisionState.UNAVAILABLE);
+            return;
+        }
+
+        aiDecisionPending.set(true);
+        aiDecisionState.set(AiDecisionState.PENDING);
+
+        jevAgent.orElseThrow().decide(snapshot).whenComplete((move, error) ->
+                Platform.runLater(() -> completeJevDecision(generation, spawnedTetris, snapshot, move, error)));
+    }
+
+    private void completeJevDecision(
+            long generation,
+            Tetris spawnedTetris,
+            GameSnapshot snapshot,
+            AiMove move,
+            Throwable error) {
+
+        if (generation != aiDecisionGeneration
+                || aiMode.get() != AiMode.JEV
+                || currentTetris.get() != spawnedTetris) {
+            return;
+        }
+
+        aiDecisionPending.set(false);
+        if (error == null && move != null) {
+            applyAiMove(move);
+            aiDecisionState.set(AiDecisionState.REMOTE);
+            return;
+        }
+
+        final Throwable cause = error instanceof CompletionException && error.getCause() != null
+                ? error.getCause()
+                : error;
+        if (cause != null) {
+            System.err.printf("Jev decision failed; using heuristic fallback: %s%n", cause.getMessage());
+        }
+        applyAiMove(heuristicAgent.decide(snapshot));
+        aiDecisionState.set(AiDecisionState.FALLBACK);
     }
 
     private GameSnapshot createAiSnapshot() {

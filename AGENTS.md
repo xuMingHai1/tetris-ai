@@ -27,7 +27,7 @@ GitHub 当前 default branch 是源码事实来源，不假设主分支名称固
 - `TetrisApplication`：JavaFX 应用启动和顶层输入装配。保持 bootstrap 职责，不把核心游戏算法堆积到入口类。
 - `src/main/resources`：CSS、图片、国际化、音频等运行资源。WAV/MIDI/图片按二进制资源处理。
 
-AI 已通过 `GameSnapshot -> TetrisAgent -> AiMove` 建立最小边界。新增搜索深度、look-ahead 或其他算法时应复用该状态/动作契约，不把 JavaFX runtime 引入搜索路径，也不提前建立通用 Agent/Plugin/DSL 框架。
+AI 已通过 `GameSnapshot -> TetrisAgent/AsyncTetrisAgent -> AiMove` 建立最小边界。JavaFX runtime 使用 `MANUAL / HEURISTIC / JEV` 三种模式；Jev pending 时只冻结当前 piece，不阻塞 FX thread，完成后必须回 FX thread，并校验 decision generation 防止迟到响应应用到错误方块。远程失败使用显式 heuristic fallback。新增搜索深度、look-ahead 或其他算法时应复用现有状态/动作契约，不把 JavaFX runtime 引入搜索路径，也不提前建立通用 Agent/Plugin/DSL 框架。
 
 ## Build and Tooling
 
