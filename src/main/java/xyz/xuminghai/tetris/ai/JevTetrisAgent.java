@@ -68,12 +68,11 @@ public final class JevTetrisAgent implements TetrisAgent {
 
     @Override
     public AiMove decide(GameSnapshot snapshot) {
-        List<PlacementCandidate> rankedCandidates = HeuristicTetrisAgent.rankCandidates(snapshot);
-        if (rankedCandidates.isEmpty()) {
+        List<PlacementCandidate> candidates =
+                HeuristicTetrisAgent.shortlist(snapshot, MAX_REMOTE_CANDIDATES);
+        if (candidates.isEmpty()) {
             return AiMove.NONE;
         }
-        List<PlacementCandidate> candidates =
-                rankedCandidates.subList(0, Math.min(MAX_REMOTE_CANDIDATES, rankedCandidates.size()));
 
         Map<String, PlacementCandidate> candidatesById = new LinkedHashMap<>();
         Map<String, Object> criteria = new LinkedHashMap<>();
@@ -145,16 +144,14 @@ public final class JevTetrisAgent implements TetrisAgent {
     private static Map<String, Object> nextPieceOutlook(
             PlacementCandidate candidate,
             TetrominoType nextType) {
-        List<PlacementCandidate> nextCandidates = HeuristicTetrisAgent.rankCandidates(
-                BoardSimulator.candidatesForSpawnedPiece(candidate.resultingBoard(), nextType));
+        NextPieceOutlook evaluated = NextPieceOutlook.evaluate(candidate, nextType);
 
         Map<String, Object> outlook = new LinkedHashMap<>();
-        outlook.put("piece", nextType.name());
-        outlook.put("legal_placements", nextCandidates.size());
-        outlook.put("can_place", !nextCandidates.isEmpty());
-        if (!nextCandidates.isEmpty()) {
-            outlook.put("best_local_response_metrics", metrics(nextCandidates.getFirst()));
-        }
+        outlook.put("piece", evaluated.piece().name());
+        outlook.put("legal_placements", evaluated.legalPlacements());
+        outlook.put("can_place", evaluated.canPlace());
+        evaluated.bestLocalResponse().ifPresent(
+                bestResponse -> outlook.put("best_local_response_metrics", metrics(bestResponse)));
         return outlook;
     }
 
