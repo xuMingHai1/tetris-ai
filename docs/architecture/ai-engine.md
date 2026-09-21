@@ -14,22 +14,25 @@ GameWorld
 GameSnapshot ---> BoardSimulator ---> PlacementCandidate(s)
                                          |
                                          v
-                                  TetrisAgent strategy
+                           placement strategy / action planner
+                              |                     |
+                              v                     v
+                           AiMove                 AiPlan
+                              |                     |
+                              +-> compatibility <-+
+                                      boundary
                                          |
                                          v
-                                      AiMove
-                                         |
-                                         v
-                         AiPlan.fromPlacement(...) -> AiAction(s)
+                                   AiAction(s)
 ```
 
 `GameSnapshot` contains board occupancy, the current tetromino type, current cell coordinates, and the optional known preview-piece type. The occupied board excludes the falling piece. Live runtime and deterministic benchmark snapshots populate the preview piece; nested simulations may intentionally omit it.
 
 `BoardSimulator` is the deterministic candidate generator. It owns rotate-then-move reachability, drop simulation, row clearing and board metrics, and returns only legal `PlacementCandidate` values. Each candidate contains the `AiMove`, resulting board and objective facts such as cleared lines, aggregate height, holes and bumpiness; it contains no strategy-specific weight or score.
 
-`TetrisAgent` is the stable decision contract. Strategies consume the same deterministic game facts and choose an `AiMove`; they must not depend on `game` or `view` packages.
+`TetrisAgent` is the placement-oriented strategy contract. Existing heuristic and Jev strategies consume deterministic game facts and choose an `AiMove`; they must not depend on `game` or `view` packages. `AiPlanningAgent` is the action-native contract and returns an `AiPlan` directly. `AiPlanningAgent.fromPlacementAgent(...)` adapts existing placement agents so both styles enter the same runtime execution path.
 
-`AiMove` remains the compact placement contract used by the current deterministic and Jev strategies. At the live-game boundary, `AiPlan.fromPlacement(...)` expands that placement into ordered `AiAction` controls and appends `HARD_DROP`. `AiAction` defines the reusable control vocabulary (`LEFT`, `RIGHT`, clockwise/counter-clockwise rotation, `SOFT_DROP`, `HARD_DROP`). `GameWorld` validates and executes the resulting plan against the live model. This preserves current agent behavior while establishing an execution model that can later express non-placement action sequences.
+`AiMove` remains the compact placement contract used by the current deterministic and Jev strategies. The compatibility adapter expands that placement through `AiPlan.fromPlacement(...)` into ordered `AiAction` controls and appends `HARD_DROP`. `AiAction` defines the reusable control vocabulary (`LEFT`, `RIGHT`, clockwise/counter-clockwise rotation, `SOFT_DROP`, `HARD_DROP`). `GameWorld` validates and executes the resulting plan against the live model. This preserves current agent behavior while establishing an execution model that can later express non-placement action sequences.
 
 ## Deterministic generation
 
@@ -58,15 +61,17 @@ The simulator reuses existing tetromino rotation behavior and `core.BoardRules`.
 
 `F2` toggles AI mode. The current mode is shown in the side panel.
 
+`AiPlanValidator` is the structural guard between planning and live execution. Plans must be non-empty, are bounded to 64 actions, and may not contain actions after `HARD_DROP`. It deliberately does not simulate board legality; collision and reachability remain owned by the existing live game rules so validation does not create a second Tetris engine.
+
 The AI decision is requested only when a new piece is spawned. Existing manual input remains available. A valid current `AiMove` is converted to an `AiPlan`, whose actions are executed in order. Any invalid non-hard-drop action aborts the remaining plan. `HARD_DROP` immediately descends the piece until collision instead of waiting for gravity to traverse the remaining rows; the normal gravity tick still owns lock, row-clear and next-piece lifecycle processing.
 
-`TetrisAgent` remains a synchronous decision contract, while `AiDecisionExecutor` owns runtime execution. Each request runs on a virtual thread so a future remote agent cannot block the JavaFX application thread. If the configured primary agent throws, the executor evaluates the same immutable snapshot with the local `HeuristicTetrisAgent` fallback.
+`TetrisAgent` and `AiPlanningAgent` remain synchronous strategy contracts, while `AiDecisionExecutor` owns runtime execution and normalizes both paths to validated `AiPlan` results. Each request runs on a virtual thread so a future remote agent cannot block the JavaFX application thread. If the configured primary agent throws, the executor evaluates the same immutable snapshot with the local `HeuristicTetrisAgent` fallback.
 
 Each submission advances a decision generation. Completion is marshalled back through `Platform.runLater` and is applied only when the request is still current, AI mode is still enabled, the game is active, the live falling piece is the exact piece that produced the snapshot, and its cell coordinates still exactly match the snapshot.
 
 A remote decision owns the snapshot only until the next live-state mutation. Before the next automatic gravity tick changes the piece, `GameWorld` checks the pending decision. If it has not completed, the remote generation is invalidated and the local heuristic fallback is evaluated immediately against the still-unchanged snapshot, then the game continues. Manual movement cancels the pending remote decision instead, so player input always wins. This makes the gameplay tick, rather than an arbitrary HTTP timeout, the effective deadline for a remote decision.
 
-`GameWorld(TetrisAgent)` is the injection boundary for current remote implementations. Network/client details stay outside `GameWorld`; the current decision path remains `GameSnapshot -> TetrisAgent -> AiMove`, followed by the local `AiMove -> AiPlan -> AiAction` execution boundary. A future action-native agent can evolve above this boundary without coupling model code to JavaFX controls.
+`GameWorld` accepts either the existing `TetrisAgent` placement contract or the new `AiPlanningAgent` action-native contract. Network/client details stay outside `GameWorld`. Placement agents follow `GameSnapshot -> TetrisAgent -> AiMove -> AiPlan`; action-native agents follow `GameSnapshot -> AiPlanningAgent -> AiPlan`. Both converge on the same `AiAction` execution boundary.
 
 ### Jev provider
 
@@ -92,6 +97,7 @@ The headless benchmark intentionally does not emulate JavaFX gravity deadlines. 
 - Potentially blocking agents must execute through `AiDecisionExecutor`; never perform remote I/O on the JavaFX application thread.
 - Asynchronous results must pass the current-generation and current-piece checks before they can mutate live game state.
 - JavaFX animation/audio/input classes must not enter the `ai` package.
+- Every AI plan must pass `AiPlanValidator` before live execution; structural limits belong there while board legality remains in the existing game rules.
 - A candidate selected by the simulator must still pass the live `GameWorld` collision checks.
 - Invalid live moves restore the previous grid state; failed movement must not remove the falling piece from collision data.
 - Shared board semantics belong in `core.BoardRules`; AI-only heuristics belong in `ai`.
