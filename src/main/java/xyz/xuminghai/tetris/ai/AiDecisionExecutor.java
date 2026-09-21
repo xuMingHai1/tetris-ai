@@ -23,11 +23,18 @@ public final class AiDecisionExecutor {
 
     private static final Executor VIRTUAL_THREAD_EXECUTOR = command -> Thread.startVirtualThread(command);
 
-    private final TetrisAgent primaryAgent;
-    private final TetrisAgent fallbackAgent;
+    private final AiPlanningAgent primaryAgent;
+    private final AiPlanningAgent fallbackAgent;
     private final AtomicLong generation = new AtomicLong();
 
     public AiDecisionExecutor(TetrisAgent primaryAgent, TetrisAgent fallbackAgent) {
+        this(AiPlanningAgent.fromPlacementAgent(primaryAgent), AiPlanningAgent.fromPlacementAgent(fallbackAgent));
+    }
+
+    /**
+     * Creates an executor for action-native planning agents.
+     */
+    public AiDecisionExecutor(AiPlanningAgent primaryAgent, AiPlanningAgent fallbackAgent) {
         this.primaryAgent = Objects.requireNonNull(primaryAgent, "primaryAgent");
         this.fallbackAgent = Objects.requireNonNull(fallbackAgent, "fallbackAgent");
     }
@@ -36,13 +43,13 @@ public final class AiDecisionExecutor {
      * Submits a new decision and supersedes every earlier request.
      *
      * @param snapshot immutable game state captured by the caller
-     * @return request identity plus its asynchronous move result
+     * @return request identity plus its asynchronous plan result
      */
     public AiDecision submit(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         final long requestGeneration = generation.incrementAndGet();
-        final CompletableFuture<AiMove> result =
-                CompletableFuture.supplyAsync(() -> decideWithFallback(snapshot), VIRTUAL_THREAD_EXECUTOR);
+        final CompletableFuture<AiPlan> result =
+                CompletableFuture.supplyAsync(() -> planWithFallback(snapshot), VIRTUAL_THREAD_EXECUTOR);
         return new AiDecision(requestGeneration, result);
     }
 
@@ -60,12 +67,12 @@ public final class AiDecisionExecutor {
      * was based on. The fallback therefore gets the last chance to act on that unchanged state.</p>
      *
      * @param snapshot immutable state that is still current in the live game
-     * @return fallback move for the snapshot
+     * @return validated fallback plan for the snapshot
      */
-    public AiMove fallbackNow(GameSnapshot snapshot) {
+    public AiPlan fallbackNow(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         generation.incrementAndGet();
-        return requireMove(fallbackAgent.decide(snapshot));
+        return AiPlanValidator.requireValid(fallbackAgent.plan(snapshot));
     }
 
     /**
@@ -75,13 +82,13 @@ public final class AiDecisionExecutor {
         return decision != null && generation.get() == decision.generation();
     }
 
-    private AiMove decideWithFallback(GameSnapshot snapshot) {
+    private AiPlan planWithFallback(GameSnapshot snapshot) {
         try {
-            return requireMove(primaryAgent.decide(snapshot));
+            return AiPlanValidator.requireValid(primaryAgent.plan(snapshot));
         }
         catch (RuntimeException primaryFailure) {
             try {
-                return requireMove(fallbackAgent.decide(snapshot));
+                return AiPlanValidator.requireValid(fallbackAgent.plan(snapshot));
             }
             catch (RuntimeException fallbackFailure) {
                 fallbackFailure.addSuppressed(primaryFailure);
@@ -90,14 +97,10 @@ public final class AiDecisionExecutor {
         }
     }
 
-    private static AiMove requireMove(AiMove move) {
-        return Objects.requireNonNull(move, "TetrisAgent returned null");
-    }
-
     /**
      * One asynchronous decision request.
      */
-    public record AiDecision(long generation, CompletionStage<AiMove> result) {
+    public record AiDecision(long generation, CompletionStage<AiPlan> result) {
 
         public AiDecision {
             Objects.requireNonNull(result, "result");
