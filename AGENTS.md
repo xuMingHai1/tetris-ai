@@ -20,7 +20,7 @@ GitHub 当前 default branch 是源码事实来源，不假设主分支名称固
 
 - `xyz.xuminghai.tetris.core`：俄罗斯方块领域模型，包括 Cell、七种方块、移动、旋转、复制、共享 `BoardRules`，以及可注入的 `PieceGenerator` / deterministic `BagPieceGenerator`。这里应尽量保持与 JavaFX Scene/View 无关；当前颜色仍使用 JavaFX `Color`，修改该边界前需要评估兼容性和 AI/测试影响。
 - `xyz.xuminghai.tetris.ai`：headless 决策边界。只消费不可变 `GameSnapshot`；`BoardSimulator` 统一生成合法 `PlacementCandidate`（动作、落地后棋盘和客观指标），具体 `TetrisAgent` 只负责从这些确定性事实中选择 `AiMove`。不得依赖 JavaFX Property、Animation、Audio、Robot 或 View。当前包含本地 `HeuristicTetrisAgent` 与 opt-in 的 `JevTetrisAgent`；`TypeSafeSystemOneClient` 只负责官方 HTTP API、JSON、认证和 429/529 重试；`AiDecisionExecutor` 负责在 virtual thread 上执行可能阻塞的 Agent、提供 heuristic fallback，并用 generation 标识最新请求。它不是通用 Agent/Plugin 框架。
-- `xyz.xuminghai.tetris.ai.benchmark`：headless evaluation 工具。使用 seeded `BagPieceGenerator` 和生产 `BoardSimulator` / `PlacementCandidate` 推进状态，记录 gameplay outcome、decision latency、fallback；Jev 额外记录 confidence/token usage。benchmark 不启动 JavaFX runtime，也不复制游戏规则。
+- `xyz.xuminghai.tetris.ai.benchmark`：headless evaluation 工具。使用 seeded `BagPieceGenerator` 和生产 `BoardSimulator` / `PlacementCandidate` 推进状态，记录 gameplay outcome、decision latency、fallback，以及 selected candidate 的 aggregate height / holes / bumpiness 局面健康度；Jev 额外记录 confidence/token usage。benchmark 不启动 JavaFX runtime，也不复制游戏规则或重新计算这些指标。
 - `xyz.xuminghai.tetris.game`：游戏规则和运行状态，包括网格、计分、等级、时间线、输入动作和动画协作。规则变化应优先在这里表达，不把规则复制到 View。
 - `xyz.xuminghai.tetris.view`：JavaFX 展示层。负责观察状态并渲染，不应成为游戏规则的第二事实来源。
 - `xyz.xuminghai.tetris.util`：音频和版本等辅助能力。不要把业务规则沉淀为通用 util。
