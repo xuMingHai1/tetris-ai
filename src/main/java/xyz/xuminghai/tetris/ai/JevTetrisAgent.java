@@ -81,15 +81,23 @@ public final class JevTetrisAgent implements TetrisAgent {
 
         TypeSafeSystemOneClient.ChoiceResult result =
                 client.choose(QUESTION_ID, state(snapshot), INSTRUCTIONS, criteria);
-        observer.accept(new JevDecisionObservation(
-                result.confidence(),
-                result.inputTokens(),
-                result.outputTokens(),
-                candidates.size()));
         PlacementCandidate selected = candidatesById.get(result.choice());
         if (selected == null) {
             throw new IllegalStateException("TypeSafe selected an unknown placement candidate: " + result.choice());
         }
+
+        PlacementCandidate heuristicTopCandidate = candidates.getFirst();
+        int selectedRank = candidates.indexOf(selected) + 1;
+        observer.accept(new JevDecisionObservation(
+                result.confidence(),
+                result.inputTokens(),
+                result.outputTokens(),
+                candidates.size(),
+                selectedRank,
+                selected.clearedLines() - heuristicTopCandidate.clearedLines(),
+                selected.aggregateHeight() - heuristicTopCandidate.aggregateHeight(),
+                selected.holes() - heuristicTopCandidate.holes(),
+                selected.bumpiness() - heuristicTopCandidate.bumpiness()));
         return selected.move();
     }
 
