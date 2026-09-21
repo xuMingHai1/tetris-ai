@@ -38,6 +38,14 @@ public final class HeuristicTetrisAgent implements TetrisAgent {
         return rankCandidates(BoardSimulator.candidates(snapshot));
     }
 
+    static List<PlacementCandidate> shortlist(GameSnapshot snapshot, int maxCandidates) {
+        if (maxCandidates <= 0) {
+            throw new IllegalArgumentException("maxCandidates must be greater than 0");
+        }
+        List<PlacementCandidate> ranked = rankCandidates(snapshot);
+        return ranked.subList(0, Math.min(maxCandidates, ranked.size()));
+    }
+
     static List<PlacementCandidate> rankCandidates(List<PlacementCandidate> source) {
         Objects.requireNonNull(source, "source");
         List<PlacementCandidate> candidates = new ArrayList<>(source);
