@@ -5,10 +5,14 @@
  */
 package xyz.xuminghai.tetris.ai;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * One-ply heuristic Tetris agent.
  *
- * <p>The agent rewards cleared lines and penalizes aggregate height, holes and surface bumpiness.</p>
+ * <p>The agent rewards cleared lines and penalizes aggregate height, holes and surface bumpiness.
+ * The deterministic ranking is also reused as the safety shortlist for remote strategies.</p>
  */
 public final class HeuristicTetrisAgent implements TetrisAgent {
 
@@ -19,19 +23,37 @@ public final class HeuristicTetrisAgent implements TetrisAgent {
 
     @Override
     public AiMove decide(GameSnapshot snapshot) {
-        AiMove bestMove = AiMove.NONE;
-        double bestScore = Double.NEGATIVE_INFINITY;
+        List<PlacementCandidate> ranked = rankCandidates(snapshot);
+        return ranked.isEmpty() ? AiMove.NONE : ranked.getFirst().move();
+    }
 
-        for (PlacementCandidate candidate : BoardSimulator.candidates(snapshot)) {
-            double score = score(candidate);
-            if (score > bestScore
-                    || (Double.compare(score, bestScore) == 0 && betterTieBreak(candidate.move(), bestMove))) {
-                bestScore = score;
-                bestMove = candidate.move();
-            }
+    /**
+     * Returns all legal candidates ordered by this strategy's score and deterministic tie-break.
+     *
+     * <p>The ranking is package-private so another strategy can reuse the existing safety signal
+     * without duplicating the heuristic weights or tie-break semantics.</p>
+     */
+    static List<PlacementCandidate> rankCandidates(GameSnapshot snapshot) {
+        List<PlacementCandidate> candidates = new ArrayList<>(BoardSimulator.candidates(snapshot));
+        candidates.sort(HeuristicTetrisAgent::compareCandidates);
+        return List.copyOf(candidates);
+    }
+
+    private static int compareCandidates(PlacementCandidate left, PlacementCandidate right) {
+        int scoreComparison = Double.compare(score(right), score(left));
+        if (scoreComparison != 0) {
+            return scoreComparison;
         }
 
-        return bestScore == Double.NEGATIVE_INFINITY ? AiMove.NONE : bestMove;
+        int shiftComparison = Integer.compare(
+                Math.abs(left.move().horizontalShift()),
+                Math.abs(right.move().horizontalShift()));
+        if (shiftComparison != 0) {
+            return shiftComparison;
+        }
+        return Integer.compare(
+                left.move().clockwiseRotations(),
+                right.move().clockwiseRotations());
     }
 
     private static double score(PlacementCandidate candidate) {
@@ -39,14 +61,5 @@ public final class HeuristicTetrisAgent implements TetrisAgent {
                 + candidate.aggregateHeight() * AGGREGATE_HEIGHT_WEIGHT
                 + candidate.holes() * HOLE_WEIGHT
                 + candidate.bumpiness() * BUMPINESS_WEIGHT;
-    }
-
-    private static boolean betterTieBreak(AiMove candidate, AiMove current) {
-        int shiftComparison =
-                Integer.compare(Math.abs(candidate.horizontalShift()), Math.abs(current.horizontalShift()));
-        if (shiftComparison != 0) {
-            return shiftComparison < 0;
-        }
-        return candidate.clockwiseRotations() < current.clockwiseRotations();
     }
 }
