@@ -27,13 +27,13 @@ class AiDecisionExecutorTest {
         AtomicInteger fallbackCalls = new AtomicInteger();
         AiMove expected = new AiMove(1, -2);
         AiDecisionExecutor executor = new AiDecisionExecutor(
-                snapshot -> {
+                (AiPlanningAgent) snapshot -> {
                     virtualThread.set(Thread.currentThread().isVirtual());
-                    return expected;
+                    return AiPlan.fromPlacement(expected);
                 },
                 snapshot -> {
                     fallbackCalls.incrementAndGet();
-                    return AiMove.NONE;
+                    return AiPlan.fromPlacement(AiMove.NONE);
                 });
 
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
@@ -49,12 +49,12 @@ class AiDecisionExecutorTest {
         AtomicInteger fallbackCalls = new AtomicInteger();
         AiMove fallbackMove = new AiMove(0, 3);
         AiDecisionExecutor executor = new AiDecisionExecutor(
-                snapshot -> {
+                (AiPlanningAgent) snapshot -> {
                     throw new IllegalStateException("primary unavailable");
                 },
-                snapshot -> {
+                (AiPlanningAgent) snapshot -> {
                     fallbackCalls.incrementAndGet();
-                    return fallbackMove;
+                    return AiPlan.fromPlacement(fallbackMove);
                 });
 
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
@@ -66,7 +66,9 @@ class AiDecisionExecutorTest {
     @Test
     void newerSubmissionMakesOlderDecisionStale() {
         AiDecisionExecutor executor =
-                new AiDecisionExecutor(snapshot -> AiMove.NONE, snapshot -> AiMove.NONE);
+                new AiDecisionExecutor(
+                        snapshot -> AiPlan.fromPlacement(AiMove.NONE),
+                        snapshot -> AiPlan.fromPlacement(AiMove.NONE));
 
         AiDecisionExecutor.AiDecision first = executor.submit(snapshot());
         AiDecisionExecutor.AiDecision second = executor.submit(snapshot());
@@ -78,7 +80,9 @@ class AiDecisionExecutorTest {
     @Test
     void explicitInvalidationMakesPendingDecisionStale() {
         AiDecisionExecutor executor =
-                new AiDecisionExecutor(snapshot -> AiMove.NONE, snapshot -> AiMove.NONE);
+                new AiDecisionExecutor(
+                        snapshot -> AiPlan.fromPlacement(AiMove.NONE),
+                        snapshot -> AiPlan.fromPlacement(AiMove.NONE));
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
         executor.invalidate();
@@ -91,10 +95,10 @@ class AiDecisionExecutorTest {
         AtomicInteger fallbackCalls = new AtomicInteger();
         AiMove fallbackMove = new AiMove(0, -2);
         AiDecisionExecutor executor = new AiDecisionExecutor(
-                snapshot -> AiMove.NONE,
+                (AiPlanningAgent) snapshot -> AiMove.NONE,
                 snapshot -> {
                     fallbackCalls.incrementAndGet();
-                    return fallbackMove;
+                    return AiPlan.fromPlacement(fallbackMove);
                 });
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
@@ -132,7 +136,7 @@ class AiDecisionExecutorTest {
     @Test
     void exposesFallbackFailureAndPreservesPrimaryFailure() {
         AiDecisionExecutor executor = new AiDecisionExecutor(
-                snapshot -> {
+                (AiPlanningAgent) snapshot -> {
                     throw new IllegalStateException("primary failure");
                 },
                 snapshot -> {
