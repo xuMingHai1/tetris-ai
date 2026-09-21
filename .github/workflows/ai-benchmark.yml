@@ -11,6 +11,7 @@ on:
         options:
           - heuristic
           - jev
+          - compare
       games:
         description: Number of deterministic games
         required: true
@@ -27,7 +28,7 @@ on:
         default: '1000'
         type: string
       confirm_jev_cost:
-        description: Confirm external TypeSafe API usage when agent=jev
+        description: Confirm external TypeSafe API usage when agent=jev or compare
         required: false
         default: false
         type: boolean
@@ -79,7 +80,7 @@ jobs:
           fi
 
       - name: Validate Jev configuration
-        if: ${{ inputs.agent == 'jev' }}
+        if: ${{ inputs.agent == 'jev' || inputs.agent == 'compare' }}
         shell: bash
         env:
           GAMES: ${{ inputs.games }}
@@ -105,7 +106,7 @@ jobs:
           fi
 
       - name: Run heuristic benchmark
-        if: ${{ inputs.agent == 'heuristic' }}
+        if: ${{ inputs.agent == 'heuristic' || inputs.agent == 'compare' }}
         shell: bash
         env:
           TETRIS_BENCHMARK_AGENT: heuristic
@@ -119,7 +120,7 @@ jobs:
             javafx:run | tee "$RUNNER_TEMP/benchmark-output.log"
 
       - name: Run Jev benchmark
-        if: ${{ inputs.agent == 'jev' }}
+        if: ${{ inputs.agent == 'jev' || inputs.agent == 'compare' }}
         shell: bash
         env:
           TETRIS_BENCHMARK_AGENT: jev
@@ -131,7 +132,7 @@ jobs:
           set -euo pipefail
           ./mvnw --batch-mode --no-transfer-progress \
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
-            javafx:run | tee "$RUNNER_TEMP/benchmark-output.log"
+            javafx:run | tee -a "$RUNNER_TEMP/benchmark-output.log"
 
       - name: Collect benchmark results
         shell: bash
@@ -145,7 +146,18 @@ jobs:
 
           mkdir -p target/benchmark
           cp "$RUNNER_TEMP/benchmark-output.log" target/benchmark/raw.log
-          grep -E '^(agent|heuristic|jev),' target/benchmark/raw.log > target/benchmark/results.csv
+          awk '
+            /^agent,/ {
+              if (!header_seen) {
+                print
+                header_seen = 1
+              }
+              next
+            }
+            /^(heuristic|jev),/ {
+              print
+            }
+          ' target/benchmark/raw.log > target/benchmark/results.csv
           grep '^# ' target/benchmark/raw.log > target/benchmark/summary.txt
           grep '^jev_decision,' target/benchmark/raw.log > target/benchmark/jev-decisions.csv || true
 
