@@ -63,6 +63,8 @@ The simulator reuses existing tetromino rotation behavior and `core.BoardRules`.
 
 `ActionStateSearch` is the deterministic reachability layer for action-native planning. It performs breadth-first search over legal primitive controls (`LEFT`, `RIGHT`, both rotations and `SOFT_DROP`), reusing core tetromino transformations plus `BoardRules` collision checks. `DeterministicActionPlanningAgent` ranks the reachable landing boards with the existing survival heuristic, providing a local action-native baseline before remote/Jev planning is introduced.
 
+Reachability changes are measured separately from strategy quality. The manual `AI Benchmark` workflow has a `reachability` mode that compares the legacy placement landing set with the action-native landing set on deterministic scenarios, including search-state count and elapsed time. This keeps movement-capability evidence independent from Jev/model quality.
+
 `AiPlanValidator` is the structural guard between planning and live execution. Plans must be non-empty, are bounded to 64 actions, and may not contain actions after `HARD_DROP`. It deliberately does not simulate board legality; collision and reachability remain owned by the existing live game rules so validation does not create a second Tetris engine.
 
 The AI decision is requested only when a new piece is spawned. Existing manual input remains available. A valid current `AiMove` is converted to an `AiPlan`, whose actions are executed in order. Any invalid non-hard-drop action aborts the remaining plan. `HARD_DROP` immediately descends the piece until collision instead of waiting for gravity to traverse the remaining rows; the normal gravity tick still owns lock, row-clear and next-piece lifecycle processing.
