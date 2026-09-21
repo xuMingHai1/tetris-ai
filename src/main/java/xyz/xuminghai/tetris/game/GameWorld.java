@@ -630,6 +630,7 @@ import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.scene.input.KeyCode;
 import javafx.scene.robot.Robot;
+import xyz.xuminghai.tetris.ai.AiDecisionExecutor;
 import xyz.xuminghai.tetris.ai.AiMove;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
@@ -661,9 +662,23 @@ public final class GameWorld {
 
     private final PieceGenerator pieceGenerator = new BagPieceGenerator();
 
-    private final TetrisAgent aiAgent = new HeuristicTetrisAgent();
+    private final AiDecisionExecutor aiDecisionExecutor;
 
     private final BooleanProperty aiEnabled = new SimpleBooleanProperty(this, "aiEnabled");
+
+    public GameWorld() {
+        this(new HeuristicTetrisAgent());
+    }
+
+    /**
+     * Creates a game world with the supplied primary AI. If that AI fails, the local heuristic
+     * agent is used as a safe fallback for the same immutable snapshot.
+     *
+     * @param aiAgent primary AI decision implementation
+     */
+    public GameWorld(TetrisAgent aiAgent) {
+        this.aiDecisionExecutor = new AiDecisionExecutor(aiAgent, new HeuristicTetrisAgent());
+    }
 
     /**
      * 清除单元格
@@ -769,7 +784,7 @@ public final class GameWorld {
             if (gameGrid.saveCellsData(cells)) {
                 currentCells.set(gameGrid.checkCells(tetris.copy()));
                 if (spawned && aiEnabled.get()) {
-                    applyAiMove(aiAgent.decide(createAiSnapshot()));
+                    requestAiMove(tetris);
                 }
             }
             // 添加失败
@@ -876,6 +891,7 @@ public final class GameWorld {
      * 切换自动 AI。新状态会从下一次新方块生成开始生效。
      */
     public void toggleAi() {
+        aiDecisionExecutor.invalidate();
         aiEnabled.set(!aiEnabled.get());
     }
 
@@ -1019,6 +1035,30 @@ public final class GameWorld {
      */
     public void rotateCounterClockwise() {
         tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, true);
+    }
+
+    /**
+     * Starts AI work away from the JavaFX thread. A completed decision is applied only while it is
+     * still the newest request and still belongs to the same live falling piece.
+     */
+    private void requestAiMove(Tetris expectedTetris) {
+        final AiDecisionExecutor.AiDecision decision = aiDecisionExecutor.submit(createAiSnapshot());
+        decision.result().whenComplete((move, failure) -> {
+            if (failure != null) {
+                if (aiDecisionExecutor.isCurrent(decision)) {
+                    System.err.printf("AI decision failed: %s%n", failure.getMessage());
+                }
+                return;
+            }
+            Platform.runLater(() -> {
+                if (gameActive
+                        && aiEnabled.get()
+                        && aiDecisionExecutor.isCurrent(decision)
+                        && currentTetris.get() == expectedTetris) {
+                    applyAiMove(move);
+                }
+            });
+        });
     }
 
     private GameSnapshot createAiSnapshot() {
