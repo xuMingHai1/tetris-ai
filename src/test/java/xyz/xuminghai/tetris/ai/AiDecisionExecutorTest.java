@@ -38,7 +38,7 @@ class AiDecisionExecutorTest {
 
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
-        assertEquals(expected, decision.result().join());
+        assertEquals(expected, decision.result().toCompletableFuture().join());
         assertTrue(virtualThread.get());
         assertEquals(0, fallbackCalls.get());
         assertTrue(executor.isCurrent(decision));
@@ -59,7 +59,7 @@ class AiDecisionExecutorTest {
 
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
-        assertEquals(fallbackMove, decision.result().join());
+        assertEquals(fallbackMove, decision.result().toCompletableFuture().join());
         assertEquals(1, fallbackCalls.get());
     }
 
@@ -97,7 +97,7 @@ class AiDecisionExecutorTest {
                 });
 
         CompletionException failure =
-                assertThrows(CompletionException.class, () -> executor.submit(snapshot()).result().join());
+                assertThrows(CompletionException.class, () -> executor.submit(snapshot()).result().toCompletableFuture().join());
 
         assertEquals("fallback failure", failure.getCause().getMessage());
         assertEquals(1, failure.getCause().getSuppressed().length);
