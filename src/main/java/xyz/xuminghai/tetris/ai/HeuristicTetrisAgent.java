@@ -7,6 +7,7 @@ package xyz.xuminghai.tetris.ai;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * One-ply heuristic Tetris agent.
@@ -34,7 +35,12 @@ public final class HeuristicTetrisAgent implements TetrisAgent {
      * without duplicating the heuristic weights or tie-break semantics.</p>
      */
     static List<PlacementCandidate> rankCandidates(GameSnapshot snapshot) {
-        List<PlacementCandidate> candidates = new ArrayList<>(BoardSimulator.candidates(snapshot));
+        return rankCandidates(BoardSimulator.candidates(snapshot));
+    }
+
+    static List<PlacementCandidate> rankCandidates(List<PlacementCandidate> source) {
+        Objects.requireNonNull(source, "source");
+        List<PlacementCandidate> candidates = new ArrayList<>(source);
         candidates.sort(HeuristicTetrisAgent::compareCandidates);
         return List.copyOf(candidates);
     }
