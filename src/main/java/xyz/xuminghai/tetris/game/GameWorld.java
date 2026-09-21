@@ -666,6 +666,16 @@ public final class GameWorld {
 
     private final BooleanProperty aiEnabled = new SimpleBooleanProperty(this, "aiEnabled");
 
+    /**
+     * AI request that still owns the unchanged live-piece snapshot.
+     *
+     * <p>These fields are accessed only on the JavaFX application thread. Worker completions are
+     * marshalled through {@link Platform#runLater(Runnable)} before consulting them.</p>
+     */
+    private AiDecisionExecutor.AiDecision pendingAiDecision;
+    private GameSnapshot pendingAiSnapshot;
+    private Tetris pendingAiTetris;
+
     public GameWorld() {
         this(new HeuristicTetrisAgent());
     }
@@ -770,6 +780,9 @@ public final class GameWorld {
 
         @Override
         public void run() {
+            // A remote decision is valid only until this tick is about to mutate the falling piece.
+            resolvePendingAiBeforeAutomaticMove();
+
             // 初始化当前方块
             final boolean spawned = currentTetris.get() == null;
             if (spawned) {
@@ -891,7 +904,7 @@ public final class GameWorld {
      * 切换自动 AI。新状态会从下一次新方块生成开始生效。
      */
     public void toggleAi() {
-        aiDecisionExecutor.invalidate();
+        cancelPendingAiDecision();
         aiEnabled.set(!aiEnabled.get());
     }
 
@@ -935,6 +948,7 @@ public final class GameWorld {
     public void startOrPauseGame() {
         final Optional<Boolean> keyLocked = Platform.isKeyLocked(KeyCode.CAPS);
         if (gameActive) {
+            cancelPendingAiDecision();
             keyLocked.ifPresent(b -> {
                 if (b) {
                     robot.keyType(KeyCode.CAPS);
@@ -954,6 +968,9 @@ public final class GameWorld {
             gameTimeLine.start();
         }
         gameActive = !gameActive;
+        if (gameActive && aiEnabled.get() && currentTetris.get() != null) {
+            requestAiMove(currentTetris.get());
+        }
     }
 
     private enum ActionEnum {
@@ -971,6 +988,10 @@ public final class GameWorld {
      * @param function 行为函数
      */
     private boolean tetrisAction(ActionEnum action, Function<Tetris, Cell[]> function, boolean playAudio) {
+        if (playAudio) {
+            // Manual input wins over an in-flight remote decision for the same piece.
+            cancelPendingAiDecision();
+        }
         final Tetris tetris = currentTetris.get();
         if (tetris != null) {
             final Cell[] copyCells = tetris.copy();
@@ -1038,27 +1059,112 @@ public final class GameWorld {
     }
 
     /**
-     * Starts AI work away from the JavaFX thread. A completed decision is applied only while it is
-     * still the newest request and still belongs to the same live falling piece.
+     * Starts AI work away from the JavaFX thread.
+     *
+     * <p>The decision owns the exact falling-piece coordinates captured in the snapshot. A remote
+     * result is accepted only while those coordinates are still unchanged. If the next automatic
+     * gravity tick arrives first, the remote result is superseded and the local fallback is applied
+     * before gravity mutates the piece.</p>
      */
     private void requestAiMove(Tetris expectedTetris) {
-        final AiDecisionExecutor.AiDecision decision = aiDecisionExecutor.submit(createAiSnapshot());
-        decision.result().whenComplete((move, failure) -> {
-            if (failure != null) {
-                if (aiDecisionExecutor.isCurrent(decision)) {
-                    System.err.printf("AI decision failed: %s%n", failure.getMessage());
-                }
-                return;
+        final GameSnapshot snapshot = createAiSnapshot();
+        final AiDecisionExecutor.AiDecision decision = aiDecisionExecutor.submit(snapshot);
+        pendingAiDecision = decision;
+        pendingAiSnapshot = snapshot;
+        pendingAiTetris = expectedTetris;
+
+        decision.result().whenComplete((move, failure) ->
+                Platform.runLater(() -> completePendingAiDecision(decision, snapshot, expectedTetris, move, failure)));
+    }
+
+    private void completePendingAiDecision(
+            AiDecisionExecutor.AiDecision decision,
+            GameSnapshot snapshot,
+            Tetris expectedTetris,
+            AiMove move,
+            Throwable failure) {
+        if (pendingAiDecision != decision || !aiDecisionExecutor.isCurrent(decision)) {
+            return;
+        }
+        if (!isPendingAiStateValid(snapshot, expectedTetris)) {
+            cancelPendingAiDecision();
+            return;
+        }
+
+        clearPendingAiDecision();
+        if (failure != null) {
+            System.err.printf("AI decision failed: %s%n", failure.getMessage());
+            return;
+        }
+        applyAiMove(move);
+    }
+
+    /**
+     * Gives a pending remote decision until the next gravity tick to complete.
+     *
+     * <p>If it is still running, the local fallback is evaluated synchronously against the same
+     * unchanged snapshot and the remote generation is invalidated before the piece moves.</p>
+     */
+    private void resolvePendingAiBeforeAutomaticMove() {
+        if (pendingAiDecision == null) {
+            return;
+        }
+        if (!isPendingAiStateValid(pendingAiSnapshot, pendingAiTetris)) {
+            cancelPendingAiDecision();
+            return;
+        }
+
+        var result = pendingAiDecision.result().toCompletableFuture();
+        if (result.isDone()) {
+            try {
+                AiMove move = result.join();
+                clearPendingAiDecision();
+                applyAiMove(move);
             }
-            Platform.runLater(() -> {
-                if (gameActive
-                        && aiEnabled.get()
-                        && aiDecisionExecutor.isCurrent(decision)
-                        && currentTetris.get() == expectedTetris) {
-                    applyAiMove(move);
-                }
-            });
-        });
+            catch (RuntimeException failure) {
+                clearPendingAiDecision();
+                System.err.printf("AI decision failed: %s%n", failure.getMessage());
+            }
+            return;
+        }
+
+        final GameSnapshot snapshot = pendingAiSnapshot;
+        try {
+            AiMove fallbackMove = aiDecisionExecutor.fallbackNow(snapshot);
+            clearPendingAiDecision();
+            applyAiMove(fallbackMove);
+        }
+        catch (RuntimeException failure) {
+            clearPendingAiDecision();
+            System.err.printf("AI fallback failed: %s%n", failure.getMessage());
+        }
+    }
+
+    private boolean isPendingAiStateValid(GameSnapshot snapshot, Tetris expectedTetris) {
+        return gameActive
+                && aiEnabled.get()
+                && currentTetris.get() == expectedTetris
+                && matchesSnapshotCells(snapshot, expectedTetris.getCells());
+    }
+
+    static boolean matchesSnapshotCells(GameSnapshot snapshot, Cell[] liveCells) {
+        List<BoardPosition> currentPositions = Arrays.stream(liveCells)
+                .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                .toList();
+        return snapshot.currentCells().equals(currentPositions);
+    }
+
+    private void cancelPendingAiDecision() {
+        if (pendingAiDecision != null) {
+            aiDecisionExecutor.invalidate();
+            clearPendingAiDecision();
+        }
+    }
+
+    private void clearPendingAiDecision() {
+        pendingAiDecision = null;
+        pendingAiSnapshot = null;
+        pendingAiTetris = null;
     }
 
     private GameSnapshot createAiSnapshot() {
