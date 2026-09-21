@@ -627,6 +627,7 @@
 package xyz.xuminghai.tetris.view;
 
 import javafx.application.HostServices;
+import javafx.beans.binding.Bindings;
 import javafx.geometry.HPos;
 import javafx.geometry.Insets;
 import javafx.geometry.VPos;
@@ -743,7 +744,20 @@ public final class GameView extends BorderPane {
 
         final Text aiText = new Text("AI：");
         final Text aiValueText = new Text();
-        aiValueText.textProperty().bind(gameWorld.aiEnabledProperty().map(enabled -> enabled ? "ON" : "OFF"));
+        aiValueText.textProperty().bind(Bindings.createStringBinding(
+                () -> switch (gameWorld.aiModeProperty().get()) {
+                    case MANUAL -> "MANUAL";
+                    case HEURISTIC -> "HEURISTIC";
+                    case JEV -> switch (gameWorld.aiDecisionStateProperty().get()) {
+                        case PENDING -> "JEV · THINKING";
+                        case REMOTE -> "JEV · REMOTE";
+                        case FALLBACK -> "JEV · FALLBACK";
+                        case UNAVAILABLE -> "JEV · UNAVAILABLE";
+                        case IDLE -> "JEV";
+                    };
+                },
+                gameWorld.aiModeProperty(),
+                gameWorld.aiDecisionStateProperty()));
         gameDataPane.addRow(3, aiText, aiValueText);
         GridPane.setValignment(aiText, VPos.TOP);
         GridPane.setHalignment(aiValueText, HPos.RIGHT);
