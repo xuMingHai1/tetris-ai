@@ -26,7 +26,7 @@ GameSnapshot ---> BoardSimulator ---> PlacementCandidate(s)
 
 `TetrisAgent` is the stable decision contract. Strategies consume the same deterministic game facts and choose an `AiMove`; they must not depend on `game` or `view` packages.
 
-`AiMove` describes the control sequence supported by the current game: clockwise rotations followed by a horizontal shift. `GameWorld` remains responsible for validating and applying those actions to the live model.
+`AiMove` describes the placement controls chosen by the AI: clockwise rotations followed by a horizontal shift. `GameWorld` remains responsible for validating and applying those actions to the live model, then hard-drops the piece to the landing position already assumed by the selected simulator candidate.
 
 ## Deterministic generation
 
@@ -55,7 +55,7 @@ The simulator reuses existing tetromino rotation behavior and `core.BoardRules`.
 
 `F2` toggles AI mode. The current mode is shown in the side panel.
 
-The AI decision is requested only when a new piece is spawned. Existing manual input remains available.
+The AI decision is requested only when a new piece is spawned. Existing manual input remains available. After a valid AI decision is applied, `GameWorld` immediately descends the piece until collision instead of waiting for gravity to traverse the remaining rows; the normal gravity tick still owns lock, row-clear and next-piece lifecycle processing.
 
 `TetrisAgent` remains a synchronous decision contract, while `AiDecisionExecutor` owns runtime execution. Each request runs on a virtual thread so a future remote agent cannot block the JavaFX application thread. If the configured primary agent throws, the executor evaluates the same immutable snapshot with the local `HeuristicTetrisAgent` fallback.
 

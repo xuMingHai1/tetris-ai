@@ -1196,6 +1196,13 @@ public final class GameWorld {
                 return;
             }
         }
+
+        // AI candidates represent their final landing placement. Once rotation and horizontal
+        // movement have reached that placement's column, descend immediately instead of waiting
+        // for one gravity pulse per row.
+        while (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
+            // Keep descending until the next row would collide.
+        }
     }
 
     /**
