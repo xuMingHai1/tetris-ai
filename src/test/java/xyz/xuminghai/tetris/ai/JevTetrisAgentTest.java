@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class JevTetrisAgentTest {
 
@@ -80,6 +81,24 @@ class JevTetrisAgentTest {
     }
 
     @Test
+    void sendsKnownPreviewPieceAndDeterministicOutlookToProvider() {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        TypeSafeSystemOneClient client = client(
+                """
+                {"answers":{"move":{"type":"choice","choice":"c0","confidence":0.75}},"usage":{"input_tokens":120,"output_tokens":16}}
+                """,
+                requestBody);
+
+        new JevTetrisAgent(client).decide(snapshotWithNextPiece());
+
+        String body = requestBody.get();
+        assertTrue(body.contains("\"next_piece\":\"T\""));
+        assertTrue(body.contains("\"next_piece_outlook\""));
+        assertTrue(body.contains("\"legal_placements\""));
+        assertTrue(body.contains("\"best_local_response_metrics\""));
+    }
+
+    @Test
     void rejectsUnknownChoiceSoExecutorCanFallback() {
         TypeSafeSystemOneClient client = client(
                 """
@@ -90,6 +109,10 @@ class JevTetrisAgentTest {
     }
 
     private static TypeSafeSystemOneClient client(String response) {
+        return client(response, null);
+    }
+
+    private static TypeSafeSystemOneClient client(String response, AtomicReference<String> capturedBody) {
         return new TypeSafeSystemOneClient(
                 "test-key",
                 "jev-latest",
@@ -97,9 +120,25 @@ class JevTetrisAgentTest {
                 Duration.ofSeconds(1),
                 1,
                 Duration.ofMillis(1),
-                (request, requestBody) -> new TypeSafeSystemOneClient.RawResponse(200, response),
+                (request, requestBody) -> {
+                    if (capturedBody != null) {
+                        capturedBody.set(requestBody);
+                    }
+                    return new TypeSafeSystemOneClient.RawResponse(200, response);
+                },
                 duration -> {
                 });
+    }
+
+    private static GameSnapshot snapshotWithNextPiece() {
+        GameSnapshot snapshot = snapshot();
+        return new GameSnapshot(
+                snapshot.rows(),
+                snapshot.cols(),
+                snapshot.occupied(),
+                snapshot.currentType(),
+                snapshot.currentCells(),
+                TetrominoType.T);
     }
 
     private static GameSnapshot snapshot() {
