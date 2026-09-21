@@ -57,7 +57,9 @@ The AI decision is requested only when a new piece is spawned. Existing manual i
 
 `TetrisAgent` remains a synchronous decision contract, while `AiDecisionExecutor` owns runtime execution. Each request runs on a virtual thread so a future remote agent cannot block the JavaFX application thread. If the configured primary agent throws, the executor evaluates the same immutable snapshot with the local `HeuristicTetrisAgent` fallback.
 
-Each submission advances a decision generation. Completion is marshalled back through `Platform.runLater` and is applied only when the request is still current, AI mode is still enabled, the game is active, and the live falling piece is the exact piece that produced the snapshot. A newer request or an explicit AI-mode change invalidates older work, preventing a slow remote response from controlling a later piece.
+Each submission advances a decision generation. Completion is marshalled back through `Platform.runLater` and is applied only when the request is still current, AI mode is still enabled, the game is active, the live falling piece is the exact piece that produced the snapshot, and its cell coordinates still exactly match the snapshot.
+
+A remote decision owns the snapshot only until the next live-state mutation. Before the next automatic gravity tick changes the piece, `GameWorld` checks the pending decision. If it has not completed, the remote generation is invalidated and the local heuristic fallback is evaluated immediately against the still-unchanged snapshot, then the game continues. Manual movement cancels the pending remote decision instead, so player input always wins. This makes the gameplay tick, rather than an arbitrary HTTP timeout, the effective deadline for a remote decision.
 
 `GameWorld(TetrisAgent)` is the injection boundary for remote implementations. Network/client details stay outside `GameWorld`; the world continues to consume only `GameSnapshot -> TetrisAgent -> AiMove`.
 
