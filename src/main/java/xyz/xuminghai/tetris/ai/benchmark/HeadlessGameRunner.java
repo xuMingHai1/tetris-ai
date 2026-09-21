@@ -68,6 +68,8 @@ public final class HeadlessGameRunner {
         Objects.requireNonNull(primaryAgent, "primaryAgent");
 
         PieceGenerator pieceGenerator = new BagPieceGenerator(seed);
+        Tetris currentPiece = pieceGenerator.next();
+        Tetris nextPiece = pieceGenerator.next();
         boolean[][] board = new boolean[rows][cols];
         int piecesPlaced = 0;
         int linesCleared = 0;
@@ -85,12 +87,11 @@ public final class HeadlessGameRunner {
         PlacementCandidate lastSelected = null;
 
         while (piecesPlaced < pieceLimit) {
-            Tetris piece = pieceGenerator.next();
             // Live GameWorld requests AI only after the newly spawned piece has completed the
             // first automatic gravity move. Mirror that exact decision boundary here so top-edge
             // reachability and rotation checks are evaluated from the same coordinates.
-            piece.downMove();
-            GameSnapshot snapshot = snapshot(board, piece);
+            currentPiece.downMove();
+            GameSnapshot snapshot = snapshot(board, currentPiece, nextPiece);
             List<PlacementCandidate> candidates = BoardSimulator.candidates(snapshot);
             if (candidates.isEmpty()) {
                 break;
@@ -126,6 +127,9 @@ public final class HeadlessGameRunner {
             decisions++;
             totalDecisionNanos += elapsed;
             maxDecisionNanos = Math.max(maxDecisionNanos, elapsed);
+
+            currentPiece = nextPiece;
+            nextPiece = pieceGenerator.next();
         }
 
         BoardHealthSummary boardHealth = boardHealth(
@@ -180,7 +184,7 @@ public final class HeadlessGameRunner {
                 maxBumpiness);
     }
 
-    private GameSnapshot snapshot(boolean[][] board, Tetris piece) {
+    private GameSnapshot snapshot(boolean[][] board, Tetris piece, Tetris nextPiece) {
         Cell[] cells = piece.getCells();
         return new GameSnapshot(
                 rows,
@@ -189,7 +193,8 @@ public final class HeadlessGameRunner {
                 TetrominoType.from(piece),
                 Arrays.stream(cells)
                         .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
-                        .toList());
+                        .toList(),
+                TetrominoType.from(nextPiece));
     }
 
     private static AiMove requireLegalMove(AiMove move, List<PlacementCandidate> candidates) {
