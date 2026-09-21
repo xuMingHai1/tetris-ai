@@ -15,7 +15,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-final class BoardSimulator {
+public final class BoardSimulator {
 
     private BoardSimulator() {
     }
@@ -26,7 +26,7 @@ final class BoardSimulator {
      * <p>Candidate order is deterministic: rotation count first, then horizontal shift from left to
      * right. Invalid paths are omitted instead of being represented by sentinel scores.</p>
      */
-    static List<PlacementCandidate> candidates(GameSnapshot snapshot) {
+    public static List<PlacementCandidate> candidates(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
 
         List<PlacementCandidate> candidates = new ArrayList<>();
