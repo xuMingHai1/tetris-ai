@@ -1,0 +1,151 @@
+name: AI Benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: Agent to benchmark
+        required: true
+        default: heuristic
+        type: choice
+        options:
+          - heuristic
+          - jev
+      games:
+        description: Number of deterministic games
+        required: true
+        default: '20'
+        type: string
+      max_pieces:
+        description: Maximum pieces per game
+        required: true
+        default: '500'
+        type: string
+      seed:
+        description: Seed for the first game; later games increment by one
+        required: true
+        default: '1000'
+        type: string
+      confirm_jev_cost:
+        description: Confirm external TypeSafe API usage when agent=jev
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-benchmark-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Headless AI Benchmark
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Java 27
+        uses: actions/setup-java@v6
+        with:
+          distribution: oracle-openjdk
+          java-version: '27'
+          cache: maven
+
+      - name: Validate benchmark inputs
+        shell: bash
+        env:
+          AGENT: ${{ inputs.agent }}
+          GAMES: ${{ inputs.games }}
+          MAX_PIECES: ${{ inputs.max_pieces }}
+          SEED: ${{ inputs.seed }}
+          CONFIRM_JEV_COST: ${{ inputs.confirm_jev_cost }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$GAMES" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::games must be a positive integer"
+            exit 1
+          fi
+          if [[ ! "$MAX_PIECES" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::max_pieces must be a positive integer"
+            exit 1
+          fi
+          if [[ ! "$SEED" =~ ^-?[0-9]+$ ]]; then
+            echo "::error::seed must be an integer"
+            exit 1
+          fi
+
+          if [ "$AGENT" = "jev" ]; then
+            if [ "$CONFIRM_JEV_COST" != "true" ]; then
+              echo "::error::Set confirm_jev_cost=true before running a Jev benchmark"
+              exit 1
+            fi
+            if [ -z "$TYPESAFE_API_KEY" ]; then
+              echo "::error::Repository secret TYPESAFE_API_KEY is required for Jev benchmarks"
+              exit 1
+            fi
+
+            total_decisions=$((GAMES * MAX_PIECES))
+            if [ "$total_decisions" -gt 200 ]; then
+              echo "::error::Jev benchmark is capped at 200 potential decisions per manual run; reduce games or max_pieces"
+              exit 1
+            fi
+          fi
+
+      - name: Run deterministic benchmark
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: ${{ inputs.agent }}
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p target/benchmark
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+            javafx:run | tee target/benchmark/raw.log
+
+          grep -E '^(agent|heuristic|jev),' target/benchmark/raw.log > target/benchmark/results.csv
+          grep '^# ' target/benchmark/raw.log > target/benchmark/summary.txt
+
+          {
+            echo "commit=${GITHUB_SHA}"
+            echo "agent=${TETRIS_BENCHMARK_AGENT}"
+            echo "games=${TETRIS_BENCHMARK_GAMES}"
+            echo "max_pieces=${TETRIS_BENCHMARK_MAX_PIECES}"
+            echo "seed=${TETRIS_BENCHMARK_SEED}"
+          } > target/benchmark/metadata.txt
+
+      - name: Publish benchmark summary
+        shell: bash
+        run: |
+          {
+            echo "## AI Benchmark"
+            echo
+            echo '~~~text'
+            cat target/benchmark/summary.txt
+            echo '~~~'
+            echo
+            echo "Artifact contains per-game CSV, summary, metadata, and the raw Maven/application log."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-benchmark-${{ inputs.agent }}-${{ github.run_id }}
+          path: |
+            target/benchmark/results.csv
+            target/benchmark/summary.txt
+            target/benchmark/metadata.txt
+            target/benchmark/raw.log
+          if-no-files-found: error
+          retention-days: 30
