@@ -11,15 +11,20 @@ GameWorld
    |
    | immutable snapshot
    v
-GameSnapshot ---> TetrisAgent ---> AiMove
-                      |
-                      v
-                BoardSimulator
+GameSnapshot ---> BoardSimulator ---> PlacementCandidate(s)
+                                         |
+                                         v
+                                  TetrisAgent strategy
+                                         |
+                                         v
+                                      AiMove
 ```
 
 `GameSnapshot` contains board occupancy, the current tetromino type, and current cell coordinates. The occupied board excludes the falling piece.
 
-`TetrisAgent` is the stable decision contract. It must not depend on `game` or `view` packages.
+`BoardSimulator` is the deterministic candidate generator. It owns rotate-then-move reachability, drop simulation, row clearing and board metrics, and returns only legal `PlacementCandidate` values. Each candidate contains the `AiMove`, resulting board and objective facts such as cleared lines, aggregate height, holes and bumpiness; it contains no strategy-specific weight or score.
+
+`TetrisAgent` is the stable decision contract. Strategies consume the same deterministic game facts and choose an `AiMove`; they must not depend on `game` or `view` packages.
 
 `AiMove` describes the control sequence supported by the current game: clockwise rotations followed by a horizontal shift. `GameWorld` remains responsible for validating and applying those actions to the live model.
 
@@ -31,17 +36,18 @@ GameSnapshot ---> TetrisAgent ---> AiMove
 
 ## Current algorithm
 
-`HeuristicTetrisAgent` performs one-ply search:
+`BoardSimulator.candidates(...)` performs deterministic one-ply simulation:
 
 1. Enumerate the current tetromino's unique rotation states.
 2. Enumerate horizontal shifts.
 3. Reject candidates that cannot follow the rotate-then-move control path.
-4. Drop the candidate until collision.
+4. Drop each reachable candidate until collision.
 5. Clear full rows in the simulated board.
-6. Score cleared lines, aggregate height, holes, and bumpiness.
-7. Return the highest-scoring move with deterministic tie-breaking.
+6. Capture the resulting board and objective metrics in `PlacementCandidate`.
 
-The simulator reuses existing tetromino rotation behavior and `core.BoardRules`. Live `GameGrid` uses the same board rules for placement and full-row detection, so collision and row semantics do not become a second source of truth.
+`HeuristicTetrisAgent` then applies its weights to cleared lines, aggregate height, holes and bumpiness and returns the highest-scoring move with deterministic tie-breaking. The weights belong to the strategy, not to board simulation.
+
+The simulator reuses existing tetromino rotation behavior and `core.BoardRules`. Live `GameGrid` uses the same board rules for placement and full-row detection, so collision and row semantics do not become a second source of truth. Future model-backed agents must choose only from these deterministic candidates instead of recreating move legality or board rules.
 
 ## Runtime integration
 
