@@ -52,6 +52,7 @@ public final class BenchmarkApplication {
                         + "final_bumpiness,avg_bumpiness,max_bumpiness,reached_piece_limit");
         for (int game = 0; game < configuration.games(); game++) {
             long seed = configuration.seed() + game;
+            telemetry.startGame(seed);
             GameBenchmarkResult result =
                     runner.run(seed, configuration.maxPieces(), primary, fallback);
             results.add(result);
@@ -163,31 +164,94 @@ public final class BenchmarkApplication {
         if (telemetry.samples > 0) {
             System.out.printf(
                     Locale.ROOT,
-                    "# jev samples=%d avg_confidence=%.4f input_tokens=%d output_tokens=%d "
-                            + "avg_candidates=%.2f%n",
+                    "# jev samples=%d avg_confidence=%.4f min_confidence=%.4f max_confidence=%.4f "
+                            + "input_tokens=%d output_tokens=%d avg_candidates=%.2f "
+                            + "avg_selected_rank=%.2f top1_rate=%.4f "
+                            + "avg_cleared_lines_delta=%.3f avg_aggregate_height_delta=%.3f "
+                            + "avg_holes_delta=%.3f avg_bumpiness_delta=%.3f%n",
                     telemetry.samples,
                     telemetry.confidenceSum / telemetry.samples,
+                    telemetry.minConfidence,
+                    telemetry.maxConfidence,
                     telemetry.inputTokens,
                     telemetry.outputTokens,
-                    (double) telemetry.candidateCount / telemetry.samples);
+                    (double) telemetry.candidateCount / telemetry.samples,
+                    (double) telemetry.selectedRankSum / telemetry.samples,
+                    (double) telemetry.top1Selections / telemetry.samples,
+                    (double) telemetry.clearedLinesDeltaSum / telemetry.samples,
+                    (double) telemetry.aggregateHeightDeltaSum / telemetry.samples,
+                    (double) telemetry.holesDeltaSum / telemetry.samples,
+                    (double) telemetry.bumpinessDeltaSum / telemetry.samples);
+
+            System.out.println(
+                    "jev_decision,seed,decision,confidence,input_tokens,output_tokens,candidate_count,"
+                            + "selected_rank,cleared_lines_delta,aggregate_height_delta,holes_delta,bumpiness_delta");
+            for (JevTrace trace : telemetry.traces) {
+                JevDecisionObservation observation = trace.observation();
+                System.out.printf(
+                        Locale.ROOT,
+                        "jev_decision,%d,%d,%.4f,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        trace.seed(),
+                        trace.decision(),
+                        observation.confidence(),
+                        observation.inputTokens(),
+                        observation.outputTokens(),
+                        observation.candidateCount(),
+                        observation.selectedRank(),
+                        observation.clearedLinesDelta(),
+                        observation.aggregateHeightDelta(),
+                        observation.holesDelta(),
+                        observation.bumpinessDelta());
+            }
         }
     }
 
     private static final class JevTelemetry {
 
+        private final List<JevTrace> traces = new ArrayList<>();
+        private long currentSeed;
+        private int currentDecision;
         private long samples;
         private double confidenceSum;
+        private double minConfidence = Double.POSITIVE_INFINITY;
+        private double maxConfidence = Double.NEGATIVE_INFINITY;
         private long inputTokens;
         private long outputTokens;
         private long candidateCount;
+        private long selectedRankSum;
+        private long top1Selections;
+        private long clearedLinesDeltaSum;
+        private long aggregateHeightDeltaSum;
+        private long holesDeltaSum;
+        private long bumpinessDeltaSum;
+
+        void startGame(long seed) {
+            currentSeed = seed;
+            currentDecision = 0;
+        }
 
         void record(JevDecisionObservation observation) {
             samples++;
+            currentDecision++;
             confidenceSum += observation.confidence();
+            minConfidence = Math.min(minConfidence, observation.confidence());
+            maxConfidence = Math.max(maxConfidence, observation.confidence());
             inputTokens += observation.inputTokens();
             outputTokens += observation.outputTokens();
             candidateCount += observation.candidateCount();
+            selectedRankSum += observation.selectedRank();
+            if (observation.selectedRank() == 1) {
+                top1Selections++;
+            }
+            clearedLinesDeltaSum += observation.clearedLinesDelta();
+            aggregateHeightDeltaSum += observation.aggregateHeightDelta();
+            holesDeltaSum += observation.holesDelta();
+            bumpinessDeltaSum += observation.bumpinessDelta();
+            traces.add(new JevTrace(currentSeed, currentDecision, observation));
         }
+    }
+
+    private record JevTrace(long seed, int decision, JevDecisionObservation observation) {
     }
 
     private record Configuration(String agent, int games, int maxPieces, long seed) {
