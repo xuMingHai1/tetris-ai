@@ -39,9 +39,21 @@ class JevTetrisAgentTest {
                 {"answers":{"move":{"type":"choice","choice":"c4","confidence":0.75}},"usage":{"input_tokens":120,"output_tokens":16}}
                 """);
 
-        AiMove move = new JevTetrisAgent(client).decide(snapshot());
+        AtomicReference<JevDecisionObservation> observed = new AtomicReference<>();
+        AiMove move = new JevTetrisAgent(client, observed::set).decide(snapshot());
 
         assertEquals(ranked.get(4).move(), move);
+        assertEquals(5, observed.get().selectedRank());
+        assertEquals(
+                ranked.get(4).clearedLines() - ranked.getFirst().clearedLines(),
+                observed.get().clearedLinesDelta());
+        assertEquals(
+                ranked.get(4).aggregateHeight() - ranked.getFirst().aggregateHeight(),
+                observed.get().aggregateHeightDelta());
+        assertEquals(ranked.get(4).holes() - ranked.getFirst().holes(), observed.get().holesDelta());
+        assertEquals(
+                ranked.get(4).bumpiness() - ranked.getFirst().bumpiness(),
+                observed.get().bumpinessDelta());
     }
 
     @Test
@@ -60,6 +72,11 @@ class JevTetrisAgentTest {
         assertEquals(
                 Math.min(JevTetrisAgent.MAX_REMOTE_CANDIDATES, BoardSimulator.candidates(snapshot()).size()),
                 observed.get().candidateCount());
+        assertEquals(1, observed.get().selectedRank());
+        assertEquals(0, observed.get().clearedLinesDelta());
+        assertEquals(0, observed.get().aggregateHeightDelta());
+        assertEquals(0, observed.get().holesDelta());
+        assertEquals(0, observed.get().bumpinessDelta());
     }
 
     @Test
