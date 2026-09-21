@@ -108,6 +108,8 @@ scripts\package-app.cmd msi
 
 游戏运行后按 `F2` 切换 AI 自动玩。默认使用本地 one-ply heuristic agent；它在独立状态快照上枚举合法候选，并根据消行、堆叠高度、空洞和表面起伏评分。
 
+项目还提供 `NextPieceHeuristicTetrisAgent` 作为纯本地 two-ply evaluation baseline：它使用与 Jev 相同的 top-5 当前候选和同一套 deterministic next-piece outlook，但不进行任何远程调用。该策略目前主要用于 benchmark，用来验证收益究竟来自 look-ahead 事实本身，还是来自 Jev 在这些事实之上的选择能力。
+
 项目也支持 TypeSafe AI 的 Jev。Jev 不直接在全部合法落点中裸选：`BoardSimulator` 先生成所有合法 `PlacementCandidate`，本地 heuristic 复用相同评分和 tie-break 排序后只保留前 5 个安全候选，再由 Jev 在这个 shortlist 中做二次选择。运行时已知的 preview piece 会进入 `GameSnapshot`；对于每个 shortlist candidate，本地 `BoardSimulator` 还会用同一套规则计算下一块的合法落点数量，以及 heuristic 最佳下一步的客观 metrics，作为 deterministic one-piece outlook 提供给 Jev。Jev 不负责碰撞、旋转、下落或消行规则。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
 
 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。
@@ -144,7 +146,7 @@ AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射�
 
 可通过环境变量调整：
 
-- `TETRIS_BENCHMARK_AGENT`: `heuristic`（默认）或 `jev`
+- `TETRIS_BENCHMARK_AGENT`: `heuristic`（默认）、`lookahead`（纯本地 next-piece heuristic）或 `jev`
 - `TETRIS_BENCHMARK_GAMES`: 局数，默认 `1`
 - `TETRIS_BENCHMARK_MAX_PIECES`: 每局最多方块数，默认 `50`
 - `TETRIS_BENCHMARK_SEED`: 第一局 seed，后续每局递增，默认 `1`
@@ -172,7 +174,7 @@ TYPESAFE_API_KEY=<your-key> \
 
 输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。Jev 还会汇总 confidence 范围、token、candidate count、selected heuristic rank、top-1 agreement，以及相对 heuristic 第一名的 immediate metric delta。手动 workflow 还会把逐 decision Jev telemetry 保存为 `jev-decisions.csv`，用于在不改变策略的前提下分析 confidence 与偏离 heuristic 的关系。这些 board-health 数值直接来自生产 `PlacementCandidate`，benchmark 不重复计算规则或启发式指标。benchmark 的 latency 是完整 agent 调用耗时，用于策略评估；它不模拟桌面游戏中的实时 gravity deadline。
 
-也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。 workflow 还提供 `compare` 模式：使用同一组 `games / max_pieces / seed` 先跑 heuristic，再跑 Jev，并把两组结果放入同一个 artifact，适合做成对策略对照。
+也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。 workflow 还提供 `compare` 模式：使用同一组 `games / max_pieces / seed` 依次跑 heuristic、纯本地 `lookahead` 和 Jev，并把三组结果放入同一个 artifact，用于区分 deterministic next-piece search 与远程模型本身带来的收益。
 
 Jev workflow 不会自动执行。选择 `jev` 或 `compare` 时必须同时：
 

@@ -8,6 +8,7 @@ package xyz.xuminghai.tetris.ai.benchmark;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
+import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 
 import java.util.ArrayList;
@@ -87,9 +88,11 @@ public final class BenchmarkApplication {
     private static TetrisAgent createPrimary(String agent, JevTelemetry telemetry) {
         return switch (agent) {
             case "heuristic" -> new HeuristicTetrisAgent();
+            case "lookahead" -> new NextPieceHeuristicTetrisAgent();
             case "jev" -> new JevTetrisAgent(requireApiKey(), telemetry::record);
             default -> throw new IllegalArgumentException(
-                    "Unsupported " + AGENT_ENV + " value: " + agent + ". Expected heuristic or jev.");
+                    "Unsupported " + AGENT_ENV + " value: " + agent
+                            + ". Expected heuristic, lookahead or jev.");
         };
     }
 
