@@ -183,7 +183,7 @@ jobs:
               print
             }
           ' target/benchmark/raw.log > target/benchmark/results.csv
-          grep '^# ' target/benchmark/raw.log > target/benchmark/summary.txt
+          grep '^# ' target/benchmark/raw.log > target/benchmark/summary.txt || true
           grep '^jev_decision,' target/benchmark/raw.log > target/benchmark/jev-decisions.csv || true
 
           {
