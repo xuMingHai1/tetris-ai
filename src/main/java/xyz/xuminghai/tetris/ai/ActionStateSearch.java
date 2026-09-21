@@ -37,12 +37,12 @@ final class ActionStateSearch {
     private ActionStateSearch() {
     }
 
-    static List<ReachableLanding> landings(GameSnapshot snapshot) {
+    static SearchResult search(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         boolean[][] occupied = snapshot.occupied();
         State initial = new State(List.copyOf(snapshot.currentCells()), List.of());
         if (!canPlace(snapshot, occupied, initial.cells())) {
-            return List.of();
+            return new SearchResult(List.of(), 0);
         }
 
         ArrayDeque<State> queue = new ArrayDeque<>();
@@ -73,7 +73,11 @@ final class ActionStateSearch {
                 queue.addLast(new State(next, List.copyOf(actions)));
             }
         }
-        return List.copyOf(landings);
+        return new SearchResult(List.copyOf(landings), visited.size());
+    }
+
+    static List<ReachableLanding> landings(GameSnapshot snapshot) {
+        return search(snapshot).landings();
     }
 
     private static List<BoardPosition> apply(
@@ -135,6 +139,15 @@ final class ActionStateSearch {
                     return row != 0 ? row : Integer.compare(left.col(), right.col());
                 })
                 .toList();
+    }
+
+    record SearchResult(List<ReachableLanding> landings, int visitedStates) {
+        SearchResult {
+            landings = List.copyOf(landings);
+            if (visitedStates < 0) {
+                throw new IllegalArgumentException("visitedStates must not be negative");
+            }
+        }
     }
 
     record ReachableLanding(AiPlan plan, List<BoardPosition> cells) {
