@@ -5,7 +5,7 @@
  */
 package xyz.xuminghai.tetris.ai;
 
-import TetrominoType;
+import xyz.xuminghai.tetris.core.TetrominoType;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
