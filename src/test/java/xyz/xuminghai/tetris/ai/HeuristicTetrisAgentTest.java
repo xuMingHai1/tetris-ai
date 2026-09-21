@@ -16,6 +16,24 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 class HeuristicTetrisAgentTest {
 
     @Test
+    void keepsDeterministicTieBreakOnEmptyBoard() {
+        GameSnapshot snapshot = new GameSnapshot(
+                20,
+                10,
+                new boolean[20][10],
+                TetrominoType.I,
+                List.of(
+                        new BoardPosition(-1, 3),
+                        new BoardPosition(-1, 4),
+                        new BoardPosition(-1, 5),
+                        new BoardPosition(-1, 6)));
+
+        AiMove move = new HeuristicTetrisAgent().decide(snapshot);
+
+        assertEquals(new AiMove(0, -3), move);
+    }
+
+    @Test
     void completesAnAlmostFullBottomRowWithHorizontalIBlock() {
         boolean[][] board = new boolean[20][10];
         for (int col = 0; col < 6; col++) {

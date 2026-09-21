@@ -63,10 +63,11 @@ class BoardSimulatorTest {
         assertTrue(first.stream().map(PlacementCandidate::move).distinct().count() > 1);
 
         PlacementCandidate candidate = first.getFirst();
+        boolean originalCell = candidate.resultingBoard()[0][0];
         boolean[][] exposedBoard = candidate.resultingBoard();
-        exposedBoard[0][0] = !exposedBoard[0][0];
+        exposedBoard[0][0] = !originalCell;
 
-        assertEquals(!exposedBoard[0][0], candidate.resultingBoard()[0][0]);
+        assertEquals(originalCell, candidate.resultingBoard()[0][0]);
     }
 
     private static GameSnapshot emptyBoardWithHorizontalIBlock() {
