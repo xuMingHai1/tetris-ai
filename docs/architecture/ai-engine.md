@@ -75,7 +75,7 @@ A remote decision owns the snapshot only until the next live-state mutation. Bef
 
 `ai.benchmark.HeadlessGameRunner` provides a deterministic evaluation path that does not start the JavaFX runtime. For each seeded 7-bag piece it builds the same `GameSnapshot`, asks the strategy for an `AiMove`, matches that move to the already-generated legal `PlacementCandidate`, and advances the board using that candidate's resulting board. It does not duplicate rotation, collision, drop or row-clear rules.
 
-`BenchmarkApplication` runs one or more seeded games and reports gameplay outcome plus decision latency. A primary strategy may be paired with a local fallback; primary exceptions or illegal moves are counted before fallback is applied.
+`BenchmarkApplication` runs one or more seeded games and reports gameplay outcome plus decision latency. A primary strategy may be paired with a local fallback; primary exceptions or illegal moves are counted before fallback is applied. The runner also aggregates the selected `PlacementCandidate` health facts (aggregate height, holes and bumpiness) as final, average and maximum values. These metrics are observed from production candidates rather than recalculated by benchmark-specific board logic.
 
 For Jev evaluation, `JevDecisionObservation` exposes successful Choice confidence, token usage and candidate count without changing the `TetrisAgent -> AiMove` contract. The benchmark aggregates this provider telemetry. These observations do not participate in gameplay decisions.
 

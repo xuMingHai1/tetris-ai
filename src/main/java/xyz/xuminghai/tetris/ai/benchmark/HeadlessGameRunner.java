@@ -76,6 +76,13 @@ public final class HeadlessGameRunner {
         int fallbackDecisions = 0;
         long totalDecisionNanos = 0L;
         long maxDecisionNanos = 0L;
+        long aggregateHeightSum = 0L;
+        long holesSum = 0L;
+        long bumpinessSum = 0L;
+        int maxAggregateHeight = 0;
+        int maxHoles = 0;
+        int maxBumpiness = 0;
+        PlacementCandidate lastSelected = null;
 
         while (piecesPlaced < pieceLimit) {
             Tetris piece = pieceGenerator.next();
@@ -104,11 +111,28 @@ public final class HeadlessGameRunner {
             PlacementCandidate selected = candidateFor(move, candidates);
             board = selected.resultingBoard();
             linesCleared += selected.clearedLines();
+            aggregateHeightSum += selected.aggregateHeight();
+            holesSum += selected.holes();
+            bumpinessSum += selected.bumpiness();
+            maxAggregateHeight = Math.max(maxAggregateHeight, selected.aggregateHeight());
+            maxHoles = Math.max(maxHoles, selected.holes());
+            maxBumpiness = Math.max(maxBumpiness, selected.bumpiness());
+            lastSelected = selected;
             piecesPlaced++;
             decisions++;
             totalDecisionNanos += elapsed;
             maxDecisionNanos = Math.max(maxDecisionNanos, elapsed);
         }
+
+        BoardHealthSummary boardHealth = boardHealth(
+                lastSelected,
+                piecesPlaced,
+                aggregateHeightSum,
+                holesSum,
+                bumpinessSum,
+                maxAggregateHeight,
+                maxHoles,
+                maxBumpiness);
 
         return new GameBenchmarkResult(
                 seed,
@@ -120,11 +144,36 @@ public final class HeadlessGameRunner {
                 fallbackDecisions,
                 totalDecisionNanos,
                 maxDecisionNanos,
+                boardHealth,
                 piecesPlaced == pieceLimit);
     }
 
     public GameBenchmarkResult run(long seed, int pieceLimit, TetrisAgent agent) {
         return run(seed, pieceLimit, agent, null);
+    }
+
+    private static BoardHealthSummary boardHealth(
+            PlacementCandidate lastSelected,
+            int piecesPlaced,
+            long aggregateHeightSum,
+            long holesSum,
+            long bumpinessSum,
+            int maxAggregateHeight,
+            int maxHoles,
+            int maxBumpiness) {
+        if (lastSelected == null || piecesPlaced == 0) {
+            return BoardHealthSummary.empty();
+        }
+        return new BoardHealthSummary(
+                lastSelected.aggregateHeight(),
+                (double) aggregateHeightSum / piecesPlaced,
+                maxAggregateHeight,
+                lastSelected.holes(),
+                (double) holesSum / piecesPlaced,
+                maxHoles,
+                lastSelected.bumpiness(),
+                (double) bumpinessSum / piecesPlaced,
+                maxBumpiness);
     }
 
     private GameSnapshot snapshot(boolean[][] board, Tetris piece) {

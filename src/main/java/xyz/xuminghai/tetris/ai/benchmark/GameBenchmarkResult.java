@@ -5,6 +5,8 @@
  */
 package xyz.xuminghai.tetris.ai.benchmark;
 
+import java.util.Objects;
+
 /**
  * Outcome and decision-cost metrics for one deterministic headless game.
  */
@@ -18,12 +20,14 @@ public record GameBenchmarkResult(
         int fallbackDecisions,
         long totalDecisionNanos,
         long maxDecisionNanos,
+        BoardHealthSummary boardHealth,
         boolean reachedPieceLimit) {
 
     public GameBenchmarkResult {
         if (pieceLimit <= 0) {
             throw new IllegalArgumentException("pieceLimit must be greater than 0");
         }
+        Objects.requireNonNull(boardHealth, "boardHealth");
         if (piecesPlaced < 0
                 || linesCleared < 0
                 || decisions < 0
