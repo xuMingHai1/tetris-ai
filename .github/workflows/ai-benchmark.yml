@@ -59,12 +59,9 @@ jobs:
       - name: Validate benchmark inputs
         shell: bash
         env:
-          AGENT: ${{ inputs.agent }}
           GAMES: ${{ inputs.games }}
           MAX_PIECES: ${{ inputs.max_pieces }}
           SEED: ${{ inputs.seed }}
-          CONFIRM_JEV_COST: ${{ inputs.confirm_jev_cost }}
-          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: |
           set -euo pipefail
 
@@ -81,48 +78,82 @@ jobs:
             exit 1
           fi
 
-          if [ "$AGENT" = "jev" ]; then
-            if [ "$CONFIRM_JEV_COST" != "true" ]; then
-              echo "::error::Set confirm_jev_cost=true before running a Jev benchmark"
-              exit 1
-            fi
-            if [ -z "$TYPESAFE_API_KEY" ]; then
-              echo "::error::Repository secret TYPESAFE_API_KEY is required for Jev benchmarks"
-              exit 1
-            fi
-
-            total_decisions=$((GAMES * MAX_PIECES))
-            if [ "$total_decisions" -gt 200 ]; then
-              echo "::error::Jev benchmark is capped at 200 potential decisions per manual run; reduce games or max_pieces"
-              exit 1
-            fi
-          fi
-
-      - name: Run deterministic benchmark
+      - name: Validate Jev configuration
+        if: ${{ inputs.agent == 'jev' }}
         shell: bash
         env:
-          TETRIS_BENCHMARK_AGENT: ${{ inputs.agent }}
+          GAMES: ${{ inputs.games }}
+          MAX_PIECES: ${{ inputs.max_pieces }}
+          CONFIRM_JEV_COST: ${{ inputs.confirm_jev_cost }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          set -euo pipefail
+
+          if [ "$CONFIRM_JEV_COST" != "true" ]; then
+            echo "::error::Set confirm_jev_cost=true before running a Jev benchmark"
+            exit 1
+          fi
+          if [ -z "$TYPESAFE_API_KEY" ]; then
+            echo "::error::Repository secret TYPESAFE_API_KEY is required for Jev benchmarks"
+            exit 1
+          fi
+
+          total_decisions=$((GAMES * MAX_PIECES))
+          if [ "$total_decisions" -gt 200 ]; then
+            echo "::error::Jev benchmark is capped at 200 potential decisions per manual run; reduce games or max_pieces"
+            exit 1
+          fi
+
+      - name: Run heuristic benchmark
+        if: ${{ inputs.agent == 'heuristic' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: heuristic
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+            javafx:run | tee "$RUNNER_TEMP/benchmark-output.log"
+
+      - name: Run Jev benchmark
+        if: ${{ inputs.agent == 'jev' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: jev
           TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
           TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
           TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
           TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
         run: |
           set -euo pipefail
-
-          mkdir -p target/benchmark
           ./mvnw --batch-mode --no-transfer-progress \
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
-            javafx:run | tee target/benchmark/raw.log
+            javafx:run | tee "$RUNNER_TEMP/benchmark-output.log"
 
+      - name: Collect benchmark results
+        shell: bash
+        env:
+          AGENT: ${{ inputs.agent }}
+          GAMES: ${{ inputs.games }}
+          MAX_PIECES: ${{ inputs.max_pieces }}
+          SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p target/benchmark
+          cp "$RUNNER_TEMP/benchmark-output.log" target/benchmark/raw.log
           grep -E '^(agent|heuristic|jev),' target/benchmark/raw.log > target/benchmark/results.csv
           grep '^# ' target/benchmark/raw.log > target/benchmark/summary.txt
 
           {
             echo "commit=${GITHUB_SHA}"
-            echo "agent=${TETRIS_BENCHMARK_AGENT}"
-            echo "games=${TETRIS_BENCHMARK_GAMES}"
-            echo "max_pieces=${TETRIS_BENCHMARK_MAX_PIECES}"
-            echo "seed=${TETRIS_BENCHMARK_SEED}"
+            echo "agent=${AGENT}"
+            echo "games=${GAMES}"
+            echo "max_pieces=${MAX_PIECES}"
+            echo "seed=${SEED}"
           } > target/benchmark/metadata.txt
 
       - name: Publish benchmark summary
@@ -139,6 +170,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: ai-benchmark-${{ inputs.agent }}-${{ github.run_id }}
@@ -147,5 +179,5 @@ jobs:
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
