@@ -61,6 +61,8 @@ The simulator reuses existing tetromino rotation behavior and `core.BoardRules`.
 
 `F2` toggles AI mode. The current mode is shown in the side panel.
 
+`ActionStateSearch` is the deterministic reachability layer for action-native planning. It performs breadth-first search over legal primitive controls (`LEFT`, `RIGHT`, both rotations and `SOFT_DROP`), reusing core tetromino transformations plus `BoardRules` collision checks. `DeterministicActionPlanningAgent` ranks the reachable landing boards with the existing survival heuristic, providing a local action-native baseline before remote/Jev planning is introduced.
+
 `AiPlanValidator` is the structural guard between planning and live execution. Plans must be non-empty, are bounded to 64 actions, and may not contain actions after `HARD_DROP`. It deliberately does not simulate board legality; collision and reachability remain owned by the existing live game rules so validation does not create a second Tetris engine.
 
 The AI decision is requested only when a new piece is spawned. Existing manual input remains available. A valid current `AiMove` is converted to an `AiPlan`, whose actions are executed in order. Any invalid non-hard-drop action aborts the remaining plan. `HARD_DROP` immediately descends the piece until collision instead of waiting for gravity to traverse the remaining rows; the normal gravity tick still owns lock, row-clear and next-piece lifecycle processing.
@@ -97,6 +99,7 @@ The headless benchmark intentionally does not emulate JavaFX gravity deadlines. 
 - Potentially blocking agents must execute through `AiDecisionExecutor`; never perform remote I/O on the JavaFX application thread.
 - Asynchronous results must pass the current-generation and current-piece checks before they can mutate live game state.
 - JavaFX animation/audio/input classes must not enter the `ai` package.
+- Action-native planners should derive paths from `ActionStateSearch` (or an equivalent rules-backed reachability source) rather than inventing movement legality.
 - Every AI plan must pass `AiPlanValidator` before live execution; structural limits belong there while board legality remains in the existing game rules.
 - A candidate selected by the simulator must still pass the live `GameWorld` collision checks.
 - Invalid live moves restore the previous grid state; failed movement must not remove the falling piece from collision data.

@@ -105,6 +105,10 @@ public final class BoardSimulator {
         return describe(new AiMove(rotations, horizontalShift), occupied, clearedLines);
     }
 
+    static PlacementCandidate describeForPlan(boolean[][] board, int clearedLines) {
+        return describe(AiMove.NONE, board, clearedLines);
+    }
+
     private static PlacementCandidate describe(AiMove move, boolean[][] board, int clearedLines) {
         int rows = board.length;
         int cols = board[0].length;
