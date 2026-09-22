@@ -7,6 +7,8 @@ package xyz.xuminghai.tetris.ai.benchmark;
 
 import xyz.xuminghai.tetris.ai.ActionProvenanceBenchmark;
 import xyz.xuminghai.tetris.ai.AiPlanningAgent;
+import xyz.xuminghai.tetris.ai.BuildShapeActionPlanningAgent;
+import xyz.xuminghai.tetris.ai.BuildShapeDecisionObservation;
 import xyz.xuminghai.tetris.ai.DeterministicActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.JevActionPlanningAgent;
@@ -14,6 +16,7 @@ import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskProfile;
+import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterDecisionObservation;
@@ -49,13 +52,15 @@ public final class BenchmarkApplication {
         JevTelemetry telemetry = new JevTelemetry();
         ActionProvenanceTelemetry provenanceTelemetry = new ActionProvenanceTelemetry();
         TuckHunterTelemetry tuckHunterTelemetry = new TuckHunterTelemetry();
+        BuildShapeTelemetry buildShapeTelemetry = new BuildShapeTelemetry();
         BenchmarkStrategy strategy =
                 createStrategy(
                         configuration.agent(),
                         configuration.riskProfile(),
                         telemetry,
                         provenanceTelemetry,
-                        tuckHunterTelemetry);
+                        tuckHunterTelemetry,
+                        buildShapeTelemetry);
         HeadlessGameRunner runner = new HeadlessGameRunner();
         List<GameBenchmarkResult> results = new ArrayList<>(configuration.games());
 
@@ -70,6 +75,7 @@ public final class BenchmarkApplication {
             telemetry.startGame(seed);
             provenanceTelemetry.startGame(seed);
             tuckHunterTelemetry.startGame(seed);
+            buildShapeTelemetry.startGame(seed);
             GameBenchmarkResult result =
                     strategy.run(runner, seed, configuration.maxPieces());
             results.add(result);
@@ -103,7 +109,8 @@ public final class BenchmarkApplication {
                 results,
                 telemetry,
                 provenanceTelemetry,
-                tuckHunterTelemetry);
+                tuckHunterTelemetry,
+                buildShapeTelemetry);
     }
 
     private static BenchmarkStrategy createStrategy(
@@ -111,7 +118,8 @@ public final class BenchmarkApplication {
             ObjectiveRiskProfile riskProfile,
             JevTelemetry telemetry,
             ActionProvenanceTelemetry provenanceTelemetry,
-            TuckHunterTelemetry tuckHunterTelemetry) {
+            TuckHunterTelemetry tuckHunterTelemetry,
+            BuildShapeTelemetry buildShapeTelemetry) {
         return switch (agent) {
             case "heuristic" -> {
                 TetrisAgent primary = new HeuristicTetrisAgent();
@@ -144,6 +152,14 @@ public final class BenchmarkApplication {
                 yield (runner, seed, pieceLimit) ->
                         runner.runPlanning(seed, pieceLimit, primary);
             }
+            case "build-shape" -> {
+                AiPlanningAgent primary =
+                        new BuildShapeActionPlanningAgent(
+                                ShapeTarget.HEART,
+                                buildShapeTelemetry::record);
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
             case "action-provenance" -> {
                 AiPlanningAgent primary = snapshot -> {
                     ActionProvenanceBenchmark.Observation observation =
@@ -164,7 +180,7 @@ public final class BenchmarkApplication {
             }
             default -> throw new IllegalArgumentException(
                     "Unsupported " + AGENT_ENV + " value: " + agent
-                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, adaptive-tuck-hunter, action-provenance or jev-action.");
+                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, adaptive-tuck-hunter, build-shape, action-provenance or jev-action.");
         };
     }
 
@@ -181,7 +197,8 @@ public final class BenchmarkApplication {
             List<GameBenchmarkResult> results,
             JevTelemetry telemetry,
             ActionProvenanceTelemetry provenanceTelemetry,
-            TuckHunterTelemetry tuckHunterTelemetry) {
+            TuckHunterTelemetry tuckHunterTelemetry,
+            BuildShapeTelemetry buildShapeTelemetry) {
         long pieces = results.stream().mapToLong(GameBenchmarkResult::piecesPlaced).sum();
         long lines = results.stream().mapToLong(GameBenchmarkResult::linesCleared).sum();
         long decisions = results.stream().mapToLong(GameBenchmarkResult::decisions).sum();
@@ -385,6 +402,85 @@ public final class BenchmarkApplication {
                         observation.selectedFutureActionOnlyCandidates(),
                         observation.selectedFutureTopFiveActionOnlyCandidates(),
                         observation.selectedBestFutureActionOnlyRank(),
+                        observation.selectedClearedLinesDelta(),
+                        observation.selectedAggregateHeightDelta(),
+                        observation.selectedHolesDelta(),
+                        observation.selectedBumpinessDelta());
+            }
+        }
+
+        if (buildShapeTelemetry.samples > 0) {
+            double averageSelectedRank =
+                    (double) buildShapeTelemetry.selectedRankSum / buildShapeTelemetry.samples;
+            double averageMatched =
+                    (double) buildShapeTelemetry.selectedMatchedCells / buildShapeTelemetry.samples;
+            double averageIntrusions =
+                    (double) buildShapeTelemetry.selectedIntrusionCells / buildShapeTelemetry.samples;
+            double averageCompletion =
+                    buildShapeTelemetry.selectedCompletionRateSum / buildShapeTelemetry.samples;
+            double averageNetDelta =
+                    (double) buildShapeTelemetry.netScoreDeltaSum / buildShapeTelemetry.samples;
+
+            System.out.printf(
+                    Locale.ROOT,
+                    "# build_shape target=%s samples=%d objective_applied=%d objective_applied_rate=%.4f "
+                            + "avg_selected_rank=%.2f avg_matched_cells=%.3f max_matched_cells=%d "
+                            + "avg_intrusion_cells=%.3f avg_completion_rate=%.4f max_completion_rate=%.4f "
+                            + "avg_net_score_delta=%.4f safety_rejected_candidates=%d "
+                            + "risk_low=%d risk_normal=%d risk_danger=%d "
+                            + "profile_strict=%d profile_conservative=%d profile_balanced=%d profile_risky=%d%n",
+                    ShapeTarget.HEART.configValue(),
+                    buildShapeTelemetry.samples,
+                    buildShapeTelemetry.objectiveApplied,
+                    (double) buildShapeTelemetry.objectiveApplied / buildShapeTelemetry.samples,
+                    averageSelectedRank,
+                    averageMatched,
+                    buildShapeTelemetry.maxMatchedCells,
+                    averageIntrusions,
+                    averageCompletion,
+                    buildShapeTelemetry.maxCompletionRate,
+                    averageNetDelta,
+                    buildShapeTelemetry.safetyRejectedCandidates,
+                    buildShapeTelemetry.riskLow,
+                    buildShapeTelemetry.riskNormal,
+                    buildShapeTelemetry.riskDanger,
+                    buildShapeTelemetry.profileStrict,
+                    buildShapeTelemetry.profileConservative,
+                    buildShapeTelemetry.profileBalanced,
+                    buildShapeTelemetry.profileRisky);
+
+            System.out.println(
+                    "build_shape_decision,target,seed,decision,risk_level,risk_profile,"
+                            + "baseline_headroom,baseline_holes,candidate_count,safety_eligible_candidates,"
+                            + "safety_rejected_candidates,selected_rank,baseline_matched_cells,"
+                            + "baseline_intrusion_cells,selected_matched_cells,selected_intrusion_cells,"
+                            + "net_score_delta,matched_cells_delta,intrusion_cells_delta,completion_rate,"
+                            + "selected_cleared_lines_delta,selected_height_delta,selected_holes_delta,"
+                            + "selected_bumpiness_delta");
+            for (BuildShapeTrace trace : buildShapeTelemetry.traces) {
+                BuildShapeDecisionObservation observation = trace.observation();
+                System.out.printf(
+                        Locale.ROOT,
+                        "build_shape_decision,%s,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%d,%d,%d,%d%n",
+                        observation.target().configValue(),
+                        trace.seed(),
+                        trace.decision(),
+                        observation.riskLevel().name().toLowerCase(Locale.ROOT),
+                        observation.riskProfile().configValue(),
+                        observation.baselineHeadroom(),
+                        observation.baselineHoles(),
+                        observation.candidateCount(),
+                        observation.safetyEligibleCandidates(),
+                        observation.safetyRejectedCandidates(),
+                        observation.selectedRank(),
+                        observation.baselineProgress().matchedCells(),
+                        observation.baselineProgress().intrusionCells(),
+                        observation.selectedProgress().matchedCells(),
+                        observation.selectedProgress().intrusionCells(),
+                        observation.netScoreDelta(),
+                        observation.matchedCellsDelta(),
+                        observation.intrusionCellsDelta(),
+                        observation.selectedProgress().completionRate(),
                         observation.selectedClearedLinesDelta(),
                         observation.selectedAggregateHeightDelta(),
                         observation.selectedHolesDelta(),
@@ -605,6 +701,63 @@ public final class BenchmarkApplication {
         }
     }
 
+    private static final class BuildShapeTelemetry {
+
+        private final List<BuildShapeTrace> traces = new ArrayList<>();
+        private long currentSeed;
+        private int currentDecision;
+        private long samples;
+        private long objectiveApplied;
+        private long selectedRankSum;
+        private long selectedMatchedCells;
+        private long selectedIntrusionCells;
+        private long netScoreDeltaSum;
+        private long safetyRejectedCandidates;
+        private int maxMatchedCells;
+        private double selectedCompletionRateSum;
+        private double maxCompletionRate;
+        private long riskLow;
+        private long riskNormal;
+        private long riskDanger;
+        private long profileStrict;
+        private long profileConservative;
+        private long profileBalanced;
+        private long profileRisky;
+
+        void startGame(long seed) {
+            currentSeed = seed;
+            currentDecision = 0;
+        }
+
+        void record(BuildShapeDecisionObservation observation) {
+            samples++;
+            currentDecision++;
+            if (observation.objectiveApplied()) {
+                objectiveApplied++;
+            }
+            selectedRankSum += observation.selectedRank();
+            selectedMatchedCells += observation.selectedProgress().matchedCells();
+            selectedIntrusionCells += observation.selectedProgress().intrusionCells();
+            netScoreDeltaSum += observation.netScoreDelta();
+            safetyRejectedCandidates += observation.safetyRejectedCandidates();
+            maxMatchedCells = Math.max(maxMatchedCells, observation.selectedProgress().matchedCells());
+            selectedCompletionRateSum += observation.selectedProgress().completionRate();
+            maxCompletionRate = Math.max(maxCompletionRate, observation.selectedProgress().completionRate());
+            switch (observation.riskLevel()) {
+                case LOW -> riskLow++;
+                case NORMAL -> riskNormal++;
+                case DANGER -> riskDanger++;
+            }
+            switch (observation.riskProfile()) {
+                case STRICT -> profileStrict++;
+                case CONSERVATIVE -> profileConservative++;
+                case BALANCED -> profileBalanced++;
+                case RISKY -> profileRisky++;
+            }
+            traces.add(new BuildShapeTrace(currentSeed, currentDecision, observation));
+        }
+    }
+
     @FunctionalInterface
     private interface BenchmarkStrategy {
 
@@ -624,6 +777,12 @@ public final class BenchmarkApplication {
             long seed,
             int decision,
             TuckHunterDecisionObservation observation) {
+    }
+
+    private record BuildShapeTrace(
+            long seed,
+            int decision,
+            BuildShapeDecisionObservation observation) {
     }
 
     private record Configuration(
@@ -655,6 +814,9 @@ public final class BenchmarkApplication {
             }
             if ("adaptive-tuck-hunter".equals(agent)) {
                 return "tuck-hunter-adaptive";
+            }
+            if ("build-shape".equals(agent)) {
+                return "build-shape-" + ShapeTarget.HEART.configValue();
             }
             return agent;
         }
