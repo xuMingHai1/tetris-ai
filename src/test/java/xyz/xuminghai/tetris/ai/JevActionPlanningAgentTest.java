@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -49,6 +50,12 @@ class JevActionPlanningAgentTest {
         assertEquals(
                 ranked.get(4).placement().holes() - ranked.getFirst().placement().holes(),
                 observed.get().holesDelta());
+        List<ActionPlanCandidates.PlannedCandidate> shortlist =
+                ranked.subList(0, Math.min(JevActionPlanningAgent.MAX_REMOTE_CANDIDATES, ranked.size()));
+        assertEquals(
+                shortlist.stream().filter(ActionPlanCandidates.PlannedCandidate::actionOnly).count(),
+                observed.get().actionOnlyCandidateCount());
+        assertEquals(ranked.get(4).actionOnly(), observed.get().selectedActionOnly());
     }
 
     @Test
@@ -68,6 +75,9 @@ class JevActionPlanningAgentTest {
         assertTrue(body.contains("\"action_count\""));
         assertTrue(body.contains("\"next_piece\":\"T\""));
         assertTrue(body.contains("\"next_piece_outlook\""));
+        assertFalse(body.contains("legacyPlacementReachable"));
+        assertFalse(body.contains("actionOnly"));
+        assertFalse(body.contains("placement_reachable"));
     }
 
     @Test
