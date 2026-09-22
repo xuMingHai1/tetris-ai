@@ -7,10 +7,14 @@ package xyz.xuminghai.tetris.ai;
 
 import org.junit.jupiter.api.Test;
 import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.Cell;
+import xyz.xuminghai.tetris.core.Tetris;
+import xyz.xuminghai.tetris.core.TetrisFactory;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -55,6 +59,52 @@ class ActionStateSearchTest {
         assertFalse(landings.isEmpty());
         assertTrue(landings.stream().allMatch(
                 landing -> landing.plan().actions().getLast() == AiAction.HARD_DROP));
+    }
+
+
+    @Test
+    void replayPreservesClockwiseRotationStateAcrossMultipleRotations() {
+        Tetris live = TetrisFactory.create(TetrominoType.T);
+        live.downMove();
+        List<BoardPosition> initial = positions(live);
+        GameSnapshot snapshot =
+                new GameSnapshot(20, 10, new boolean[20][10], TetrominoType.T, initial);
+
+        live.rotateClockwise();
+        live.rotateClockwise();
+
+        assertEquals(
+                positions(live),
+                ActionStateSearch.replay(
+                        snapshot,
+                        List.of(AiAction.ROTATE_CLOCKWISE, AiAction.ROTATE_CLOCKWISE)));
+    }
+
+    @Test
+    void replayPreservesRotationStateWhenDirectionChanges() {
+        Tetris live = TetrisFactory.create(TetrominoType.T);
+        live.downMove();
+        List<BoardPosition> initial = positions(live);
+        GameSnapshot snapshot =
+                new GameSnapshot(20, 10, new boolean[20][10], TetrominoType.T, initial);
+
+        live.rotateClockwise();
+        live.rotateCounterClockwise();
+
+        assertEquals(
+                initial,
+                positions(live));
+        assertEquals(
+                initial,
+                ActionStateSearch.replay(
+                        snapshot,
+                        List.of(AiAction.ROTATE_CLOCKWISE, AiAction.ROTATE_COUNTER_CLOCKWISE)));
+    }
+
+    private static List<BoardPosition> positions(Tetris tetris) {
+        return java.util.Arrays.stream(tetris.getCells())
+                .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                .toList();
     }
 
     private static boolean containsOrdered(List<AiAction> actions, AiAction first, AiAction second, AiAction third) {
