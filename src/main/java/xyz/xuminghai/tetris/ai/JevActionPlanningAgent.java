@@ -37,24 +37,33 @@ public final class JevActionPlanningAgent implements AiPlanningAgent {
 
     private final TypeSafeSystemOneClient client;
     private final Consumer<JevDecisionObservation> observer;
+    private final boolean telemetryEnabled;
 
     public JevActionPlanningAgent(String apiKey) {
-        this(new TypeSafeSystemOneClient(apiKey), NOOP_OBSERVER);
+        this(new TypeSafeSystemOneClient(apiKey), NOOP_OBSERVER, false);
     }
 
     public JevActionPlanningAgent(String apiKey, Consumer<JevDecisionObservation> observer) {
-        this(new TypeSafeSystemOneClient(apiKey), observer);
+        this(new TypeSafeSystemOneClient(apiKey), observer, true);
     }
 
     JevActionPlanningAgent(TypeSafeSystemOneClient client) {
-        this(client, NOOP_OBSERVER);
+        this(client, NOOP_OBSERVER, false);
     }
 
     JevActionPlanningAgent(
             TypeSafeSystemOneClient client,
             Consumer<JevDecisionObservation> observer) {
+        this(client, observer, true);
+    }
+
+    private JevActionPlanningAgent(
+            TypeSafeSystemOneClient client,
+            Consumer<JevDecisionObservation> observer,
+            boolean telemetryEnabled) {
         this.client = Objects.requireNonNull(client, "client");
         this.observer = Objects.requireNonNull(observer, "observer");
+        this.telemetryEnabled = telemetryEnabled;
     }
 
     @Override
@@ -90,24 +99,26 @@ public final class JevActionPlanningAgent implements AiPlanningAgent {
                     "TypeSafe selected an unknown action-plan candidate: " + result.choice());
         }
 
-        ActionPlanCandidates.PlannedCandidate heuristicTop = candidates.getFirst();
-        int selectedRank = candidates.indexOf(selected) + 1;
-        ActionPlanProvenance.Classification provenance =
-                ActionPlanProvenance.classify(snapshot, candidates);
-        PlacementCandidate selectedPlacement = selected.placement();
-        PlacementCandidate topPlacement = heuristicTop.placement();
-        observer.accept(new JevDecisionObservation(
-                result.confidence(),
-                result.inputTokens(),
-                result.outputTokens(),
-                candidates.size(),
-                selectedRank,
-                selectedPlacement.clearedLines() - topPlacement.clearedLines(),
-                selectedPlacement.aggregateHeight() - topPlacement.aggregateHeight(),
-                selectedPlacement.holes() - topPlacement.holes(),
-                selectedPlacement.bumpiness() - topPlacement.bumpiness(),
-                provenance.actionOnlyCandidateCount(),
-                provenance.isActionOnly(selected)));
+        if (telemetryEnabled) {
+            ActionPlanCandidates.PlannedCandidate heuristicTop = candidates.getFirst();
+            int selectedRank = candidates.indexOf(selected) + 1;
+            ActionPlanProvenance.Classification provenance =
+                    ActionPlanProvenance.classify(snapshot, candidates);
+            PlacementCandidate selectedPlacement = selected.placement();
+            PlacementCandidate topPlacement = heuristicTop.placement();
+            observer.accept(new JevDecisionObservation(
+                    result.confidence(),
+                    result.inputTokens(),
+                    result.outputTokens(),
+                    candidates.size(),
+                    selectedRank,
+                    selectedPlacement.clearedLines() - topPlacement.clearedLines(),
+                    selectedPlacement.aggregateHeight() - topPlacement.aggregateHeight(),
+                    selectedPlacement.holes() - topPlacement.holes(),
+                    selectedPlacement.bumpiness() - topPlacement.bumpiness(),
+                    provenance.actionOnlyCandidateCount(),
+                    provenance.isActionOnly(selected)));
+        }
 
         return selected.plan();
     }
