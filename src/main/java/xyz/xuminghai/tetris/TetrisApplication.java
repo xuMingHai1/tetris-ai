@@ -636,7 +636,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
-import xyz.xuminghai.tetris.ai.TetrisAgentFactory;
+import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
 import xyz.xuminghai.tetris.game.GameKeyCodeAction;
 import xyz.xuminghai.tetris.game.GameWorld;
 import xyz.xuminghai.tetris.util.AudioManager;
@@ -656,7 +656,7 @@ public class TetrisApplication extends Application {
      */
     private static final long BOOT_TIME = System.currentTimeMillis();
 
-    private final GameWorld gameWorld = new GameWorld(TetrisAgentFactory.fromEnvironment());
+    private final GameWorld gameWorld = new GameWorld(AiPlanningAgentFactory.fromEnvironment());
 
     private final GameKeyCodeAction gameKeyCodeAction = new GameKeyCodeAction(gameWorld);
 
