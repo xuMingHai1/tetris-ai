@@ -30,6 +30,14 @@ class TuckHunterDecisionObservationTest {
     }
 
     @Test
+    void rejectsCurrentTuckCombinedWithFutureSetupFacts() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TuckHunterDecisionObservation(
+                        5, 1, true, 1, 1, 1, 1));
+    }
+
+    @Test
     void rejectsFutureRankWithoutFutureActionOnlyCandidate() {
         assertThrows(
                 IllegalArgumentException.class,
