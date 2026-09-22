@@ -26,7 +26,12 @@ public enum AiObjective {
      * Stay inside the current safety shortlist while preferring setups that let the known preview
      * piece reach a useful action-only landing on the next turn.
      */
-    TUCK_HUNTER("tuck-hunter");
+    TUCK_HUNTER("tuck-hunter"),
+
+    /**
+     * Incrementally move the safe resulting board toward a built-in occupancy target.
+     */
+    BUILD_SHAPE("build-shape");
 
     private final String configValue;
 
@@ -49,6 +54,6 @@ public enum AiObjective {
         }
         throw new IllegalArgumentException(
                 "Unsupported AI objective: " + configured
-                        + ". Expected survival or tuck-hunter.");
+                        + ". Expected survival, tuck-hunter or build-shape.");
     }
 }
