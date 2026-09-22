@@ -300,12 +300,15 @@ public final class BenchmarkApplication {
 
             System.out.printf(
                     Locale.ROOT,
-                    "# tuck_hunter samples=%d setup_available=%d setup_rate=%.4f "
+                    "# tuck_hunter samples=%d executed_action_only=%d executed_action_only_rate=%.4f "
+                            + "setup_available=%d setup_rate=%.4f "
                             + "objective_applied=%d objective_applied_rate=%.4f "
                             + "created_top5_opportunity=%d created_top5_opportunity_rate=%.4f "
                             + "avg_selected_rank=%.2f avg_best_future_action_only_rank=%.2f "
                             + "future_action_only_candidates=%d future_top5_action_only_candidates=%d%n",
                     tuckHunterTelemetry.samples,
+                    tuckHunterTelemetry.executedActionOnly,
+                    (double) tuckHunterTelemetry.executedActionOnly / tuckHunterTelemetry.samples,
                     tuckHunterTelemetry.setupAvailable,
                     setupRate,
                     tuckHunterTelemetry.objectiveApplied,
@@ -319,17 +322,18 @@ public final class BenchmarkApplication {
 
             System.out.println(
                     "tuck_hunter_decision,seed,decision,candidate_count,selected_rank,"
-                            + "setup_candidates,future_action_only_candidates,"
+                            + "selected_current_action_only,setup_candidates,future_action_only_candidates,"
                             + "future_top5_action_only_candidates,best_future_action_only_rank");
             for (TuckHunterTrace trace : tuckHunterTelemetry.traces) {
                 TuckHunterDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "tuck_hunter_decision,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        "tuck_hunter_decision,%d,%d,%d,%d,%s,%d,%d,%d,%d%n",
                         trace.seed(),
                         trace.decision(),
                         observation.candidateCount(),
                         observation.selectedRank(),
+                        observation.selectedCurrentActionOnly(),
                         observation.setupCandidates(),
                         observation.selectedFutureActionOnlyCandidates(),
                         observation.selectedFutureTopFiveActionOnlyCandidates(),
@@ -483,6 +487,7 @@ public final class BenchmarkApplication {
         private long currentSeed;
         private int currentDecision;
         private long samples;
+        private long executedActionOnly;
         private long setupAvailable;
         private long objectiveApplied;
         private long createdTopFiveOpportunity;
@@ -499,6 +504,9 @@ public final class BenchmarkApplication {
         void record(TuckHunterDecisionObservation observation) {
             samples++;
             currentDecision++;
+            if (observation.selectedCurrentActionOnly()) {
+                executedActionOnly++;
+            }
             if (observation.setupCandidates() > 0) {
                 setupAvailable++;
             }
