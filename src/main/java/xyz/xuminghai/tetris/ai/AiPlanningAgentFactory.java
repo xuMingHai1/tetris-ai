@@ -17,6 +17,8 @@ import java.util.Objects;
  */
 public final class AiPlanningAgentFactory {
 
+    public static final String OBJECTIVE_ENV = "TETRIS_AI_OBJECTIVE";
+
     private AiPlanningAgentFactory() {
     }
 
@@ -30,6 +32,15 @@ public final class AiPlanningAgentFactory {
                 .getOrDefault(TetrisAgentFactory.AGENT_ENV, "heuristic")
                 .trim()
                 .toLowerCase(Locale.ROOT);
+        AiObjective objective = AiObjective.parse(
+                environment.getOrDefault(OBJECTIVE_ENV, AiObjective.SURVIVAL.configValue()));
+
+        if (objective != AiObjective.SURVIVAL && !"action".equals(configured)) {
+            throw new IllegalArgumentException(
+                    OBJECTIVE_ENV + "=" + objective.configValue()
+                            + " currently requires "
+                            + TetrisAgentFactory.AGENT_ENV + "=action");
+        }
 
         return switch (configured) {
             case "", "heuristic" ->
@@ -37,7 +48,10 @@ public final class AiPlanningAgentFactory {
             case "jev" ->
                     AiPlanningAgent.fromPlacementAgent(
                             new JevTetrisAgent(requireApiKey(environment, configured)));
-            case "action" -> new DeterministicActionPlanningAgent();
+            case "action" -> switch (objective) {
+                case SURVIVAL -> new DeterministicActionPlanningAgent();
+                case TUCK_HUNTER -> new TuckHunterActionPlanningAgent();
+            };
             case "jev-action" ->
                     new JevActionPlanningAgent(requireApiKey(environment, configured));
             default -> throw new IllegalArgumentException(
