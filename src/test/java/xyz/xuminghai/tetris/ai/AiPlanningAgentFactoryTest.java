@@ -30,6 +30,33 @@ class AiPlanningAgentFactoryTest {
     }
 
     @Test
+    void createsTuckHunterWhenActionObjectiveIsConfigured() {
+        assertInstanceOf(
+                TuckHunterActionPlanningAgent.class,
+                AiPlanningAgentFactory.from(Map.of(
+                        TetrisAgentFactory.AGENT_ENV, "action",
+                        AiPlanningAgentFactory.OBJECTIVE_ENV, "tuck-hunter")));
+    }
+
+    @Test
+    void rejectsTuckHunterObjectiveForPlacementAgent() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> AiPlanningAgentFactory.from(Map.of(
+                        TetrisAgentFactory.AGENT_ENV, "heuristic",
+                        AiPlanningAgentFactory.OBJECTIVE_ENV, "tuck-hunter")));
+    }
+
+    @Test
+    void rejectsUnknownObjective() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> AiPlanningAgentFactory.from(Map.of(
+                        TetrisAgentFactory.AGENT_ENV, "action",
+                        AiPlanningAgentFactory.OBJECTIVE_ENV, "unknown")));
+    }
+
+    @Test
     void createsJevActionPlannerWhenExplicitlyConfigured() {
         assertInstanceOf(
                 JevActionPlanningAgent.class,
