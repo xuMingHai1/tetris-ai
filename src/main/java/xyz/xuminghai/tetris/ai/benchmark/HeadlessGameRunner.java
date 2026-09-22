@@ -70,7 +70,7 @@ public final class HeadlessGameRunner {
                 pieceLimit,
                 primaryAgent,
                 fallbackAgent,
-                new TurnAdapter<>() {
+                new TurnAdapter<TetrisAgent, List<PlacementCandidate>>() {
                     @Override
                     public List<PlacementCandidate> prepare(GameSnapshot snapshot) {
                         List<PlacementCandidate> candidates = BoardSimulator.candidates(snapshot);
@@ -114,7 +114,7 @@ public final class HeadlessGameRunner {
                 pieceLimit,
                 primaryAgent,
                 fallbackAgent,
-                new TurnAdapter<>() {
+                new TurnAdapter<AiPlanningAgent, Boolean>() {
                     @Override
                     public Boolean prepare(GameSnapshot snapshot) {
                         return ActionPlanSimulator.hasReachableTerminalPlacement(snapshot)
