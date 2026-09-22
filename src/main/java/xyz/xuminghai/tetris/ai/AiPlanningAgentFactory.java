@@ -51,6 +51,7 @@ public final class AiPlanningAgentFactory {
             case "action" -> switch (objective) {
                 case SURVIVAL -> new DeterministicActionPlanningAgent();
                 case TUCK_HUNTER -> new TuckHunterActionPlanningAgent();
+                case BUILD_SHAPE -> new BuildShapeActionPlanningAgent();
             };
             case "jev-action" ->
                     new JevActionPlanningAgent(requireApiKey(environment, configured));

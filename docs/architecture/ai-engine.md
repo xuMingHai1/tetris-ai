@@ -59,7 +59,7 @@ The simulator reuses existing tetromino rotation behavior and `core.BoardRules`.
 
 ## Objective layer
 
-`AiObjective` represents high-level intent above deterministic movement legality. The default `SURVIVAL` objective preserves the existing action baseline exactly. `TUCK_HUNTER` is the first alternative objective and is implemented by `TuckHunterActionPlanningAgent`.
+`AiObjective` represents high-level intent above deterministic movement legality. The default `SURVIVAL` objective preserves the existing action baseline exactly. `TUCK_HUNTER` explores action-only opportunities, while `BUILD_SHAPE` is the first persistent creative objective and is implemented by `BuildShapeActionPlanningAgent`.
 
 Objective planning does not invent controls or treat heuristic rank as a safety guarantee. Tuck Hunter first ranks the current action-native candidates with the existing heuristic and uses the top five only as a bounded objective search envelope. `ObjectiveSafetyBudget` compares each candidate with the SURVIVAL top-1 board facts. `ObjectiveRiskProfile` names calibrated budget presets: `STRICT (0/0/2)`, `CONSERVATIVE (0/4/4)`, `BALANCED (0/8/8)` and `RISKY (1/8/8)` for additional holes / aggregate-height delta / bumpiness delta. `ObjectiveRiskController` now selects among STRICT / CONSERVATIVE / BALANCED from the SURVIVAL top-1 resulting board. It classifies LOW risk when headroom is at least half the board (minimum 8 rows) and holes <= 1; DANGER when headroom is at most one quarter of the board (minimum 4 rows) or holes reach half the board width (minimum 4); everything else is NORMAL. LOW -> BALANCED, NORMAL -> CONSERVATIVE, DANGER -> STRICT. RISKY remains calibration-only and is never selected by the adaptive controller. Cleared-line delta is recorded but is not a hard guard in this revision.
 
@@ -85,6 +85,36 @@ current tuck?
           future safety budget
                    ↓
              reachable AiPlan
+```
+
+### BUILD_SHAPE creative objective
+
+`ShapeTarget` defines a board-relative occupancy mask. V1 contains one built-in `HEART` target, anchored to the bottom center of the board. `ShapeProgress` measures only the target bounding box:
+
+- `matchedCells`: target cells that are occupied.
+- `intrusionCells`: cells that are occupied where the target expects empty space.
+- `netScore = matchedCells - intrusionCells`.
+
+Cells outside the target bounding box are intentionally excluded from creative scoring so BUILD_SHAPE does not attempt to own general board cleanup; those cells remain governed by the existing survival heuristic and `ObjectiveRiskController`.
+
+`BuildShapeActionPlanningAgent` uses the same top-five action-native search envelope as the other local objectives. It derives the active safety budget from the SURVIVAL top-1 board, rejects candidates outside that budget, then deterministically prefers higher shape net score, more matched cells, fewer intrusions and finally better survival rank. Because the target is fixed while the settled board persists across pieces, the current board itself carries multi-turn progress; V1 does not add a second mutable objective-state store.
+
+The V1 target is occupancy-only. Existing `GameSnapshot`/resulting-board state does not preserve settled-piece colors, so BUILD_SHAPE must not infer color from tetromino type or UI rendering. Color-aware targets require an explicit future state-model change.
+
+```text
+ShapeTarget
+    ↓
+ActionStateSearch + survival ranking
+    ↓
+ObjectiveRiskController
+    ↓
+safety-eligible candidates
+    ↓
+ShapeProgress(resultingBoard)
+    ↓
+best creative improvement
+    ↓
+AiPlan
 ```
 
 The objective layer is intentionally separate from provider integration. In this first version, non-survival objectives are supported only by the local `action` runtime. Jev objective integration should consume deterministic objective facts later rather than moving legality or objective simulation into the provider prompt.
@@ -121,9 +151,11 @@ A remote decision owns the snapshot only until the next live-state mutation. Bef
 
 `ai.benchmark.HeadlessGameRunner` provides a deterministic evaluation path that does not start the JavaFX runtime. For each seeded 7-bag piece it first applies the same initial automatic `downMove()` that `GameWorld` performs before requesting AI, then builds the `GameSnapshot`. Placement-oriented runs resolve `AiMove` through an already-generated `BoardSimulator` candidate. Action-native runs use the distinct `runPlanning(...)` API and resolve terminal `AiPlan` values through `ActionPlanSimulator`, which reuses `ActionStateSearch` plus `BoardRules`. Both paths advance from production `PlacementCandidate` facts and keep top-edge reachability, movement, hard-drop and row-clear semantics aligned with the live decision boundary.
 
-`BenchmarkApplication` runs one or more seeded games and reports gameplay outcome plus decision latency. It supports `heuristic`, `lookahead`, `jev`, `action`, fixed-profile `tuck-hunter`, `adaptive-tuck-hunter`, `action-provenance` and `jev-action`. A primary strategy may be paired with a local fallback; primary exceptions, illegal moves or non-terminal action plans are counted before fallback is applied. The runner aggregates the selected `PlacementCandidate` health facts (aggregate height, holes and bumpiness) as final, average and maximum values. These metrics are observed from production candidates rather than recalculated by benchmark-specific board logic. `action-provenance` is a local-only diagnostic mode: `ActionProvenanceBenchmark` ranks each real action state once, returns the same deterministic best `AiPlan`, then classifies the full ranking against legacy placement outcomes. It records total action candidates, total action-only candidates, the best action-only heuristic rank and how many action-only candidates fall inside the top-five shortlist.
+`BenchmarkApplication` runs one or more seeded games and reports gameplay outcome plus decision latency. It supports `heuristic`, `lookahead`, `jev`, `action`, fixed-profile `tuck-hunter`, `adaptive-tuck-hunter`, `build-shape`, `action-provenance` and `jev-action`. A primary strategy may be paired with a local fallback; primary exceptions, illegal moves or non-terminal action plans are counted before fallback is applied. The runner aggregates the selected `PlacementCandidate` health facts (aggregate height, holes and bumpiness) as final, average and maximum values. These metrics are observed from production candidates rather than recalculated by benchmark-specific board logic. `action-provenance` is a local-only diagnostic mode: `ActionProvenanceBenchmark` ranks each real action state once, returns the same deterministic best `AiPlan`, then classifies the full ranking against legacy placement outcomes. It records total action candidates, total action-only candidates, the best action-only heuristic rank and how many action-only candidates fall inside the top-five shortlist.
 
 For Jev evaluation, `JevDecisionObservation` exposes successful valid Choice confidence, token usage, shortlist size, the one-based selected heuristic rank, and immediate selected-minus-heuristic-top metric deltas without changing the strategy contracts. For `jev-action`, `ActionPlanProvenance` additionally classifies the already-ranked shortlist against legacy `BoardSimulator` outcomes using the same post-lock/post-row-clear board equivalence as the reachability benchmark. The benchmark reports action-only candidate count/rate and whether Jev selected an action-only outcome. Provenance is computed only after ranking, is not sent to the provider, and never participates in gameplay decisions. The benchmark aggregates these values and emits per-decision telemetry so confidence, heuristic deviation and actual use of expanded action reachability can be evaluated independently.
+
+`build-shape` emits target progress telemetry (baseline/selected matches and intrusions, net-score delta, completion rate, risk profile and safety filtering) so persistent creative progress can be evaluated separately from survival quality. `compare-shape` runs the deterministic SURVIVAL baseline and BUILD_SHAPE on identical seeds.
 
 `tuck-hunter` emits separate objective telemetry: whether the selected move directly executes an action-only outcome, how many top-five candidates pass or fail the safety budget, the controller's risk level/profile plus baseline headroom/holes, the selected candidate's metric deltas versus SURVIVAL top-1, and the rank/count of the selected preview opportunity. `compare-adaptive` compares the SURVIVAL baseline with the adaptive runtime controller on identical seeds. `calibrate-objective` still runs the SURVIVAL baseline plus all four fixed `ObjectiveRiskProfile` values on the same seed range.
 
@@ -139,6 +171,7 @@ The headless benchmark intentionally does not emulate JavaFX gravity deadlines. 
 - JavaFX animation/audio/input classes must not enter the `ai` package.
 - Action-native planners should derive paths from `ActionStateSearch` (or an equivalent rules-backed reachability source) rather than inventing movement legality.
 - High-level objectives may change preference among deterministic reachable plans but must not replace movement legality, collision or row clearing. Heuristic top-k rank is only a bounded search envelope, not proof of safety.
+- Creative objectives must score immutable resulting-board facts after production row-clear semantics; they must not maintain a second simulated board or infer settled-piece color from occupancy-only state.
 - A non-survival objective must pass an explicit `ObjectiveSafetyBudget` relative to the current SURVIVAL top choice and must fall back to that SURVIVAL choice when its objective-specific opportunity is unavailable or exceeds the budget.
 - Adaptive runtime risk selection must be derived from the SURVIVAL baseline state, not from an objective candidate; this avoids changing the risk budget as a side effect of the candidate being evaluated.
 - Adaptive runtime control must preserve `additional holes == 0`; `ObjectiveRiskProfile.RISKY` remains calibration-only unless new benchmark evidence justifies changing this boundary.

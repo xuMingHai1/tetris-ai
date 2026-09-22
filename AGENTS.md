@@ -65,7 +65,8 @@ Windows 对应使用 `mvnw.cmd`。
 - 远程或可能阻塞的 AI 实现可以实现 placement-oriented `TetrisAgent` 或 action-native `AiPlanningAgent`，但都必须通过 `AiDecisionExecutor` 执行；不要在 JavaFX application thread 或 `GameWorld` 内直接进行网络 I/O。
 - 远程 AI 的结果只能作用于它读取的原始 snapshot：应用前必须校验当前方块坐标仍完全一致；下一次自动下落若先到达，则必须先废弃远程 generation 并在状态变化前执行本地 fallback。手动输入优先并取消该方块的 pending remote decision。
 - AI 策略不得自行重新实现碰撞、旋转、下落或消行规则；placement 候选合法性来自 `BoardSimulator`，action-native 路径合法性来自 `ActionStateSearch`，落地事实统一复用 `PlacementCandidate`/`BoardRules`。策略可以改变评分或选择方式，但不能建立第二套游戏规则。
-- AI objective 层只能改变 deterministic reachable plan 的偏好，不能自行定义移动合法性、碰撞或消行。heuristic top-k 只是 objective 的搜索范围，不等于安全证明；非 survival objective 必须通过相对 SURVIVAL top-1 的 `ObjectiveSafetyBudget`，目标机会不存在或超出 budget 时必须回退到 SURVIVAL。`ObjectiveRiskController` 只能根据 SURVIVAL top-1 的结果棋盘选择风险档位，不能根据待评估 objective candidate 反向改变 budget。runtime 可在 STRICT / CONSERVATIVE / BALANCED 间切换，但必须保持 `additional holes == 0`；RISKY 仍只用于 benchmark calibration。
+- AI objective 层只能改变 deterministic reachable plan 的偏好，不能自行定义移动合法性、碰撞或消行。
+- `BUILD_SHAPE` 等 creative objective 必须基于生产 `resultingBoard` 的 post-row-clear 事实评分，不能维护第二套棋盘；当前 board state 只有 occupancy 时不得推断或伪造 settled-piece color，颜色目标要等显式 color-aware state model。heuristic top-k 只是 objective 的搜索范围，不等于安全证明；非 survival objective 必须通过相对 SURVIVAL top-1 的 `ObjectiveSafetyBudget`，目标机会不存在或超出 budget 时必须回退到 SURVIVAL。`ObjectiveRiskController` 只能根据 SURVIVAL top-1 的结果棋盘选择风险档位，不能根据待评估 objective candidate 反向改变 budget。runtime 可在 STRICT / CONSERVATIVE / BALANCED 间切换，但必须保持 `additional holes == 0`；RISKY 仍只用于 benchmark calibration。
 - Jev 必须通过 `TETRIS_AI_AGENT=jev` 或 `TETRIS_AI_AGENT=jev-action` 显式启用，`TYPESAFE_API_KEY` 仅作为凭据，不得因为 key 存在就自动开启远程调用；secret 不写入仓库、不输出到日志。远程 Choice 只能接收 deterministic reachability 之后的本地 heuristic shortlist（当前最多 5 个）；shortlist 复用 `HeuristicTetrisAgent` 的既有评分，不复制第二套权重。
 - TypeSafe 当前没有 Java SDK，Java 集成使用 JDK `HttpClient` 调用官方 System One HTTP API；JSON 使用 Jackson 3，不手写 JSON parser。
 - Benchmark 默认必须完全本地且 deterministic；真实 Jev benchmark 只能显式选择并使用环境变量 secret，CI 默认不得调用外部模型或消耗 provider quota。
@@ -86,7 +87,7 @@ Windows 对应使用 `mvnw.cmd`。
 
 GitHub Actions 使用 `[self-hosted, linux, x64]`。
 
-`.github/workflows/ai-benchmark.yml` 仅允许 `workflow_dispatch` 手动运行，不属于普通 CI。默认运行本地 heuristic baseline；`compare` 模式会对相同 seed/参数顺序运行 heuristic、纯本地 lookahead 与 Jev；`compare-objective` 完全本地比较 action survival 与固定 profile 的 tuck-hunter；`compare-adaptive` 使用相同 seed 比较 action survival 与 runtime adaptive tuck-hunter，并生成同一份 artifact。Jev benchmark（含 `compare` 中的 Jev 部分）只有显式确认外部调用成本并存在 `TYPESAFE_API_KEY` repository secret 时才能运行，且单次最多 200 个潜在 Jev decision。benchmark 结果应上传 artifact，不提交生成结果到源码仓库。
+`.github/workflows/ai-benchmark.yml` 仅允许 `workflow_dispatch` 手动运行，不属于普通 CI。默认运行本地 heuristic baseline；`compare` 模式会对相同 seed/参数顺序运行 heuristic、纯本地 lookahead 与 Jev；`compare-objective` 完全本地比较 action survival 与固定 profile 的 tuck-hunter；`compare-adaptive` 使用相同 seed 比较 action survival 与 runtime adaptive tuck-hunter；`compare-shape` 使用相同 seed 比较 action survival 与 BUILD_SHAPE，并生成包含 shape progress telemetry 的同一份 artifact。Jev benchmark（含 `compare` 中的 Jev 部分）只有显式确认外部调用成本并存在 `TYPESAFE_API_KEY` repository secret 时才能运行，且单次最多 200 个潜在 Jev decision。benchmark 结果应上传 artifact，不提交生成结果到源码仓库。
 
 由于仓库是 public repository：
 - 外部 fork PR 不允许在 self-hosted runner 上执行任意代码。
