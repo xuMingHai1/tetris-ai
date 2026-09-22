@@ -110,27 +110,27 @@ scripts\package-app.cmd msi
 
 项目还提供 `NextPieceHeuristicTetrisAgent` 作为纯本地 two-ply evaluation baseline：它使用与 Jev 相同的 top-5 当前候选和同一套 deterministic next-piece outlook，但不进行任何远程调用。该策略目前主要用于 benchmark，用来验证收益究竟来自 look-ahead 事实本身，还是来自 Jev 在这些事实之上的选择能力。
 
-项目也支持 TypeSafe AI 的 Jev。Jev 不直接在全部合法落点中裸选：`BoardSimulator` 先生成所有合法 `PlacementCandidate`，本地 heuristic 复用相同评分和 tie-break 排序后只保留前 5 个安全候选，再由 Jev 在这个 shortlist 中做二次选择。运行时已知的 preview piece 会进入 `GameSnapshot`；对于每个 shortlist candidate，本地 `BoardSimulator` 还会用同一套规则计算下一块的合法落点数量，以及 heuristic 最佳下一步的客观 metrics，作为 deterministic one-piece outlook 提供给 Jev。Jev 不负责碰撞、旋转、下落或消行规则。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
+项目也支持 TypeSafe AI 的 Jev。`jev` 保留原有 placement-oriented 模式：`BoardSimulator` 生成合法 `PlacementCandidate`，本地 heuristic 只保留前 5 个安全候选，再由 Jev 做二次选择。`jev-action` 则使用 `ActionStateSearch` 先生成真实可达的 `AiPlan`，同样只把 heuristic 排名前 5 的安全候选交给 Jev，因此模型可以利用 `SOFT_DROP`、横移和双向旋转的组合路径，但仍不负责碰撞、旋转、下落或消行规则。两种 Jev 模式都会接收 deterministic next-piece outlook。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
 
-Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。
+远程 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。`TETRIS_AI_AGENT` 当前支持 `heuristic`（默认）、`action`、`jev` 和 `jev-action`。其中 `action` 是完全本地的 deterministic action-native baseline。
 
 Linux / macOS：
 
 ```bash
-TETRIS_AI_AGENT=jev TYPESAFE_API_KEY=<your-key> ./mvnw javafx:run
+TETRIS_AI_AGENT=jev-action TYPESAFE_API_KEY=<your-key> ./mvnw javafx:run
 ```
 
 Windows CMD：
 
 ```bat
-set TETRIS_AI_AGENT=jev
+set TETRIS_AI_AGENT=jev-action
 set TYPESAFE_API_KEY=<your-key>
 mvnw.cmd javafx:run
 ```
 
 API key 不应写入仓库或配置文件。当前 Jev adapter 使用官方 `jev-latest` 模型和 `/v1/systemone` Choice API，对 HTTP 429 / 529 进行有限指数退避重试。
 
-AI 决策不直接操作 JavaFX View；`GameWorld` 只负责把 `AiMove` 映射回现有游戏动作。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
+AI 决策不直接操作 JavaFX View；`GameWorld` 接收统一的 `AiPlan` 并按顺序映射到现有游戏动作。placement-oriented agent 会先通过 adapter 转换成 `AiPlan`，action-native agent 则可以直接返回动作序列。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
 
 架构说明见 `docs/architecture/ai-engine.md`。
 
