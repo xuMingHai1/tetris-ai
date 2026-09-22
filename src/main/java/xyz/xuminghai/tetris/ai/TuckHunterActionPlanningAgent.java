@@ -33,17 +33,21 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
     private final Consumer<TuckHunterDecisionObservation> observer;
 
     public TuckHunterActionPlanningAgent() {
-        this(ObjectiveSafetyBudget.conservative(), NOOP_OBSERVER);
+        this(ObjectiveRiskProfile.CONSERVATIVE, NOOP_OBSERVER);
     }
 
     public TuckHunterActionPlanningAgent(Consumer<TuckHunterDecisionObservation> observer) {
-        this(ObjectiveSafetyBudget.conservative(), observer);
+        this(ObjectiveRiskProfile.CONSERVATIVE, observer);
     }
 
-    TuckHunterActionPlanningAgent(
-            ObjectiveSafetyBudget safetyBudget,
+    public TuckHunterActionPlanningAgent(ObjectiveRiskProfile riskProfile) {
+        this(riskProfile, NOOP_OBSERVER);
+    }
+
+    public TuckHunterActionPlanningAgent(
+            ObjectiveRiskProfile riskProfile,
             Consumer<TuckHunterDecisionObservation> observer) {
-        this.safetyBudget = Objects.requireNonNull(safetyBudget, "safetyBudget");
+        this.safetyBudget = Objects.requireNonNull(riskProfile, "riskProfile").budget();
         this.observer = Objects.requireNonNull(observer, "observer");
     }
 
