@@ -14,11 +14,13 @@ on:
           - jev
           - action
           - tuck-hunter
+          - adaptive-tuck-hunter
           - action-provenance
           - jev-action
           - compare
           - compare-action
           - compare-objective
+          - compare-adaptive
           - calibrate-objective
           - reachability
       games:
@@ -37,7 +39,7 @@ on:
         default: '1000'
         type: string
       risk_profile:
-        description: Objective risk profile for tuck-hunter or compare-objective
+        description: Fixed objective risk profile for tuck-hunter or compare-objective
         required: true
         default: conservative
         type: choice
@@ -168,7 +170,7 @@ jobs:
             javafx:run | tee -a "$RUNNER_TEMP/benchmark-output.log"
 
       - name: Run deterministic action benchmark
-        if: ${{ inputs.agent == 'action' || inputs.agent == 'compare-action' || inputs.agent == 'compare-objective' || inputs.agent == 'calibrate-objective' }}
+        if: ${{ inputs.agent == 'action' || inputs.agent == 'compare-action' || inputs.agent == 'compare-objective' || inputs.agent == 'compare-adaptive' || inputs.agent == 'calibrate-objective' }}
         shell: bash
         env:
           TETRIS_BENCHMARK_AGENT: action
@@ -190,6 +192,20 @@ jobs:
           TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
           TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
           TETRIS_BENCHMARK_RISK_PROFILE: ${{ inputs.risk_profile }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+            javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
+
+      - name: Run adaptive tuck-hunter benchmark
+        if: ${{ inputs.agent == 'adaptive-tuck-hunter' || inputs.agent == 'compare-adaptive' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: adaptive-tuck-hunter
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
         run: |
           set -euo pipefail
           ./mvnw --batch-mode --no-transfer-progress \
