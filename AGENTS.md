@@ -112,4 +112,3 @@ Any change that alters architectural understanding must also evaluate its docume
 - 普通 bugfix / 小型测试补充通常无需额外 architecture 文档。
 - 包职责、AI 边界、游戏状态模型、运行方式、打包策略或关键依赖关系变化时，至少评估 README / AGENTS 是否需要同步。
 - 只有重要、长期且需要保存决策背景的变化才考虑 ADR，不为了流程机械创建文档。
-
