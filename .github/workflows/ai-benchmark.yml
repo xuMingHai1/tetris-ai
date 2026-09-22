@@ -15,12 +15,14 @@ on:
           - action
           - tuck-hunter
           - adaptive-tuck-hunter
+          - build-shape
           - action-provenance
           - jev-action
           - compare
           - compare-action
           - compare-objective
           - compare-adaptive
+          - compare-shape
           - calibrate-objective
           - reachability
       games:
@@ -170,7 +172,7 @@ jobs:
             javafx:run | tee -a "$RUNNER_TEMP/benchmark-output.log"
 
       - name: Run deterministic action benchmark
-        if: ${{ inputs.agent == 'action' || inputs.agent == 'compare-action' || inputs.agent == 'compare-objective' || inputs.agent == 'compare-adaptive' || inputs.agent == 'calibrate-objective' }}
+        if: ${{ inputs.agent == 'action' || inputs.agent == 'compare-action' || inputs.agent == 'compare-objective' || inputs.agent == 'compare-adaptive' || inputs.agent == 'compare-shape' || inputs.agent == 'calibrate-objective' }}
         shell: bash
         env:
           TETRIS_BENCHMARK_AGENT: action
@@ -203,6 +205,20 @@ jobs:
         shell: bash
         env:
           TETRIS_BENCHMARK_AGENT: adaptive-tuck-hunter
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+            javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
+
+      - name: Run BUILD_SHAPE benchmark
+        if: ${{ inputs.agent == 'build-shape' || inputs.agent == 'compare-shape' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: build-shape
           TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
           TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
           TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
@@ -289,7 +305,7 @@ jobs:
               }
               next
             }
-            /^(heuristic|lookahead|jev|action|tuck-hunter-[a-z]+|action-provenance|jev-action|reachability),/ {
+            /^(heuristic|lookahead|jev|action|tuck-hunter-[a-z]+|build-shape-[a-z]+|action-provenance|jev-action|reachability),/ {
               print
             }
           ' target/benchmark/raw.log > target/benchmark/results.csv
@@ -297,6 +313,7 @@ jobs:
           grep '^jev_decision,' target/benchmark/raw.log > target/benchmark/jev-decisions.csv || true
           grep '^action_provenance,' target/benchmark/raw.log > target/benchmark/action-provenance.csv || true
           grep '^tuck_hunter_decision,' target/benchmark/raw.log > target/benchmark/tuck-hunter-decisions.csv || true
+          grep '^build_shape_decision,' target/benchmark/raw.log > target/benchmark/build-shape-decisions.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -330,6 +347,7 @@ jobs:
             target/benchmark/jev-decisions.csv
             target/benchmark/action-provenance.csv
             target/benchmark/tuck-hunter-decisions.csv
+            target/benchmark/build-shape-decisions.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
