@@ -40,6 +40,26 @@ class TuckHunterActionPlanningAgentTest {
     }
 
     @Test
+    void explicitRiskProfileConstrainsSelectedPlan() {
+        GameSnapshot snapshot = snapshot(TetrominoType.T);
+
+        AiPlan selected =
+                new TuckHunterActionPlanningAgent(ObjectiveRiskProfile.STRICT).plan(snapshot);
+        List<ActionPlanCandidates.PlannedCandidate> shortlist =
+                ActionPlanCandidates.ranked(snapshot).stream()
+                        .limit(TuckHunterActionPlanningAgent.MAX_CURRENT_CANDIDATES)
+                        .toList();
+        ActionPlanCandidates.PlannedCandidate selectedCandidate = shortlist.stream()
+                .filter(candidate -> candidate.plan().equals(selected))
+                .findFirst()
+                .orElseThrow();
+
+        assertTrue(ObjectiveRiskProfile.STRICT.budget()
+                .assess(shortlist.getFirst().placement(), selectedCandidate.placement())
+                .allowed());
+    }
+
+    @Test
     void fallsBackToSurvivalWithoutPreviewWhenCurrentPieceHasNoActionOnlyOutcome() {
         GameSnapshot snapshot = new GameSnapshot(
                 20,

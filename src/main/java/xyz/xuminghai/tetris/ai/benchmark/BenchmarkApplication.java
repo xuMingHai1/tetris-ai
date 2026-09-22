@@ -13,6 +13,7 @@ import xyz.xuminghai.tetris.ai.JevActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
+import xyz.xuminghai.tetris.ai.ObjectiveRiskProfile;
 import xyz.xuminghai.tetris.ai.ObjectiveSafetyBudget;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterActionPlanningAgent;
@@ -34,6 +35,7 @@ public final class BenchmarkApplication {
     static final String GAMES_ENV = "TETRIS_BENCHMARK_GAMES";
     static final String MAX_PIECES_ENV = "TETRIS_BENCHMARK_MAX_PIECES";
     static final String SEED_ENV = "TETRIS_BENCHMARK_SEED";
+    static final String RISK_PROFILE_ENV = "TETRIS_BENCHMARK_RISK_PROFILE";
     static final String TYPESAFE_API_KEY_ENV = "TYPESAFE_API_KEY";
 
     private static final int DEFAULT_GAMES = 1;
@@ -51,6 +53,7 @@ public final class BenchmarkApplication {
         BenchmarkStrategy strategy =
                 createStrategy(
                         configuration.agent(),
+                        configuration.riskProfile(),
                         telemetry,
                         provenanceTelemetry,
                         tuckHunterTelemetry);
@@ -74,7 +77,7 @@ public final class BenchmarkApplication {
             System.out.printf(
                     Locale.ROOT,
                     "%s,%d,%d,%d,%d,%d,%d,%d,%.3f,%.3f,%d,%.3f,%d,%d,%.3f,%d,%d,%.3f,%d,%s%n",
-                    configuration.agent(),
+                    configuration.resultAgent(),
                     result.seed(),
                     result.pieceLimit(),
                     result.piecesPlaced(),
@@ -106,6 +109,7 @@ public final class BenchmarkApplication {
 
     private static BenchmarkStrategy createStrategy(
             String agent,
+            ObjectiveRiskProfile riskProfile,
             JevTelemetry telemetry,
             ActionProvenanceTelemetry provenanceTelemetry,
             TuckHunterTelemetry tuckHunterTelemetry) {
@@ -131,7 +135,7 @@ public final class BenchmarkApplication {
             }
             case "tuck-hunter" -> {
                 AiPlanningAgent primary =
-                        new TuckHunterActionPlanningAgent(tuckHunterTelemetry::record);
+                        new TuckHunterActionPlanningAgent(riskProfile, tuckHunterTelemetry::record);
                 yield (runner, seed, pieceLimit) ->
                         runner.runPlanning(seed, pieceLimit, primary);
             }
@@ -213,7 +217,7 @@ public final class BenchmarkApplication {
                         + "avg_aggregate_height=%.3f max_aggregate_height=%d "
                         + "avg_holes=%.3f max_holes=%d "
                         + "avg_bumpiness=%.3f max_bumpiness=%d%n",
-                configuration.agent(),
+                configuration.resultAgent(),
                 configuration.games(),
                 pieces,
                 lines,
@@ -299,10 +303,10 @@ public final class BenchmarkApplication {
                             : (double) tuckHunterTelemetry.bestFutureActionOnlyRankSum
                                     / tuckHunterTelemetry.createdTopFiveOpportunity;
 
-            ObjectiveSafetyBudget safetyBudget = ObjectiveSafetyBudget.conservative();
+            ObjectiveSafetyBudget safetyBudget = configuration.riskProfile().budget();
             System.out.printf(
                     Locale.ROOT,
-                    "# tuck_hunter samples=%d executed_action_only=%d executed_action_only_rate=%.4f "
+                    "# tuck_hunter risk_profile=%s samples=%d executed_action_only=%d executed_action_only_rate=%.4f "
                             + "setup_available=%d setup_rate=%.4f "
                             + "objective_applied=%d objective_applied_rate=%.4f "
                             + "created_top5_opportunity=%d created_top5_opportunity_rate=%.4f "
@@ -314,6 +318,7 @@ public final class BenchmarkApplication {
                             + "avg_selected_cleared_lines_delta=%.3f "
                             + "avg_selected_height_delta=%.3f avg_selected_holes_delta=%.3f "
                             + "avg_selected_bumpiness_delta=%.3f%n",
+                    configuration.riskProfile().configValue(),
                     tuckHunterTelemetry.samples,
                     tuckHunterTelemetry.executedActionOnly,
                     (double) tuckHunterTelemetry.executedActionOnly / tuckHunterTelemetry.samples,
@@ -342,7 +347,7 @@ public final class BenchmarkApplication {
                             / tuckHunterTelemetry.samples);
 
             System.out.println(
-                    "tuck_hunter_decision,seed,decision,candidate_count,safety_eligible_candidates,"
+                    "tuck_hunter_decision,risk_profile,seed,decision,candidate_count,safety_eligible_candidates,"
                             + "safety_rejected_candidates,selected_rank,selected_current_action_only,"
                             + "setup_candidates,future_action_only_candidates,"
                             + "future_top5_action_only_candidates,best_future_action_only_rank,"
@@ -352,7 +357,8 @@ public final class BenchmarkApplication {
                 TuckHunterDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "tuck_hunter_decision,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        "tuck_hunter_decision,%s,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        configuration.riskProfile().configValue(),
                         trace.seed(),
                         trace.decision(),
                         observation.candidateCount(),
@@ -587,17 +593,33 @@ public final class BenchmarkApplication {
             TuckHunterDecisionObservation observation) {
     }
 
-    private record Configuration(String agent, int games, int maxPieces, long seed) {
+    private record Configuration(
+            String agent,
+            int games,
+            int maxPieces,
+            long seed,
+            ObjectiveRiskProfile riskProfile) {
 
         static Configuration fromEnvironment() {
             String agent = System.getenv().getOrDefault(AGENT_ENV, "heuristic")
                     .trim()
                     .toLowerCase(Locale.ROOT);
+            ObjectiveRiskProfile riskProfile = ObjectiveRiskProfile.parse(
+                    System.getenv().getOrDefault(
+                            RISK_PROFILE_ENV,
+                            ObjectiveRiskProfile.CONSERVATIVE.configValue()));
             return new Configuration(
                     agent,
                     positiveInt(GAMES_ENV, DEFAULT_GAMES),
                     positiveInt(MAX_PIECES_ENV, DEFAULT_MAX_PIECES),
-                    longValue(SEED_ENV, DEFAULT_SEED));
+                    longValue(SEED_ENV, DEFAULT_SEED),
+                    riskProfile);
+        }
+
+        String resultAgent() {
+            return "tuck-hunter".equals(agent)
+                    ? agent + "-" + riskProfile.configValue()
+                    : agent;
         }
 
         private static int positiveInt(String name, int defaultValue) {
