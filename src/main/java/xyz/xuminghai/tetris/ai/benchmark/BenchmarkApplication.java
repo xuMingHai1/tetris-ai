@@ -5,6 +5,7 @@
  */
 package xyz.xuminghai.tetris.ai.benchmark;
 
+import xyz.xuminghai.tetris.ai.ActionProvenanceBenchmark;
 import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.DeterministicActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
@@ -42,7 +43,9 @@ public final class BenchmarkApplication {
     public static void main(String[] args) {
         Configuration configuration = Configuration.fromEnvironment();
         JevTelemetry telemetry = new JevTelemetry();
-        BenchmarkStrategy strategy = createStrategy(configuration.agent(), telemetry);
+        ActionProvenanceTelemetry provenanceTelemetry = new ActionProvenanceTelemetry();
+        BenchmarkStrategy strategy =
+                createStrategy(configuration.agent(), telemetry, provenanceTelemetry);
         HeadlessGameRunner runner = new HeadlessGameRunner();
         List<GameBenchmarkResult> results = new ArrayList<>(configuration.games());
 
@@ -55,6 +58,7 @@ public final class BenchmarkApplication {
         for (int game = 0; game < configuration.games(); game++) {
             long seed = configuration.seed() + game;
             telemetry.startGame(seed);
+            provenanceTelemetry.startGame(seed);
             GameBenchmarkResult result =
                     strategy.run(runner, seed, configuration.maxPieces());
             results.add(result);
@@ -83,10 +87,13 @@ public final class BenchmarkApplication {
                     result.reachedPieceLimit());
         }
 
-        printSummary(configuration, results, telemetry);
+        printSummary(configuration, results, telemetry, provenanceTelemetry);
     }
 
-    private static BenchmarkStrategy createStrategy(String agent, JevTelemetry telemetry) {
+    private static BenchmarkStrategy createStrategy(
+            String agent,
+            JevTelemetry telemetry,
+            ActionProvenanceTelemetry provenanceTelemetry) {
         return switch (agent) {
             case "heuristic" -> {
                 TetrisAgent primary = new HeuristicTetrisAgent();
@@ -107,6 +114,16 @@ public final class BenchmarkApplication {
                 yield (runner, seed, pieceLimit) ->
                         runner.runPlanning(seed, pieceLimit, primary);
             }
+            case "action-provenance" -> {
+                AiPlanningAgent primary = snapshot -> {
+                    ActionProvenanceBenchmark.Observation observation =
+                            ActionProvenanceBenchmark.evaluate(snapshot);
+                    provenanceTelemetry.record(observation);
+                    return observation.selectedPlan();
+                };
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
             case "jev-action" -> {
                 AiPlanningAgent primary =
                         new JevActionPlanningAgent(requireApiKey(), telemetry::record);
@@ -117,7 +134,7 @@ public final class BenchmarkApplication {
             }
             default -> throw new IllegalArgumentException(
                     "Unsupported " + AGENT_ENV + " value: " + agent
-                            + ". Expected heuristic, lookahead, jev, action or jev-action.");
+                            + ". Expected heuristic, lookahead, jev, action, action-provenance or jev-action.");
         };
     }
 
@@ -132,7 +149,8 @@ public final class BenchmarkApplication {
     private static void printSummary(
             Configuration configuration,
             List<GameBenchmarkResult> results,
-            JevTelemetry telemetry) {
+            JevTelemetry telemetry,
+            ActionProvenanceTelemetry provenanceTelemetry) {
         long pieces = results.stream().mapToLong(GameBenchmarkResult::piecesPlaced).sum();
         long lines = results.stream().mapToLong(GameBenchmarkResult::linesCleared).sum();
         long decisions = results.stream().mapToLong(GameBenchmarkResult::decisions).sum();
@@ -243,6 +261,59 @@ public final class BenchmarkApplication {
                         observation.selectedActionOnly());
             }
         }
+
+        if (provenanceTelemetry.samples > 0) {
+            double stateRate =
+                    (double) provenanceTelemetry.statesWithActionOnly / provenanceTelemetry.samples;
+            double candidateRate =
+                    provenanceTelemetry.totalActionCandidates == 0
+                            ? 0.0
+                            : (double) provenanceTelemetry.totalActionOnlyCandidates
+                                    / provenanceTelemetry.totalActionCandidates;
+            double averageBestRank =
+                    provenanceTelemetry.statesWithActionOnly == 0
+                            ? 0.0
+                            : (double) provenanceTelemetry.bestActionOnlyRankSum
+                                    / provenanceTelemetry.statesWithActionOnly;
+            double topFiveStateRate =
+                    (double) provenanceTelemetry.statesWithTopFiveActionOnly
+                            / provenanceTelemetry.samples;
+
+            System.out.printf(
+                    Locale.ROOT,
+                    "# action_provenance samples=%d states_with_action_only=%d state_rate=%.4f "
+                            + "total_action_candidates=%d total_action_only_candidates=%d "
+                            + "candidate_rate=%.4f avg_best_action_only_rank=%.2f "
+                            + "states_with_top5_action_only=%d top5_state_rate=%.4f "
+                            + "top5_action_only_candidates=%d%n",
+                    provenanceTelemetry.samples,
+                    provenanceTelemetry.statesWithActionOnly,
+                    stateRate,
+                    provenanceTelemetry.totalActionCandidates,
+                    provenanceTelemetry.totalActionOnlyCandidates,
+                    candidateRate,
+                    averageBestRank,
+                    provenanceTelemetry.statesWithTopFiveActionOnly,
+                    topFiveStateRate,
+                    provenanceTelemetry.topFiveActionOnlyCandidates);
+
+            System.out.println(
+                    "action_provenance,seed,decision,total_action_candidates,"
+                            + "total_action_only_candidates,best_action_only_rank,"
+                            + "top5_action_only_candidates");
+            for (ActionProvenanceTrace trace : provenanceTelemetry.traces) {
+                ActionProvenanceBenchmark.Observation observation = trace.observation();
+                System.out.printf(
+                        Locale.ROOT,
+                        "action_provenance,%d,%d,%d,%d,%d,%d%n",
+                        trace.seed(),
+                        trace.decision(),
+                        observation.totalActionCandidates(),
+                        observation.totalActionOnlyCandidates(),
+                        observation.bestActionOnlyRank(),
+                        observation.topFiveActionOnlyCandidates());
+            }
+        }
     }
 
     private static final class JevTelemetry {
@@ -296,6 +367,41 @@ public final class BenchmarkApplication {
         }
     }
 
+    private static final class ActionProvenanceTelemetry {
+
+        private final List<ActionProvenanceTrace> traces = new ArrayList<>();
+        private long currentSeed;
+        private int currentDecision;
+        private long samples;
+        private long statesWithActionOnly;
+        private long totalActionCandidates;
+        private long totalActionOnlyCandidates;
+        private long bestActionOnlyRankSum;
+        private long statesWithTopFiveActionOnly;
+        private long topFiveActionOnlyCandidates;
+
+        void startGame(long seed) {
+            currentSeed = seed;
+            currentDecision = 0;
+        }
+
+        void record(ActionProvenanceBenchmark.Observation observation) {
+            samples++;
+            currentDecision++;
+            totalActionCandidates += observation.totalActionCandidates();
+            totalActionOnlyCandidates += observation.totalActionOnlyCandidates();
+            if (observation.hasActionOnlyCandidate()) {
+                statesWithActionOnly++;
+                bestActionOnlyRankSum += observation.bestActionOnlyRank();
+            }
+            if (observation.hasTopFiveActionOnlyCandidate()) {
+                statesWithTopFiveActionOnly++;
+            }
+            topFiveActionOnlyCandidates += observation.topFiveActionOnlyCandidates();
+            traces.add(new ActionProvenanceTrace(currentSeed, currentDecision, observation));
+        }
+    }
+
     @FunctionalInterface
     private interface BenchmarkStrategy {
 
@@ -303,6 +409,12 @@ public final class BenchmarkApplication {
     }
 
     private record JevTrace(long seed, int decision, JevDecisionObservation observation) {
+    }
+
+    private record ActionProvenanceTrace(
+            long seed,
+            int decision,
+            ActionProvenanceBenchmark.Observation observation) {
     }
 
     private record Configuration(String agent, int games, int maxPieces, long seed) {
