@@ -52,10 +52,14 @@ class JevActionPlanningAgentTest {
                 observed.get().holesDelta());
         List<ActionPlanCandidates.PlannedCandidate> shortlist =
                 ranked.subList(0, Math.min(JevActionPlanningAgent.MAX_REMOTE_CANDIDATES, ranked.size()));
+        ActionPlanProvenance.Classification provenance =
+                ActionPlanProvenance.classify(snapshot(), shortlist);
         assertEquals(
-                shortlist.stream().filter(ActionPlanCandidates.PlannedCandidate::actionOnly).count(),
+                provenance.actionOnlyCandidateCount(),
                 observed.get().actionOnlyCandidateCount());
-        assertEquals(ranked.get(4).actionOnly(), observed.get().selectedActionOnly());
+        assertEquals(
+                provenance.isActionOnly(ranked.get(4)),
+                observed.get().selectedActionOnly());
     }
 
     @Test
