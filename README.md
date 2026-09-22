@@ -136,7 +136,7 @@ AI 决策不直接操作 JavaFX View；`GameWorld` 接收统一的 `AiPlan` 并�
 
 ## AI Benchmark
 
-项目提供独立的 headless benchmark，不启动 JavaFX View、动画、音频或实时 gravity。它使用 deterministic 7-bag seed，并直接复用 `BoardSimulator` 的合法候选和 resulting board 推进游戏，因此不会建立第二套 Tetris 规则。每个新方块在构造 AI snapshot 前会先执行一次与 `GameWorld` 相同的初始自动 `downMove()`，保证 benchmark 与桌面运行时从相同的方块坐标边界开始决策。
+项目提供独立的 headless benchmark，不启动 JavaFX View、动画、音频或实时 gravity。placement-oriented 策略通过 `BoardSimulator` 的合法候选/resulting board 推进游戏；action-native 策略通过 `ActionPlanSimulator` 重放 `AiPlan`，后者继续复用 `ActionStateSearch`、`Tetris` 和 `BoardRules`。benchmark 不建立第二套 Tetris 规则。每个新方块在构造 AI snapshot 前都会先执行一次与 `GameWorld` 相同的初始自动 `downMove()`，保证 benchmark 与桌面运行时从相同坐标边界开始决策。
 
 默认运行 1 局、最多 50 个方块、seed 从 1 开始，使用本地 heuristic：
 
@@ -146,11 +146,11 @@ AI 决策不直接操作 JavaFX View；`GameWorld` 接收统一的 `AiPlan` 并�
 
 可通过环境变量调整：
 
-- `TETRIS_BENCHMARK_AGENT`: `heuristic`（默认）、`lookahead`（纯本地 next-piece heuristic）或 `jev`
+- `TETRIS_BENCHMARK_AGENT`: `heuristic`（默认）、`lookahead`、`jev`、`action`（deterministic action-native）或 `jev-action`
 - `TETRIS_BENCHMARK_GAMES`: 局数，默认 `1`
 - `TETRIS_BENCHMARK_MAX_PIECES`: 每局最多方块数，默认 `50`
 - `TETRIS_BENCHMARK_SEED`: 第一局 seed，后续每局递增，默认 `1`
-- `TYPESAFE_API_KEY`: Jev benchmark 必需
+- `TYPESAFE_API_KEY`: `jev` / `jev-action` benchmark 必需
 
 例如使用相同 seed 跑 10 局本地 heuristic：
 
@@ -161,10 +161,10 @@ TETRIS_BENCHMARK_SEED=1000 \
 ./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication javafx:run
 ```
 
-Jev benchmark 会真实调用 TypeSafe API，因此会产生网络延迟和 token 使用量：
+`jev` 与 `jev-action` benchmark 都会真实调用 TypeSafe API，因此会产生网络延迟和 token 使用量。Action-native Jev 可这样运行：
 
 ```bash
-TETRIS_BENCHMARK_AGENT=jev \
+TETRIS_BENCHMARK_AGENT=jev-action \
 TETRIS_BENCHMARK_GAMES=1 \
 TETRIS_BENCHMARK_MAX_PIECES=50 \
 TETRIS_BENCHMARK_SEED=1000 \
@@ -172,11 +172,11 @@ TYPESAFE_API_KEY=<your-key> \
 ./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication javafx:run
 ```
 
-输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。Jev 还会汇总 confidence 范围、token、candidate count、selected heuristic rank、top-1 agreement，以及相对 heuristic 第一名的 immediate metric delta。手动 workflow 还会把逐 decision Jev telemetry 保存为 `jev-decisions.csv`，用于在不改变策略的前提下分析 confidence 与偏离 heuristic 的关系。这些 board-health 数值直接来自生产 `PlacementCandidate`，benchmark 不重复计算规则或启发式指标。benchmark 的 latency 是完整 agent 调用耗时，用于策略评估；它不模拟桌面游戏中的实时 gravity deadline。
+输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。两种 Jev 模式都会汇总 confidence、token、candidate count、selected heuristic rank、top-1 agreement，以及相对本地 shortlist 第一名的 immediate metric delta。手动 workflow 还会把逐 decision telemetry 保存为 `jev-decisions.csv`。这些 board-health 数值直接来自生产 `PlacementCandidate`；action-native 路径由 `ActionPlanSimulator` 解析后同样落到这套客观 metrics。benchmark latency 是完整 agent 调用耗时，不模拟桌面游戏的实时 gravity deadline。
 
-也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。 workflow 还提供 `compare` 模式：使用同一组 `games / max_pieces / seed` 依次跑 heuristic、纯本地 `lookahead` 和 Jev，并把三组结果放入同一个 artifact，用于区分 deterministic next-piece search 与远程模型本身带来的收益。
+也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。`compare` 使用同一组 seed 运行 `heuristic / lookahead / jev`；`compare-action` 则运行 `action / jev-action`，用于直接判断 Jev 在同一 deterministic action reachability 与安全 shortlist 之上是否带来额外收益。
 
-Jev workflow 不会自动执行。选择 `jev` 或 `compare` 时必须同时：
+Jev workflow 不会自动执行。选择 `jev`、`jev-action`、`compare` 或 `compare-action` 时必须同时：
 
 1. 在 repository Actions secrets 中配置 `TYPESAFE_API_KEY`；
 2. 显式勾选 `confirm_jev_cost`；

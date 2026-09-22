@@ -6,7 +6,11 @@
 package xyz.xuminghai.tetris.ai.benchmark;
 
 import org.junit.jupiter.api.Test;
+import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.AiMove;
+import xyz.xuminghai.tetris.ai.AiPlan;
+import xyz.xuminghai.tetris.ai.AiPlanningAgent;
+import xyz.xuminghai.tetris.ai.DeterministicActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
@@ -36,6 +40,72 @@ class HeadlessGameRunnerTest {
         assertEquals(first.decisions(), second.decisions());
         assertEquals(first.boardHealth(), second.boardHealth());
         assertEquals(first.reachedPieceLimit(), second.reachedPieceLimit());
+    }
+
+
+    @Test
+    void reproducesTheSameActionNativeGameForTheSameSeed() {
+        HeadlessGameRunner runner = new HeadlessGameRunner();
+
+        GameBenchmarkResult first =
+                runner.runPlanning(42L, 15, new DeterministicActionPlanningAgent());
+        GameBenchmarkResult second =
+                runner.runPlanning(42L, 15, new DeterministicActionPlanningAgent());
+
+        assertEquals(first.piecesPlaced(), second.piecesPlaced());
+        assertEquals(first.linesCleared(), second.linesCleared());
+        assertEquals(first.boardHealth(), second.boardHealth());
+        assertEquals(first.reachedPieceLimit(), second.reachedPieceLimit());
+    }
+
+
+    @Test
+    void placementAdapterAndActionRunnerProduceTheSameGame() {
+        HeadlessGameRunner runner = new HeadlessGameRunner();
+        HeuristicTetrisAgent heuristic = new HeuristicTetrisAgent();
+
+        GameBenchmarkResult placement = runner.run(123L, 20, heuristic);
+        GameBenchmarkResult action = runner.runPlanning(
+                123L,
+                20,
+                AiPlanningAgent.fromPlacementAgent(heuristic));
+
+        assertEquals(placement.piecesPlaced(), action.piecesPlaced());
+        assertEquals(placement.linesCleared(), action.linesCleared());
+        assertEquals(placement.boardHealth(), action.boardHealth());
+        assertEquals(placement.reachedPieceLimit(), action.reachedPieceLimit());
+    }
+
+    @Test
+    void actionNativeBenchmarkUsesFallbackWhenPrimaryFails() {
+        HeadlessGameRunner runner = new HeadlessGameRunner();
+
+        GameBenchmarkResult result = runner.runPlanning(
+                7L,
+                1,
+                snapshot -> {
+                    throw new IllegalStateException("primary unavailable");
+                },
+                new DeterministicActionPlanningAgent());
+
+        assertEquals(1, result.piecesPlaced());
+        assertEquals(1, result.primaryFailures());
+        assertEquals(1, result.fallbackDecisions());
+    }
+
+    @Test
+    void actionNativeBenchmarkTreatsNonTerminalPlanAsFailure() {
+        HeadlessGameRunner runner = new HeadlessGameRunner();
+
+        GameBenchmarkResult result = runner.runPlanning(
+                9L,
+                1,
+                snapshot -> new AiPlan(List.of(AiAction.LEFT)),
+                new DeterministicActionPlanningAgent());
+
+        assertEquals(1, result.piecesPlaced());
+        assertEquals(1, result.primaryFailures());
+        assertEquals(1, result.fallbackDecisions());
     }
 
     @Test

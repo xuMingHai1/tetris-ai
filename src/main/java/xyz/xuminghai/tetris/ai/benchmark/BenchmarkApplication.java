@@ -5,7 +5,10 @@
  */
 package xyz.xuminghai.tetris.ai.benchmark;
 
+import xyz.xuminghai.tetris.ai.AiPlanningAgent;
+import xyz.xuminghai.tetris.ai.DeterministicActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
+import xyz.xuminghai.tetris.ai.JevActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
@@ -39,9 +42,7 @@ public final class BenchmarkApplication {
     public static void main(String[] args) {
         Configuration configuration = Configuration.fromEnvironment();
         JevTelemetry telemetry = new JevTelemetry();
-        TetrisAgent primary = createPrimary(configuration.agent(), telemetry);
-        TetrisAgent fallback = "jev".equals(configuration.agent()) ? new HeuristicTetrisAgent() : null;
-
+        BenchmarkStrategy strategy = createStrategy(configuration.agent(), telemetry);
         HeadlessGameRunner runner = new HeadlessGameRunner();
         List<GameBenchmarkResult> results = new ArrayList<>(configuration.games());
 
@@ -55,7 +56,7 @@ public final class BenchmarkApplication {
             long seed = configuration.seed() + game;
             telemetry.startGame(seed);
             GameBenchmarkResult result =
-                    runner.run(seed, configuration.maxPieces(), primary, fallback);
+                    strategy.run(runner, seed, configuration.maxPieces());
             results.add(result);
             System.out.printf(
                     Locale.ROOT,
@@ -85,14 +86,38 @@ public final class BenchmarkApplication {
         printSummary(configuration, results, telemetry);
     }
 
-    private static TetrisAgent createPrimary(String agent, JevTelemetry telemetry) {
+    private static BenchmarkStrategy createStrategy(String agent, JevTelemetry telemetry) {
         return switch (agent) {
-            case "heuristic" -> new HeuristicTetrisAgent();
-            case "lookahead" -> new NextPieceHeuristicTetrisAgent();
-            case "jev" -> new JevTetrisAgent(requireApiKey(), telemetry::record);
+            case "heuristic" -> {
+                TetrisAgent primary = new HeuristicTetrisAgent();
+                yield (runner, seed, pieceLimit) -> runner.run(seed, pieceLimit, primary);
+            }
+            case "lookahead" -> {
+                TetrisAgent primary = new NextPieceHeuristicTetrisAgent();
+                yield (runner, seed, pieceLimit) -> runner.run(seed, pieceLimit, primary);
+            }
+            case "jev" -> {
+                TetrisAgent primary = new JevTetrisAgent(requireApiKey(), telemetry::record);
+                TetrisAgent fallback = new HeuristicTetrisAgent();
+                yield (runner, seed, pieceLimit) ->
+                        runner.run(seed, pieceLimit, primary, fallback);
+            }
+            case "action" -> {
+                AiPlanningAgent primary = new DeterministicActionPlanningAgent();
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
+            case "jev-action" -> {
+                AiPlanningAgent primary =
+                        new JevActionPlanningAgent(requireApiKey(), telemetry::record);
+                AiPlanningAgent fallback =
+                        AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent());
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary, fallback);
+            }
             default -> throw new IllegalArgumentException(
                     "Unsupported " + AGENT_ENV + " value: " + agent
-                            + ". Expected heuristic, lookahead or jev.");
+                            + ". Expected heuristic, lookahead, jev, action or jev-action.");
         };
     }
 
@@ -252,6 +277,12 @@ public final class BenchmarkApplication {
             bumpinessDeltaSum += observation.bumpinessDelta();
             traces.add(new JevTrace(currentSeed, currentDecision, observation));
         }
+    }
+
+    @FunctionalInterface
+    private interface BenchmarkStrategy {
+
+        GameBenchmarkResult run(HeadlessGameRunner runner, long seed, int pieceLimit);
     }
 
     private record JevTrace(long seed, int decision, JevDecisionObservation observation) {
