@@ -22,8 +22,8 @@ import java.util.Set;
  * Deterministically explores piece states reachable through the action-native control vocabulary.
  *
  * <p>The search reuses the core tetromino transformations and {@link BoardRules} collision checks.
- * It therefore discovers interleaved paths such as move-down-rotate-move without introducing a
- * second implementation of Tetris geometry.</p>
+ * Each candidate path is replayed from the captured spawn snapshot so stateful rotation
+ * implementations keep the same orientation sequence as the live piece.</p>
  */
 final class ActionStateSearch {
 
@@ -54,23 +54,21 @@ final class ActionStateSearch {
         while (!queue.isEmpty()) {
             State state = queue.removeFirst();
             if (!canPlace(snapshot, occupied, down(state.cells()))) {
-                List<AiAction> actions = new ArrayList<>(state.actions());
-                actions.add(AiAction.HARD_DROP);
+                List<AiAction> actions = append(state.actions(), AiAction.HARD_DROP);
                 landings.add(new ReachableLanding(new AiPlan(actions), state.cells()));
             }
 
             for (AiAction action : SEARCH_ACTIONS) {
-                List<BoardPosition> next = apply(snapshot, state.cells(), action);
-                if (next == null || !canPlace(snapshot, occupied, next)) {
+                List<AiAction> actions = append(state.actions(), action);
+                List<BoardPosition> next = replay(snapshot, occupied, actions);
+                if (next == null) {
                     continue;
                 }
                 List<BoardPosition> key = canonical(next);
                 if (!visited.add(key)) {
                     continue;
                 }
-                List<AiAction> actions = new ArrayList<>(state.actions());
-                actions.add(action);
-                queue.addLast(new State(next, List.copyOf(actions)));
+                queue.addLast(new State(next, actions));
             }
         }
         return new SearchResult(List.copyOf(landings), visited.size());
@@ -80,35 +78,54 @@ final class ActionStateSearch {
         return search(snapshot).landings();
     }
 
-    private static List<BoardPosition> apply(
-            GameSnapshot snapshot, List<BoardPosition> cells, AiAction action) {
-        return switch (action) {
-            case LEFT -> horizontal(cells, -1);
-            case RIGHT -> horizontal(cells, 1);
-            case SOFT_DROP -> down(cells);
-            case ROTATE_CLOCKWISE -> rotate(snapshot, cells, true);
-            case ROTATE_COUNTER_CLOCKWISE -> rotate(snapshot, cells, false);
-            case HARD_DROP -> throw new IllegalArgumentException("HARD_DROP is terminal and is not a search transition");
-        };
+    /**
+     * Replays one non-terminal action path using the same stateful tetromino implementation as the
+     * live game. The current runtime asks the AI immediately after spawn's first gravity step, so
+     * the snapshot is the initial orientation expected by the newly created tetromino.
+     *
+     * @return resulting cells, or {@code null} when any intermediate action collides
+     */
+    static List<BoardPosition> replay(GameSnapshot snapshot, List<AiAction> actions) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        return replay(snapshot, snapshot.occupied(), actions);
     }
 
-    private static List<BoardPosition> rotate(
-            GameSnapshot snapshot, List<BoardPosition> positions, boolean clockwise) {
+    private static List<BoardPosition> replay(
+            GameSnapshot snapshot, boolean[][] occupied, List<AiAction> actions) {
         Tetris tetris = TetrisFactory.create(snapshot.currentType());
         Cell[] template = tetris.getCells();
         Cell[] cells = new Cell[template.length];
         for (int i = 0; i < cells.length; i++) {
-            BoardPosition position = positions.get(i);
+            BoardPosition position = snapshot.currentCells().get(i);
             cells[i] = new Cell(position.row(), position.col(), template[i].getColor());
         }
         tetris.setCells(cells);
-        if (clockwise) {
-            tetris.rotateClockwise();
+
+        List<BoardPosition> positions = positions(tetris);
+        for (AiAction action : actions) {
+            switch (action) {
+                case LEFT -> tetris.leftMove();
+                case RIGHT -> tetris.rightMove();
+                case ROTATE_CLOCKWISE -> tetris.rotateClockwise();
+                case ROTATE_COUNTER_CLOCKWISE -> tetris.rotateCounterClockwise();
+                case SOFT_DROP -> tetris.downMove();
+                case HARD_DROP -> throw new IllegalArgumentException(
+                        "HARD_DROP is terminal and is not a search transition");
+            }
+
+            positions = positions(tetris);
+            if (!canPlace(snapshot, occupied, positions)) {
+                return null;
+            }
         }
-        else {
-            tetris.rotateCounterClockwise();
-        }
-        return positions(tetris);
+        return positions;
+    }
+
+    private static List<AiAction> append(List<AiAction> actions, AiAction action) {
+        List<AiAction> copy = new ArrayList<>(actions.size() + 1);
+        copy.addAll(actions);
+        copy.add(action);
+        return List.copyOf(copy);
     }
 
     private static List<BoardPosition> positions(Tetris tetris) {
@@ -122,10 +139,6 @@ final class ActionStateSearch {
     private static boolean canPlace(
             GameSnapshot snapshot, boolean[][] occupied, List<BoardPosition> cells) {
         return BoardRules.canPlace(occupied, snapshot.rows(), snapshot.cols(), cells);
-    }
-
-    private static List<BoardPosition> horizontal(List<BoardPosition> cells, int delta) {
-        return cells.stream().map(cell -> cell.horizontal(delta)).toList();
     }
 
     private static List<BoardPosition> down(List<BoardPosition> cells) {
