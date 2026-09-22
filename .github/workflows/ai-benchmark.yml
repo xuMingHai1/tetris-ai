@@ -12,7 +12,10 @@ on:
           - heuristic
           - lookahead
           - jev
+          - action
+          - jev-action
           - compare
+          - compare-action
           - reachability
       games:
         description: Number of deterministic games
@@ -30,7 +33,7 @@ on:
         default: '1000'
         type: string
       confirm_jev_cost:
-        description: Confirm external TypeSafe API usage when agent=jev or compare
+        description: Confirm external TypeSafe API usage for jev, jev-action, compare or compare-action
         required: false
         default: false
         type: boolean
@@ -82,7 +85,7 @@ jobs:
           fi
 
       - name: Validate Jev configuration
-        if: ${{ inputs.agent == 'jev' || inputs.agent == 'compare' }}
+        if: ${{ inputs.agent == 'jev' || inputs.agent == 'jev-action' || inputs.agent == 'compare' || inputs.agent == 'compare-action' }}
         shell: bash
         env:
           GAMES: ${{ inputs.games }}
@@ -150,6 +153,35 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
             javafx:run | tee -a "$RUNNER_TEMP/benchmark-output.log"
 
+      - name: Run deterministic action benchmark
+        if: ${{ inputs.agent == 'action' || inputs.agent == 'compare-action' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: action
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+            javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
+
+      - name: Run Jev action benchmark
+        if: ${{ inputs.agent == 'jev-action' || inputs.agent == 'compare-action' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: jev-action
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+          TYPESAFE_API_KEY: ${{ secrets.TYPESAFE_API_KEY }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+            javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run action reachability benchmark
         if: ${{ inputs.agent == 'reachability' }}
         shell: bash
@@ -179,7 +211,7 @@ jobs:
               }
               next
             }
-            /^(heuristic|lookahead|jev|reachability),/ {
+            /^(heuristic|lookahead|jev|action|jev-action|reachability),/ {
               print
             }
           ' target/benchmark/raw.log > target/benchmark/results.csv
