@@ -423,13 +423,14 @@ public final class BenchmarkApplication {
 
             System.out.printf(
                     Locale.ROOT,
-                    "# build_shape target=%s samples=%d objective_applied=%d objective_applied_rate=%.4f "
+                    "# build_shape target=%s target_cells=%d samples=%d objective_applied=%d objective_applied_rate=%.4f "
                             + "avg_selected_rank=%.2f avg_matched_cells=%.3f max_matched_cells=%d "
                             + "avg_intrusion_cells=%.3f avg_completion_rate=%.4f max_completion_rate=%.4f "
                             + "avg_net_score_delta=%.4f safety_rejected_candidates=%d "
                             + "risk_low=%d risk_normal=%d risk_danger=%d "
                             + "profile_strict=%d profile_conservative=%d profile_balanced=%d profile_risky=%d%n",
                     ShapeTarget.HEART.configValue(),
+                    ShapeTarget.HEART.targetCells(),
                     buildShapeTelemetry.samples,
                     buildShapeTelemetry.objectiveApplied,
                     (double) buildShapeTelemetry.objectiveApplied / buildShapeTelemetry.samples,
