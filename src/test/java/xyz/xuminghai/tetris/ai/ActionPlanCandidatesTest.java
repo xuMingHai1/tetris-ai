@@ -36,15 +36,18 @@ class ActionPlanCandidatesTest {
         List<ActionPlanCandidates.PlannedCandidate> ranked =
                 ActionPlanCandidates.ranked(snapshot);
 
-        assertTrue(ranked.stream().anyMatch(ActionPlanCandidates.PlannedCandidate::actionOnly));
-        assertTrue(ranked.stream().anyMatch(ActionPlanCandidates.PlannedCandidate::legacyPlacementReachable));
+        ActionPlanProvenance.Classification provenance =
+                ActionPlanProvenance.classify(snapshot, ranked);
+
+        assertTrue(provenance.actionOnlyCandidateCount() > 0);
+        assertTrue(provenance.actionOnlyCandidateCount() < ranked.size());
 
         for (ActionPlanCandidates.PlannedCandidate candidate : ranked) {
             boolean placementReachable = placementBoards.stream()
                     .anyMatch(board -> Arrays.deepEquals(
                             board,
                             candidate.placement().resultingBoard()));
-            if (candidate.actionOnly()) {
+            if (provenance.isActionOnly(candidate)) {
                 assertFalse(placementReachable);
             }
             else {
