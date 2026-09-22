@@ -68,7 +68,7 @@ Windows 对应使用 `mvnw.cmd`。
 - Jev 必须通过 `TETRIS_AI_AGENT=jev` 或 `TETRIS_AI_AGENT=jev-action` 显式启用，`TYPESAFE_API_KEY` 仅作为凭据，不得因为 key 存在就自动开启远程调用；secret 不写入仓库、不输出到日志。远程 Choice 只能接收 deterministic reachability 之后的本地 heuristic shortlist（当前最多 5 个）；shortlist 复用 `HeuristicTetrisAgent` 的既有评分，不复制第二套权重。
 - TypeSafe 当前没有 Java SDK，Java 集成使用 JDK `HttpClient` 调用官方 System One HTTP API；JSON 使用 Jackson 3，不手写 JSON parser。
 - Benchmark 默认必须完全本地且 deterministic；真实 Jev benchmark 只能显式选择并使用环境变量 secret，CI 默认不得调用外部模型或消耗 provider quota。
-- Benchmark 状态推进必须来自 `BoardSimulator` 返回的 `PlacementCandidate.resultingBoard`，不得为 benchmark 单独实现旋转、碰撞、下落或消行规则。
+- Benchmark 状态推进必须复用生产规则：placement 策略通过 `BoardSimulator`，action-native 策略通过 `ActionPlanSimulator`/`ActionStateSearch`，最终统一使用 `PlacementCandidate`/`BoardRules` 的结果；不得为 benchmark 单独实现旋转、碰撞、下落或消行规则。
 - 不重新引入 GraalVM / GluonFX Native Image 的二进制和配置，除非出现明确的新打包需求并单独评审。
 - 不把生成文件、IDE 状态、日志或本地环境文件提交到仓库。
 
