@@ -125,7 +125,7 @@ For Jev evaluation, `JevDecisionObservation` exposes successful valid Choice con
 
 `tuck-hunter` emits separate objective telemetry: whether the selected move directly executes an action-only outcome, how many top-five candidates pass or fail the safety budget, how many safety-eligible candidates can create a next-turn tuck setup, the selected current heuristic rank, the selected candidate's metric deltas versus SURVIVAL top-1, and the rank/count of the selected preview opportunity. This allows `action` and `tuck-hunter` to be compared on identical seeds without provider cost.
 
-The local provenance scan is deliberately separate from Jev telemetry. It can run across thousands of deterministic states without provider cost and answers whether expanded action reachability is absent in ordinary play or merely filtered out by the top-five safety shortlist. Its provenance observations do not change ranking or the selected deterministic plan.
+The local provenance scan is deliberately separate from Jev telemetry. It can run across thousands of deterministic states without provider cost and answers whether expanded action reachability is absent in ordinary play or merely filtered out by the top-five shortlist. Its provenance observations do not change ranking or the selected deterministic plan.
 
 The headless benchmark intentionally does not emulate JavaFX gravity deadlines. It measures raw strategy quality, provider reliability and full decision cost; interactive deadline behavior remains owned and tested by `GameWorld`.
 
