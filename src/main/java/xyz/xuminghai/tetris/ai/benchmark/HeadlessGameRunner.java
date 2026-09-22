@@ -22,6 +22,7 @@ import xyz.xuminghai.tetris.core.TetrominoType;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Runs deterministic Tetris games without JavaFX animation, input, audio or wall-clock gravity.
@@ -72,9 +73,9 @@ public final class HeadlessGameRunner {
                 fallbackAgent,
                 new TurnAdapter<TetrisAgent, List<PlacementCandidate>>() {
                     @Override
-                    public List<PlacementCandidate> prepare(GameSnapshot snapshot) {
+                    public Optional<List<PlacementCandidate>> prepare(GameSnapshot snapshot) {
                         List<PlacementCandidate> candidates = BoardSimulator.candidates(snapshot);
-                        return candidates.isEmpty() ? null : candidates;
+                        return candidates.isEmpty() ? Optional.empty() : Optional.of(candidates);
                     }
 
                     @Override
@@ -116,10 +117,10 @@ public final class HeadlessGameRunner {
                 fallbackAgent,
                 new TurnAdapter<AiPlanningAgent, Boolean>() {
                     @Override
-                    public Boolean prepare(GameSnapshot snapshot) {
+                    public Optional<Boolean> prepare(GameSnapshot snapshot) {
                         return ActionPlanSimulator.hasReachableTerminalPlacement(snapshot)
-                                ? Boolean.TRUE
-                                : null;
+                                ? Optional.of(Boolean.TRUE)
+                                : Optional.empty();
                     }
 
                     @Override
@@ -175,10 +176,11 @@ public final class HeadlessGameRunner {
             // reachability and rotation checks are evaluated from the same coordinates.
             currentPiece.downMove();
             GameSnapshot snapshot = snapshot(board, currentPiece, nextPiece);
-            C context = adapter.prepare(snapshot);
-            if (context == null) {
+            Optional<C> prepared = adapter.prepare(snapshot);
+            if (prepared.isEmpty()) {
                 break;
             }
+            C context = prepared.orElseThrow();
 
             long started = System.nanoTime();
             PlacementCandidate selected;
@@ -294,9 +296,9 @@ public final class HeadlessGameRunner {
         /**
          * Prepares legality facts outside the measured agent latency.
          *
-         * @return turn context, or {@code null} when the game has no legal terminal placement
+         * @return turn context when the game has a legal terminal placement
          */
-        C prepare(GameSnapshot snapshot);
+        Optional<C> prepare(GameSnapshot snapshot);
 
         PlacementCandidate decide(A agent, GameSnapshot snapshot, C context);
     }
