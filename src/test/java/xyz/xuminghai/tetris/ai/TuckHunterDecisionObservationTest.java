@@ -17,13 +17,39 @@ class TuckHunterDecisionObservationTest {
     @Test
     void distinguishesExecutedTuckFromFutureSetup() {
         TuckHunterDecisionObservation executed = new TuckHunterDecisionObservation(
-                5, 3, 2, true,
-                0, 0, 0, 0,
-                0, 2, 0, 1);
+                5,
+                3,
+                ObjectiveRiskController.RiskLevel.NORMAL,
+                ObjectiveRiskProfile.CONSERVATIVE,
+                8,
+                2,
+                2,
+                true,
+                0,
+                0,
+                0,
+                0,
+                0,
+                2,
+                0,
+                1);
         TuckHunterDecisionObservation setup = new TuckHunterDecisionObservation(
-                5, 2, 2, false,
-                1, 4, 1, 1,
-                -1, 3, 0, 2);
+                5,
+                2,
+                ObjectiveRiskController.RiskLevel.LOW,
+                ObjectiveRiskProfile.BALANCED,
+                12,
+                0,
+                2,
+                false,
+                1,
+                4,
+                1,
+                1,
+                -1,
+                3,
+                0,
+                2);
 
         assertTrue(executed.selectedCurrentActionOnly());
         assertTrue(executed.objectiveApplied());
@@ -41,9 +67,22 @@ class TuckHunterDecisionObservationTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new TuckHunterDecisionObservation(
-                        5, 3, 2, true,
-                        1, 1, 1, 1,
-                        0, 2, 0, 1));
+                        5,
+                        3,
+                        ObjectiveRiskController.RiskLevel.NORMAL,
+                        ObjectiveRiskProfile.CONSERVATIVE,
+                        8,
+                        2,
+                        2,
+                        true,
+                        1,
+                        1,
+                        1,
+                        1,
+                        0,
+                        2,
+                        0,
+                        1));
     }
 
     @Test
@@ -51,9 +90,22 @@ class TuckHunterDecisionObservationTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new TuckHunterDecisionObservation(
-                        5, 3, 2, false,
-                        0, 0, 0, 1,
-                        0, 2, 0, 1));
+                        5,
+                        3,
+                        ObjectiveRiskController.RiskLevel.NORMAL,
+                        ObjectiveRiskProfile.CONSERVATIVE,
+                        8,
+                        2,
+                        2,
+                        false,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
+                        2,
+                        0,
+                        1));
     }
 
     @Test
@@ -61,9 +113,45 @@ class TuckHunterDecisionObservationTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new TuckHunterDecisionObservation(
-                        5, 6, 1, false,
-                        0, 0, 0, 0,
-                        0, 0, 0, 0));
+                        5,
+                        6,
+                        ObjectiveRiskController.RiskLevel.NORMAL,
+                        ObjectiveRiskProfile.CONSERVATIVE,
+                        8,
+                        2,
+                        1,
+                        false,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0));
+    }
+
+    @Test
+    void rejectsNegativeBaselineRiskMetric() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new TuckHunterDecisionObservation(
+                        5,
+                        3,
+                        ObjectiveRiskController.RiskLevel.DANGER,
+                        ObjectiveRiskProfile.STRICT,
+                        -1,
+                        2,
+                        1,
+                        false,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0));
     }
 
     @Test
@@ -71,8 +159,21 @@ class TuckHunterDecisionObservationTest {
         assertThrows(
                 IllegalArgumentException.class,
                 () -> new TuckHunterDecisionObservation(
-                        5, 3, 1, false,
-                        0, 0, 0, 0,
-                        0, 1, 0, 0));
+                        5,
+                        3,
+                        ObjectiveRiskController.RiskLevel.NORMAL,
+                        ObjectiveRiskProfile.CONSERVATIVE,
+                        8,
+                        2,
+                        1,
+                        false,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        1,
+                        0,
+                        0));
     }
 }

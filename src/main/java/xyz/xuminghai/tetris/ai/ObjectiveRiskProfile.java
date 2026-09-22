@@ -12,9 +12,9 @@ import java.util.Objects;
  * Named objective-risk profiles used to calibrate how much board-health degradation a
  * non-survival objective may accept relative to SURVIVAL top-1.
  *
- * <p>The desktop runtime remains on {@link #CONSERVATIVE}. Other profiles exist so deterministic
- * benchmarks can measure the survival/style trade-off before any broader runtime configuration is
- * exposed.</p>
+ * <p>The adaptive desktop controller may select {@link #STRICT}, {@link #CONSERVATIVE} or
+ * {@link #BALANCED} from board danger. {@link #RISKY} remains calibration-only because it permits
+ * one additional hole and showed a sharp survival regression in deterministic calibration.</p>
  */
 public enum ObjectiveRiskProfile {
 

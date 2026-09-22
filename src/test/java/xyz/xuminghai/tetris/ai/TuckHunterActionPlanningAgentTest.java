@@ -34,7 +34,9 @@ class TuckHunterActionPlanningAgentTest {
                 .filter(candidate -> candidate.plan().equals(selected))
                 .findFirst()
                 .orElseThrow();
-        assertTrue(ObjectiveSafetyBudget.conservative()
+        ObjectiveRiskController.Decision riskDecision =
+                ObjectiveRiskController.adaptive().decide(shortlist.getFirst().placement());
+        assertTrue(riskDecision.profile().budget()
                 .assess(shortlist.getFirst().placement(), selectedCandidate.placement())
                 .allowed());
     }
@@ -98,10 +100,16 @@ class TuckHunterActionPlanningAgentTest {
                 .filter(candidate -> candidate.plan().equals(selected))
                 .findFirst()
                 .orElseThrow();
-        ObjectiveSafetyBudget.Assessment safety = ObjectiveSafetyBudget.conservative()
+        ObjectiveRiskController.Decision riskDecision =
+                ObjectiveRiskController.adaptive().decide(shortlist.getFirst().placement());
+        ObjectiveSafetyBudget.Assessment safety = riskDecision.profile().budget()
                 .assess(shortlist.getFirst().placement(), selectedCandidate.placement());
 
         assertTrue(safety.allowed());
+        assertEquals(riskDecision.level(), observation.riskLevel());
+        assertEquals(riskDecision.profile(), observation.riskProfile());
+        assertEquals(riskDecision.headroom(), observation.baselineHeadroom());
+        assertEquals(riskDecision.holes(), observation.baselineHoles());
         assertEquals(safety.clearedLinesDelta(), observation.selectedClearedLinesDelta());
         assertEquals(safety.aggregateHeightDelta(), observation.selectedAggregateHeightDelta());
         assertEquals(safety.holesDelta(), observation.selectedHolesDelta());

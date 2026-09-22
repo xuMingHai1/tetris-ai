@@ -5,17 +5,23 @@
  */
 package xyz.xuminghai.tetris.ai;
 
+import java.util.Objects;
+
 /**
  * Observational facts from one deterministic tuck-hunter decision.
  *
- * <p>The selected rank is one-based inside the current top-five survival shortlist. Safety
- * eligibility is evaluated relative to the survival top choice before the objective may select a
- * current tuck or future setup. Future action-only facts describe the known preview piece after the
- * selected current placement.</p>
+ * <p>The selected rank is one-based inside the current top-five survival shortlist. Risk level and
+ * active profile are derived from the SURVIVAL top-1 resulting board before objective candidates are
+ * assessed. Future action-only facts describe the known preview piece after the selected current
+ * placement.</p>
  */
 public record TuckHunterDecisionObservation(
         int candidateCount,
         int safetyEligibleCandidates,
+        ObjectiveRiskController.RiskLevel riskLevel,
+        ObjectiveRiskProfile riskProfile,
+        int baselineHeadroom,
+        int baselineHoles,
         int selectedRank,
         boolean selectedCurrentActionOnly,
         int setupCandidates,
@@ -28,6 +34,8 @@ public record TuckHunterDecisionObservation(
         int selectedBumpinessDelta) {
 
     public TuckHunterDecisionObservation {
+        Objects.requireNonNull(riskLevel, "riskLevel");
+        Objects.requireNonNull(riskProfile, "riskProfile");
         if (candidateCount <= 0
                 || candidateCount > TuckHunterActionPlanningAgent.MAX_CURRENT_CANDIDATES) {
             throw new IllegalArgumentException(
@@ -36,6 +44,10 @@ public record TuckHunterDecisionObservation(
         if (safetyEligibleCandidates <= 0 || safetyEligibleCandidates > candidateCount) {
             throw new IllegalArgumentException(
                     "safetyEligibleCandidates must be within candidateCount");
+        }
+        if (baselineHeadroom < 0 || baselineHoles < 0) {
+            throw new IllegalArgumentException(
+                    "baseline risk metrics must not be negative");
         }
         if (selectedRank <= 0 || selectedRank > candidateCount) {
             throw new IllegalArgumentException("selectedRank must be within the current shortlist");

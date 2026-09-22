@@ -14,7 +14,6 @@ import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskProfile;
-import xyz.xuminghai.tetris.ai.ObjectiveSafetyBudget;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterDecisionObservation;
@@ -139,6 +138,12 @@ public final class BenchmarkApplication {
                 yield (runner, seed, pieceLimit) ->
                         runner.runPlanning(seed, pieceLimit, primary);
             }
+            case "adaptive-tuck-hunter" -> {
+                AiPlanningAgent primary =
+                        new TuckHunterActionPlanningAgent(tuckHunterTelemetry::record);
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
             case "action-provenance" -> {
                 AiPlanningAgent primary = snapshot -> {
                     ActionProvenanceBenchmark.Observation observation =
@@ -159,7 +164,7 @@ public final class BenchmarkApplication {
             }
             default -> throw new IllegalArgumentException(
                     "Unsupported " + AGENT_ENV + " value: " + agent
-                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, action-provenance or jev-action.");
+                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, adaptive-tuck-hunter, action-provenance or jev-action.");
         };
     }
 
@@ -303,22 +308,23 @@ public final class BenchmarkApplication {
                             : (double) tuckHunterTelemetry.bestFutureActionOnlyRankSum
                                     / tuckHunterTelemetry.createdTopFiveOpportunity;
 
-            ObjectiveSafetyBudget safetyBudget = configuration.riskProfile().budget();
             System.out.printf(
                     Locale.ROOT,
-                    "# tuck_hunter risk_profile=%s samples=%d executed_action_only=%d executed_action_only_rate=%.4f "
+                    "# tuck_hunter risk_mode=%s configured_profile=%s samples=%d "
+                            + "executed_action_only=%d executed_action_only_rate=%.4f "
                             + "setup_available=%d setup_rate=%.4f "
                             + "objective_applied=%d objective_applied_rate=%.4f "
                             + "created_top5_opportunity=%d created_top5_opportunity_rate=%.4f "
                             + "avg_selected_rank=%.2f avg_best_future_action_only_rank=%.2f "
                             + "future_action_only_candidates=%d future_top5_action_only_candidates=%d "
-                            + "safety_max_additional_holes=%d safety_max_height_delta=%d "
-                            + "safety_max_bumpiness_delta=%d avg_safety_eligible_candidates=%.2f "
-                            + "safety_rejected_candidates=%d "
+                            + "avg_safety_eligible_candidates=%.2f safety_rejected_candidates=%d "
                             + "avg_selected_cleared_lines_delta=%.3f "
                             + "avg_selected_height_delta=%.3f avg_selected_holes_delta=%.3f "
-                            + "avg_selected_bumpiness_delta=%.3f%n",
-                    configuration.riskProfile().configValue(),
+                            + "avg_selected_bumpiness_delta=%.3f "
+                            + "risk_low=%d risk_normal=%d risk_danger=%d "
+                            + "profile_strict=%d profile_conservative=%d profile_balanced=%d profile_risky=%d%n",
+                    configuration.riskMode(),
+                    configuration.configuredRiskProfile(),
                     tuckHunterTelemetry.samples,
                     tuckHunterTelemetry.executedActionOnly,
                     (double) tuckHunterTelemetry.executedActionOnly / tuckHunterTelemetry.samples,
@@ -332,9 +338,6 @@ public final class BenchmarkApplication {
                     averageBestFutureRank,
                     tuckHunterTelemetry.futureActionOnlyCandidates,
                     tuckHunterTelemetry.futureTopFiveActionOnlyCandidates,
-                    safetyBudget.maxAdditionalHoles(),
-                    safetyBudget.maxAggregateHeightDelta(),
-                    safetyBudget.maxBumpinessDelta(),
                     (double) tuckHunterTelemetry.safetyEligibleCandidates / tuckHunterTelemetry.samples,
                     tuckHunterTelemetry.safetyRejectedCandidates,
                     (double) tuckHunterTelemetry.selectedClearedLinesDeltaSum
@@ -344,10 +347,18 @@ public final class BenchmarkApplication {
                     (double) tuckHunterTelemetry.selectedHolesDeltaSum
                             / tuckHunterTelemetry.samples,
                     (double) tuckHunterTelemetry.selectedBumpinessDeltaSum
-                            / tuckHunterTelemetry.samples);
+                            / tuckHunterTelemetry.samples,
+                    tuckHunterTelemetry.riskLow,
+                    tuckHunterTelemetry.riskNormal,
+                    tuckHunterTelemetry.riskDanger,
+                    tuckHunterTelemetry.profileStrict,
+                    tuckHunterTelemetry.profileConservative,
+                    tuckHunterTelemetry.profileBalanced,
+                    tuckHunterTelemetry.profileRisky);
 
             System.out.println(
-                    "tuck_hunter_decision,risk_profile,seed,decision,candidate_count,safety_eligible_candidates,"
+                    "tuck_hunter_decision,risk_mode,risk_level,risk_profile,baseline_headroom,"
+                            + "baseline_holes,seed,decision,candidate_count,safety_eligible_candidates,"
                             + "safety_rejected_candidates,selected_rank,selected_current_action_only,"
                             + "setup_candidates,future_action_only_candidates,"
                             + "future_top5_action_only_candidates,best_future_action_only_rank,"
@@ -357,8 +368,12 @@ public final class BenchmarkApplication {
                 TuckHunterDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "tuck_hunter_decision,%s,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d%n",
-                        configuration.riskProfile().configValue(),
+                        "tuck_hunter_decision,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        configuration.riskMode(),
+                        observation.riskLevel().name().toLowerCase(Locale.ROOT),
+                        observation.riskProfile().configValue(),
+                        observation.baselineHeadroom(),
+                        observation.baselineHoles(),
                         trace.seed(),
                         trace.decision(),
                         observation.candidateCount(),
@@ -537,6 +552,13 @@ public final class BenchmarkApplication {
         private long selectedAggregateHeightDeltaSum;
         private long selectedHolesDeltaSum;
         private long selectedBumpinessDeltaSum;
+        private long riskLow;
+        private long riskNormal;
+        private long riskDanger;
+        private long profileStrict;
+        private long profileConservative;
+        private long profileBalanced;
+        private long profileRisky;
 
         void startGame(long seed) {
             currentSeed = seed;
@@ -568,6 +590,17 @@ public final class BenchmarkApplication {
             selectedAggregateHeightDeltaSum += observation.selectedAggregateHeightDelta();
             selectedHolesDeltaSum += observation.selectedHolesDelta();
             selectedBumpinessDeltaSum += observation.selectedBumpinessDelta();
+            switch (observation.riskLevel()) {
+                case LOW -> riskLow++;
+                case NORMAL -> riskNormal++;
+                case DANGER -> riskDanger++;
+            }
+            switch (observation.riskProfile()) {
+                case STRICT -> profileStrict++;
+                case CONSERVATIVE -> profileConservative++;
+                case BALANCED -> profileBalanced++;
+                case RISKY -> profileRisky++;
+            }
             traces.add(new TuckHunterTrace(currentSeed, currentDecision, observation));
         }
     }
@@ -617,9 +650,23 @@ public final class BenchmarkApplication {
         }
 
         String resultAgent() {
-            return "tuck-hunter".equals(agent)
-                    ? agent + "-" + riskProfile.configValue()
-                    : agent;
+            if ("tuck-hunter".equals(agent)) {
+                return agent + "-" + riskProfile.configValue();
+            }
+            if ("adaptive-tuck-hunter".equals(agent)) {
+                return "tuck-hunter-adaptive";
+            }
+            return agent;
+        }
+
+        String riskMode() {
+            return "adaptive-tuck-hunter".equals(agent) ? "adaptive" : "fixed";
+        }
+
+        String configuredRiskProfile() {
+            return "adaptive-tuck-hunter".equals(agent)
+                    ? "adaptive"
+                    : riskProfile.configValue();
         }
 
         private static int positiveInt(String name, int defaultValue) {
