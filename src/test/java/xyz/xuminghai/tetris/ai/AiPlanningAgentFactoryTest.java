@@ -39,6 +39,15 @@ class AiPlanningAgentFactoryTest {
     }
 
     @Test
+    void createsBuildShapeWhenActionObjectiveIsConfigured() {
+        assertInstanceOf(
+                BuildShapeActionPlanningAgent.class,
+                AiPlanningAgentFactory.from(Map.of(
+                        TetrisAgentFactory.AGENT_ENV, "action",
+                        AiPlanningAgentFactory.OBJECTIVE_ENV, "build-shape")));
+    }
+
+    @Test
     void rejectsTuckHunterObjectiveForPlacementAgent() {
         assertThrows(
                 IllegalArgumentException.class,
