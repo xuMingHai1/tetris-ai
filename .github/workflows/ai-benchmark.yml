@@ -334,7 +334,7 @@ jobs:
             cat target/benchmark/summary.txt
             echo '~~~'
             echo
-            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter decision telemetry when applicable, summary, metadata, and the raw Maven/application log."
+            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE decision telemetry when applicable, summary, metadata, and the raw Maven/application log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
