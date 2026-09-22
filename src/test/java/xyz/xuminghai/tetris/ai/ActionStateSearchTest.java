@@ -7,7 +7,6 @@ package xyz.xuminghai.tetris.ai;
 
 import org.junit.jupiter.api.Test;
 import xyz.xuminghai.tetris.core.BoardPosition;
-import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.core.Tetris;
 import xyz.xuminghai.tetris.core.TetrisFactory;
 import xyz.xuminghai.tetris.core.TetrominoType;
@@ -60,7 +59,6 @@ class ActionStateSearchTest {
         assertTrue(landings.stream().allMatch(
                 landing -> landing.plan().actions().getLast() == AiAction.HARD_DROP));
     }
-
 
     @Test
     void replayPreservesClockwiseRotationStateAcrossMultipleRotations() {
