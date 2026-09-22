@@ -61,18 +61,26 @@ The simulator reuses existing tetromino rotation behavior and `core.BoardRules`.
 
 `AiObjective` represents high-level intent above deterministic movement legality. The default `SURVIVAL` objective preserves the existing action baseline exactly. `TUCK_HUNTER` is the first alternative objective and is implemented by `TuckHunterActionPlanningAgent`.
 
-Objective planning does not invent controls or bypass the survival boundary. Tuck Hunter first ranks the current action-native candidates with the existing heuristic and restricts itself to the top five. If a current top-five outcome is action-only, it executes the highest-ranked such plan. Otherwise, when a preview piece is known, it evaluates each current safe candidate as a setup: the preview piece is spawned through the same post-spawn snapshot boundary used elsewhere, searched through `ActionStateSearch`, and classified by `ActionPlanProvenance`. Only setups that create an action-only preview outcome inside that preview piece's own top five are objective candidates. If none exist, the current survival top choice is returned unchanged.
+Objective planning does not invent controls or treat heuristic rank as a safety guarantee. Tuck Hunter first ranks the current action-native candidates with the existing heuristic and uses the top five only as a bounded objective search envelope. `ObjectiveSafetyBudget` then compares each candidate with the SURVIVAL top-1 board facts. The conservative default allows no additional holes and permits at most `+4` aggregate height and `+4` bumpiness; cleared-line delta is recorded but is not a hard guard in this revision.
 
-This creates a two-level planning model:
+A current action-only outcome may execute only when it passes that budget. Otherwise, when a preview piece is known, only safety-eligible current candidates are evaluated as setups. The preview piece is spawned through the shared post-spawn boundary, searched through `ActionStateSearch`, classified by `ActionPlanProvenance`, and evaluated with the same safety budget relative to its own future SURVIVAL top-1. A setup counts as useful only when it creates a safety-eligible action-only preview outcome inside the preview piece's top five. If no objective opportunity survives these guards, the current SURVIVAL top choice is returned unchanged.
+
+This creates a three-stage planning model:
 
 ```text
 AiObjective
     ↓
-safe current action shortlist
+current heuristic top-5 search envelope
     ↓
-current objective opportunity?
+ObjectiveSafetyBudget vs SURVIVAL top-1
+    ↓
+safety-eligible objective candidates
+    ↓
+current tuck?
     ├─ yes -> execute reachable AiPlan
     └─ no  -> deterministic preview setup evaluation
+                   ↓
+            same future safety budget
                    ↓
              reachable AiPlan
 ```
@@ -111,13 +119,13 @@ A remote decision owns the snapshot only until the next live-state mutation. Bef
 
 `ai.benchmark.HeadlessGameRunner` provides a deterministic evaluation path that does not start the JavaFX runtime. For each seeded 7-bag piece it first applies the same initial automatic `downMove()` that `GameWorld` performs before requesting AI, then builds the `GameSnapshot`. Placement-oriented runs resolve `AiMove` through an already-generated `BoardSimulator` candidate. Action-native runs use the distinct `runPlanning(...)` API and resolve terminal `AiPlan` values through `ActionPlanSimulator`, which reuses `ActionStateSearch` plus `BoardRules`. Both paths advance from production `PlacementCandidate` facts and keep top-edge reachability, movement, hard-drop and row-clear semantics aligned with the live decision boundary.
 
-`BenchmarkApplication` runs one or more seeded games and reports gameplay outcome plus decision latency. It supports `heuristic`, `lookahead`, `jev`, `action`, `tuck-hunter`, `action-provenance` and `jev-action`. A primary strategy may be paired with a local fallback; primary exceptions, illegal moves or non-terminal action plans are counted before fallback is applied. The runner aggregates the selected `PlacementCandidate` health facts (aggregate height, holes and bumpiness) as final, average and maximum values. These metrics are observed from production candidates rather than recalculated by benchmark-specific board logic. `action-provenance` is a local-only diagnostic mode: `ActionProvenanceBenchmark` ranks each real action state once, returns the same deterministic best `AiPlan`, then classifies the full ranking against legacy placement outcomes. It records total action candidates, total action-only candidates, the best action-only heuristic rank and how many action-only candidates fall inside the top-five safety boundary.
+`BenchmarkApplication` runs one or more seeded games and reports gameplay outcome plus decision latency. It supports `heuristic`, `lookahead`, `jev`, `action`, `tuck-hunter`, `action-provenance` and `jev-action`. A primary strategy may be paired with a local fallback; primary exceptions, illegal moves or non-terminal action plans are counted before fallback is applied. The runner aggregates the selected `PlacementCandidate` health facts (aggregate height, holes and bumpiness) as final, average and maximum values. These metrics are observed from production candidates rather than recalculated by benchmark-specific board logic. `action-provenance` is a local-only diagnostic mode: `ActionProvenanceBenchmark` ranks each real action state once, returns the same deterministic best `AiPlan`, then classifies the full ranking against legacy placement outcomes. It records total action candidates, total action-only candidates, the best action-only heuristic rank and how many action-only candidates fall inside the top-five shortlist.
 
 For Jev evaluation, `JevDecisionObservation` exposes successful valid Choice confidence, token usage, shortlist size, the one-based selected heuristic rank, and immediate selected-minus-heuristic-top metric deltas without changing the strategy contracts. For `jev-action`, `ActionPlanProvenance` additionally classifies the already-ranked shortlist against legacy `BoardSimulator` outcomes using the same post-lock/post-row-clear board equivalence as the reachability benchmark. The benchmark reports action-only candidate count/rate and whether Jev selected an action-only outcome. Provenance is computed only after ranking, is not sent to the provider, and never participates in gameplay decisions. The benchmark aggregates these values and emits per-decision telemetry so confidence, heuristic deviation and actual use of expanded action reachability can be evaluated independently.
 
-`tuck-hunter` emits separate objective telemetry: whether the selected move directly executes an action-only outcome, how many current safe candidates can create a next-turn tuck setup, the selected current heuristic rank, and the rank/count of the selected preview opportunity. This allows `action` and `tuck-hunter` to be compared on identical seeds without provider cost.
+`tuck-hunter` emits separate objective telemetry: whether the selected move directly executes an action-only outcome, how many top-five candidates pass or fail the safety budget, how many safety-eligible candidates can create a next-turn tuck setup, the selected current heuristic rank, the selected candidate's metric deltas versus SURVIVAL top-1, and the rank/count of the selected preview opportunity. This allows `action` and `tuck-hunter` to be compared on identical seeds without provider cost.
 
-The local provenance scan is deliberately separate from Jev telemetry. It can run across thousands of deterministic states without provider cost and answers whether expanded action reachability is absent in ordinary play or merely filtered out by the top-five safety shortlist. Its provenance observations do not change ranking or the selected deterministic plan.
+The local provenance scan is deliberately separate from Jev telemetry. It can run across thousands of deterministic states without provider cost and answers whether expanded action reachability is absent in ordinary play or merely filtered out by the top-five shortlist. Its provenance observations do not change ranking or the selected deterministic plan.
 
 The headless benchmark intentionally does not emulate JavaFX gravity deadlines. It measures raw strategy quality, provider reliability and full decision cost; interactive deadline behavior remains owned and tested by `GameWorld`.
 
@@ -128,8 +136,8 @@ The headless benchmark intentionally does not emulate JavaFX gravity deadlines. 
 - Asynchronous results must pass the current-generation and current-piece checks before they can mutate live game state.
 - JavaFX animation/audio/input classes must not enter the `ai` package.
 - Action-native planners should derive paths from `ActionStateSearch` (or an equivalent rules-backed reachability source) rather than inventing movement legality.
-- High-level objectives may change preference among deterministic reachable plans but must not replace movement legality, collision, row clearing or the existing survival shortlist boundary.
-- A non-survival objective must have an explicit fallback to the existing survival choice when its objective-specific opportunity is unavailable.
+- High-level objectives may change preference among deterministic reachable plans but must not replace movement legality, collision or row clearing. Heuristic top-k rank is only a bounded search envelope, not proof of safety.
+- A non-survival objective must pass an explicit `ObjectiveSafetyBudget` relative to the current SURVIVAL top choice and must fall back to that SURVIVAL choice when its objective-specific opportunity is unavailable or exceeds the budget.
 - Every AI plan must pass `AiPlanValidator` before live execution; structural limits belong there while board legality remains in the existing game rules.
 - A candidate selected by the simulator must still pass the live `GameWorld` collision checks.
 - Invalid live moves restore the previous grid state; failed movement must not remove the falling piece from collision data.

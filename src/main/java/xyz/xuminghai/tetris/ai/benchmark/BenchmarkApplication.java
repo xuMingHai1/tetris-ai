@@ -13,6 +13,7 @@ import xyz.xuminghai.tetris.ai.JevActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
+import xyz.xuminghai.tetris.ai.ObjectiveSafetyBudget;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterDecisionObservation;
@@ -298,6 +299,7 @@ public final class BenchmarkApplication {
                             : (double) tuckHunterTelemetry.bestFutureActionOnlyRankSum
                                     / tuckHunterTelemetry.createdTopFiveOpportunity;
 
+            ObjectiveSafetyBudget safetyBudget = ObjectiveSafetyBudget.conservative();
             System.out.printf(
                     Locale.ROOT,
                     "# tuck_hunter samples=%d executed_action_only=%d executed_action_only_rate=%.4f "
@@ -305,7 +307,13 @@ public final class BenchmarkApplication {
                             + "objective_applied=%d objective_applied_rate=%.4f "
                             + "created_top5_opportunity=%d created_top5_opportunity_rate=%.4f "
                             + "avg_selected_rank=%.2f avg_best_future_action_only_rank=%.2f "
-                            + "future_action_only_candidates=%d future_top5_action_only_candidates=%d%n",
+                            + "future_action_only_candidates=%d future_top5_action_only_candidates=%d "
+                            + "safety_max_additional_holes=%d safety_max_height_delta=%d "
+                            + "safety_max_bumpiness_delta=%d avg_safety_eligible_candidates=%.2f "
+                            + "safety_rejected_candidates=%d "
+                            + "avg_selected_cleared_lines_delta=%.3f "
+                            + "avg_selected_height_delta=%.3f avg_selected_holes_delta=%.3f "
+                            + "avg_selected_bumpiness_delta=%.3f%n",
                     tuckHunterTelemetry.samples,
                     tuckHunterTelemetry.executedActionOnly,
                     (double) tuckHunterTelemetry.executedActionOnly / tuckHunterTelemetry.samples,
@@ -318,26 +326,48 @@ public final class BenchmarkApplication {
                     averageSelectedRank,
                     averageBestFutureRank,
                     tuckHunterTelemetry.futureActionOnlyCandidates,
-                    tuckHunterTelemetry.futureTopFiveActionOnlyCandidates);
+                    tuckHunterTelemetry.futureTopFiveActionOnlyCandidates,
+                    safetyBudget.maxAdditionalHoles(),
+                    safetyBudget.maxAggregateHeightDelta(),
+                    safetyBudget.maxBumpinessDelta(),
+                    (double) tuckHunterTelemetry.safetyEligibleCandidates / tuckHunterTelemetry.samples,
+                    tuckHunterTelemetry.safetyRejectedCandidates,
+                    (double) tuckHunterTelemetry.selectedClearedLinesDeltaSum
+                            / tuckHunterTelemetry.samples,
+                    (double) tuckHunterTelemetry.selectedAggregateHeightDeltaSum
+                            / tuckHunterTelemetry.samples,
+                    (double) tuckHunterTelemetry.selectedHolesDeltaSum
+                            / tuckHunterTelemetry.samples,
+                    (double) tuckHunterTelemetry.selectedBumpinessDeltaSum
+                            / tuckHunterTelemetry.samples);
 
             System.out.println(
-                    "tuck_hunter_decision,seed,decision,candidate_count,selected_rank,"
-                            + "selected_current_action_only,setup_candidates,future_action_only_candidates,"
-                            + "future_top5_action_only_candidates,best_future_action_only_rank");
+                    "tuck_hunter_decision,seed,decision,candidate_count,safety_eligible_candidates,"
+                            + "safety_rejected_candidates,selected_rank,selected_current_action_only,"
+                            + "setup_candidates,future_action_only_candidates,"
+                            + "future_top5_action_only_candidates,best_future_action_only_rank,"
+                            + "selected_cleared_lines_delta,selected_height_delta,"
+                            + "selected_holes_delta,selected_bumpiness_delta");
             for (TuckHunterTrace trace : tuckHunterTelemetry.traces) {
                 TuckHunterDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "tuck_hunter_decision,%d,%d,%d,%d,%s,%d,%d,%d,%d%n",
+                        "tuck_hunter_decision,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d%n",
                         trace.seed(),
                         trace.decision(),
                         observation.candidateCount(),
+                        observation.safetyEligibleCandidates(),
+                        observation.safetyRejectedCandidates(),
                         observation.selectedRank(),
                         observation.selectedCurrentActionOnly(),
                         observation.setupCandidates(),
                         observation.selectedFutureActionOnlyCandidates(),
                         observation.selectedFutureTopFiveActionOnlyCandidates(),
-                        observation.selectedBestFutureActionOnlyRank());
+                        observation.selectedBestFutureActionOnlyRank(),
+                        observation.selectedClearedLinesDelta(),
+                        observation.selectedAggregateHeightDelta(),
+                        observation.selectedHolesDelta(),
+                        observation.selectedBumpinessDelta());
             }
         }
 
@@ -495,6 +525,12 @@ public final class BenchmarkApplication {
         private long bestFutureActionOnlyRankSum;
         private long futureActionOnlyCandidates;
         private long futureTopFiveActionOnlyCandidates;
+        private long safetyEligibleCandidates;
+        private long safetyRejectedCandidates;
+        private long selectedClearedLinesDeltaSum;
+        private long selectedAggregateHeightDeltaSum;
+        private long selectedHolesDeltaSum;
+        private long selectedBumpinessDeltaSum;
 
         void startGame(long seed) {
             currentSeed = seed;
@@ -520,6 +556,12 @@ public final class BenchmarkApplication {
             selectedRankSum += observation.selectedRank();
             futureActionOnlyCandidates += observation.selectedFutureActionOnlyCandidates();
             futureTopFiveActionOnlyCandidates += observation.selectedFutureTopFiveActionOnlyCandidates();
+            safetyEligibleCandidates += observation.safetyEligibleCandidates();
+            safetyRejectedCandidates += observation.safetyRejectedCandidates();
+            selectedClearedLinesDeltaSum += observation.selectedClearedLinesDelta();
+            selectedAggregateHeightDeltaSum += observation.selectedAggregateHeightDelta();
+            selectedHolesDeltaSum += observation.selectedHolesDelta();
+            selectedBumpinessDeltaSum += observation.selectedBumpinessDelta();
             traces.add(new TuckHunterTrace(currentSeed, currentDecision, observation));
         }
     }

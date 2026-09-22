@@ -23,12 +23,20 @@ class TuckHunterActionPlanningAgentTest {
         GameSnapshot snapshot = snapshot(TetrominoType.I);
 
         AiPlan selected = new TuckHunterActionPlanningAgent().plan(snapshot);
-        List<AiPlan> shortlist = ActionPlanCandidates.ranked(snapshot).stream()
-                .limit(TuckHunterActionPlanningAgent.MAX_CURRENT_CANDIDATES)
-                .map(ActionPlanCandidates.PlannedCandidate::plan)
-                .toList();
+        List<ActionPlanCandidates.PlannedCandidate> shortlist =
+                ActionPlanCandidates.ranked(snapshot).stream()
+                        .limit(TuckHunterActionPlanningAgent.MAX_CURRENT_CANDIDATES)
+                        .toList();
 
-        assertTrue(shortlist.contains(selected));
+        assertTrue(shortlist.stream().map(ActionPlanCandidates.PlannedCandidate::plan)
+                .anyMatch(selected::equals));
+        ActionPlanCandidates.PlannedCandidate selectedCandidate = shortlist.stream()
+                .filter(candidate -> candidate.plan().equals(selected))
+                .findFirst()
+                .orElseThrow();
+        assertTrue(ObjectiveSafetyBudget.conservative()
+                .assess(shortlist.getFirst().placement(), selectedCandidate.placement())
+                .allowed());
     }
 
     @Test
@@ -62,11 +70,26 @@ class TuckHunterActionPlanningAgentTest {
         assertTrue(observation.selectedRank() >= 1);
         assertTrue(observation.selectedRank() <= observation.candidateCount());
 
-        List<AiPlan> shortlist = ActionPlanCandidates.ranked(snapshot).stream()
-                .limit(TuckHunterActionPlanningAgent.MAX_CURRENT_CANDIDATES)
-                .map(ActionPlanCandidates.PlannedCandidate::plan)
-                .toList();
-        assertTrue(shortlist.contains(selected));
+        List<ActionPlanCandidates.PlannedCandidate> shortlist =
+                ActionPlanCandidates.ranked(snapshot).stream()
+                        .limit(TuckHunterActionPlanningAgent.MAX_CURRENT_CANDIDATES)
+                        .toList();
+        ActionPlanCandidates.PlannedCandidate selectedCandidate = shortlist.stream()
+                .filter(candidate -> candidate.plan().equals(selected))
+                .findFirst()
+                .orElseThrow();
+        ObjectiveSafetyBudget.Assessment safety = ObjectiveSafetyBudget.conservative()
+                .assess(shortlist.getFirst().placement(), selectedCandidate.placement());
+
+        assertTrue(safety.allowed());
+        assertEquals(safety.clearedLinesDelta(), observation.selectedClearedLinesDelta());
+        assertEquals(safety.aggregateHeightDelta(), observation.selectedAggregateHeightDelta());
+        assertEquals(safety.holesDelta(), observation.selectedHolesDelta());
+        assertEquals(safety.bumpinessDelta(), observation.selectedBumpinessDelta());
+        assertTrue(observation.safetyEligibleCandidates() >= 1);
+        assertEquals(
+                observation.candidateCount() - observation.safetyEligibleCandidates(),
+                observation.safetyRejectedCandidates());
 
         if (observation.selectedCurrentActionOnly()) {
             assertEquals(0, observation.setupCandidates());
