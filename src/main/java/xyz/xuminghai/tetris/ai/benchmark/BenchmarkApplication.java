@@ -14,6 +14,8 @@ import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
+import xyz.xuminghai.tetris.ai.TuckHunterActionPlanningAgent;
+import xyz.xuminghai.tetris.ai.TuckHunterDecisionObservation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,8 +46,13 @@ public final class BenchmarkApplication {
         Configuration configuration = Configuration.fromEnvironment();
         JevTelemetry telemetry = new JevTelemetry();
         ActionProvenanceTelemetry provenanceTelemetry = new ActionProvenanceTelemetry();
+        TuckHunterTelemetry tuckHunterTelemetry = new TuckHunterTelemetry();
         BenchmarkStrategy strategy =
-                createStrategy(configuration.agent(), telemetry, provenanceTelemetry);
+                createStrategy(
+                        configuration.agent(),
+                        telemetry,
+                        provenanceTelemetry,
+                        tuckHunterTelemetry);
         HeadlessGameRunner runner = new HeadlessGameRunner();
         List<GameBenchmarkResult> results = new ArrayList<>(configuration.games());
 
@@ -59,6 +66,7 @@ public final class BenchmarkApplication {
             long seed = configuration.seed() + game;
             telemetry.startGame(seed);
             provenanceTelemetry.startGame(seed);
+            tuckHunterTelemetry.startGame(seed);
             GameBenchmarkResult result =
                     strategy.run(runner, seed, configuration.maxPieces());
             results.add(result);
@@ -87,13 +95,19 @@ public final class BenchmarkApplication {
                     result.reachedPieceLimit());
         }
 
-        printSummary(configuration, results, telemetry, provenanceTelemetry);
+        printSummary(
+                configuration,
+                results,
+                telemetry,
+                provenanceTelemetry,
+                tuckHunterTelemetry);
     }
 
     private static BenchmarkStrategy createStrategy(
             String agent,
             JevTelemetry telemetry,
-            ActionProvenanceTelemetry provenanceTelemetry) {
+            ActionProvenanceTelemetry provenanceTelemetry,
+            TuckHunterTelemetry tuckHunterTelemetry) {
         return switch (agent) {
             case "heuristic" -> {
                 TetrisAgent primary = new HeuristicTetrisAgent();
@@ -111,6 +125,12 @@ public final class BenchmarkApplication {
             }
             case "action" -> {
                 AiPlanningAgent primary = new DeterministicActionPlanningAgent();
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
+            case "tuck-hunter" -> {
+                AiPlanningAgent primary =
+                        new TuckHunterActionPlanningAgent(tuckHunterTelemetry::record);
                 yield (runner, seed, pieceLimit) ->
                         runner.runPlanning(seed, pieceLimit, primary);
             }
@@ -134,7 +154,7 @@ public final class BenchmarkApplication {
             }
             default -> throw new IllegalArgumentException(
                     "Unsupported " + AGENT_ENV + " value: " + agent
-                            + ". Expected heuristic, lookahead, jev, action, action-provenance or jev-action.");
+                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, action-provenance or jev-action.");
         };
     }
 
@@ -150,7 +170,8 @@ public final class BenchmarkApplication {
             Configuration configuration,
             List<GameBenchmarkResult> results,
             JevTelemetry telemetry,
-            ActionProvenanceTelemetry provenanceTelemetry) {
+            ActionProvenanceTelemetry provenanceTelemetry,
+            TuckHunterTelemetry tuckHunterTelemetry) {
         long pieces = results.stream().mapToLong(GameBenchmarkResult::piecesPlaced).sum();
         long lines = results.stream().mapToLong(GameBenchmarkResult::linesCleared).sum();
         long decisions = results.stream().mapToLong(GameBenchmarkResult::decisions).sum();
@@ -259,6 +280,60 @@ public final class BenchmarkApplication {
                         observation.bumpinessDelta(),
                         observation.actionOnlyCandidateCount(),
                         observation.selectedActionOnly());
+            }
+        }
+
+        if (tuckHunterTelemetry.samples > 0) {
+            double setupRate =
+                    (double) tuckHunterTelemetry.setupAvailable / tuckHunterTelemetry.samples;
+            double objectiveAppliedRate =
+                    (double) tuckHunterTelemetry.objectiveApplied / tuckHunterTelemetry.samples;
+            double createdOpportunityRate =
+                    (double) tuckHunterTelemetry.createdTopFiveOpportunity / tuckHunterTelemetry.samples;
+            double averageSelectedRank =
+                    (double) tuckHunterTelemetry.selectedRankSum / tuckHunterTelemetry.samples;
+            double averageBestFutureRank =
+                    tuckHunterTelemetry.createdTopFiveOpportunity == 0
+                            ? 0.0
+                            : (double) tuckHunterTelemetry.bestFutureActionOnlyRankSum
+                                    / tuckHunterTelemetry.createdTopFiveOpportunity;
+
+            System.out.printf(
+                    Locale.ROOT,
+                    "# tuck_hunter samples=%d setup_available=%d setup_rate=%.4f "
+                            + "objective_applied=%d objective_applied_rate=%.4f "
+                            + "created_top5_opportunity=%d created_top5_opportunity_rate=%.4f "
+                            + "avg_selected_rank=%.2f avg_best_future_action_only_rank=%.2f "
+                            + "future_action_only_candidates=%d future_top5_action_only_candidates=%d%n",
+                    tuckHunterTelemetry.samples,
+                    tuckHunterTelemetry.setupAvailable,
+                    setupRate,
+                    tuckHunterTelemetry.objectiveApplied,
+                    objectiveAppliedRate,
+                    tuckHunterTelemetry.createdTopFiveOpportunity,
+                    createdOpportunityRate,
+                    averageSelectedRank,
+                    averageBestFutureRank,
+                    tuckHunterTelemetry.futureActionOnlyCandidates,
+                    tuckHunterTelemetry.futureTopFiveActionOnlyCandidates);
+
+            System.out.println(
+                    "tuck_hunter_decision,seed,decision,candidate_count,selected_rank,"
+                            + "setup_candidates,future_action_only_candidates,"
+                            + "future_top5_action_only_candidates,best_future_action_only_rank");
+            for (TuckHunterTrace trace : tuckHunterTelemetry.traces) {
+                TuckHunterDecisionObservation observation = trace.observation();
+                System.out.printf(
+                        Locale.ROOT,
+                        "tuck_hunter_decision,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        trace.seed(),
+                        trace.decision(),
+                        observation.candidateCount(),
+                        observation.selectedRank(),
+                        observation.setupCandidates(),
+                        observation.selectedFutureActionOnlyCandidates(),
+                        observation.selectedFutureTopFiveActionOnlyCandidates(),
+                        observation.selectedBestFutureActionOnlyRank());
             }
         }
 
@@ -402,6 +477,45 @@ public final class BenchmarkApplication {
         }
     }
 
+    private static final class TuckHunterTelemetry {
+
+        private final List<TuckHunterTrace> traces = new ArrayList<>();
+        private long currentSeed;
+        private int currentDecision;
+        private long samples;
+        private long setupAvailable;
+        private long objectiveApplied;
+        private long createdTopFiveOpportunity;
+        private long selectedRankSum;
+        private long bestFutureActionOnlyRankSum;
+        private long futureActionOnlyCandidates;
+        private long futureTopFiveActionOnlyCandidates;
+
+        void startGame(long seed) {
+            currentSeed = seed;
+            currentDecision = 0;
+        }
+
+        void record(TuckHunterDecisionObservation observation) {
+            samples++;
+            currentDecision++;
+            if (observation.setupCandidates() > 0) {
+                setupAvailable++;
+            }
+            if (observation.objectiveApplied()) {
+                objectiveApplied++;
+            }
+            if (observation.createsTopFiveOpportunity()) {
+                createdTopFiveOpportunity++;
+                bestFutureActionOnlyRankSum += observation.selectedBestFutureActionOnlyRank();
+            }
+            selectedRankSum += observation.selectedRank();
+            futureActionOnlyCandidates += observation.selectedFutureActionOnlyCandidates();
+            futureTopFiveActionOnlyCandidates += observation.selectedFutureTopFiveActionOnlyCandidates();
+            traces.add(new TuckHunterTrace(currentSeed, currentDecision, observation));
+        }
+    }
+
     @FunctionalInterface
     private interface BenchmarkStrategy {
 
@@ -415,6 +529,12 @@ public final class BenchmarkApplication {
             long seed,
             int decision,
             ActionProvenanceBenchmark.Observation observation) {
+    }
+
+    private record TuckHunterTrace(
+            long seed,
+            int decision,
+            TuckHunterDecisionObservation observation) {
     }
 
     private record Configuration(String agent, int games, int maxPieces, long seed) {
