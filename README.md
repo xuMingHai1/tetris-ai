@@ -10,6 +10,8 @@
 
 ## 开发环境
 
+界面改版的开发交接见 [UI V1：棋盘 + AI 驾驶舱](docs/design/ui-v1/README.md)，包含已确认的设计预览、视觉规范和实现差异；当前运行界面尚未应用该设计。
+
 - JDK 27
 - JavaFX 27
 - Maven Wrapper（Maven 3.9.16）
