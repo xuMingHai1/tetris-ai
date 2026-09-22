@@ -16,11 +16,11 @@ class ObjectiveRiskControllerTest {
     @Test
     void selectsBalancedForLowRiskBoard() {
         ObjectiveRiskController.Decision decision =
-                controller.decide(candidate(boardWithTopCellAt(19), 0));
+                controller.decide(candidate(boardWithTopCellAt(10), 0));
 
         assertEquals(ObjectiveRiskController.RiskLevel.LOW, decision.level());
         assertEquals(ObjectiveRiskProfile.BALANCED, decision.profile());
-        assertEquals(19, decision.headroom());
+        assertEquals(10, decision.headroom());
     }
 
     @Test
@@ -36,11 +36,11 @@ class ObjectiveRiskControllerTest {
     @Test
     void selectsStrictWhenHeadroomIsLow() {
         ObjectiveRiskController.Decision decision =
-                controller.decide(candidate(boardWithTopCellAt(4), 0));
+                controller.decide(candidate(boardWithTopCellAt(5), 0));
 
         assertEquals(ObjectiveRiskController.RiskLevel.DANGER, decision.level());
         assertEquals(ObjectiveRiskProfile.STRICT, decision.profile());
-        assertEquals(4, decision.headroom());
+        assertEquals(5, decision.headroom());
     }
 
     @Test
