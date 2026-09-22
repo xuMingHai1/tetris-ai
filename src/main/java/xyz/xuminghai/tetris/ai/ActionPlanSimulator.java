@@ -24,6 +24,18 @@ public final class ActionPlanSimulator {
     }
 
     /**
+     * Returns whether the snapshot has at least one reachable visible landing.
+     *
+     * <p>Headless evaluation uses this as the action-native equivalent of an empty
+     * {@link BoardSimulator#candidates(GameSnapshot)} result when deciding that a game has ended.</p>
+     */
+    public static boolean hasReachableTerminalPlacement(GameSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        return ActionStateSearch.landings(snapshot).stream()
+                .anyMatch(landing -> landing.cells().stream().noneMatch(cell -> cell.row() < 0));
+    }
+
+    /**
      * Resolves a complete turn plan.
      *
      * @param snapshot immutable decision state
