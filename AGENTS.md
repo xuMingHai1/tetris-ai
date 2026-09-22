@@ -62,10 +62,10 @@ Windows 对应使用 `mvnw.cmd`。
 - 优先使用 JDK / JavaFX 原生能力；已有项目能力能表达需求时，不增加只替代几行代码的新依赖或抽象。
 - 小功能保持简单。只有存在真实复用、独立语义、复杂失败边界或测试价值时才提取 helper / abstraction。
 - 修改 `core` 或 `game` 的状态语义时，必须考虑已有测试以及未来 AI 消费游戏状态的影响。
-- 远程或可能阻塞的 AI 实现只能实现 `TetrisAgent` 决策契约，并通过 `AiDecisionExecutor` 执行；不要在 JavaFX application thread 或 `GameWorld` 内直接进行网络 I/O。
+- 远程或可能阻塞的 AI 实现可以实现 placement-oriented `TetrisAgent` 或 action-native `AiPlanningAgent`，但都必须通过 `AiDecisionExecutor` 执行；不要在 JavaFX application thread 或 `GameWorld` 内直接进行网络 I/O。
 - 远程 AI 的结果只能作用于它读取的原始 snapshot：应用前必须校验当前方块坐标仍完全一致；下一次自动下落若先到达，则必须先废弃远程 generation 并在状态变化前执行本地 fallback。手动输入优先并取消该方块的 pending remote decision。
-- AI 策略不得自行重新实现碰撞、旋转、下落或消行规则；候选合法性、落地事实和已知 preview piece 的 look-ahead 必须统一来自 `BoardSimulator` / `PlacementCandidate`。策略可以改变评分或选择方式，但不能建立第二套游戏规则。
-- Jev 必须通过 `TETRIS_AI_AGENT=jev` 显式启用，`TYPESAFE_API_KEY` 仅作为凭据，不得因为 key 存在就自动开启远程调用；secret 不写入仓库、不输出到日志。远程 Choice 只能接收本地 heuristic shortlist（当前最多 5 个）；shortlist 复用 `HeuristicTetrisAgent` 的既有评分和 tie-break，不复制第二套权重。
+- AI 策略不得自行重新实现碰撞、旋转、下落或消行规则；placement 候选合法性来自 `BoardSimulator`，action-native 路径合法性来自 `ActionStateSearch`，落地事实统一复用 `PlacementCandidate`/`BoardRules`。策略可以改变评分或选择方式，但不能建立第二套游戏规则。
+- Jev 必须通过 `TETRIS_AI_AGENT=jev` 或 `TETRIS_AI_AGENT=jev-action` 显式启用，`TYPESAFE_API_KEY` 仅作为凭据，不得因为 key 存在就自动开启远程调用；secret 不写入仓库、不输出到日志。远程 Choice 只能接收 deterministic reachability 之后的本地 heuristic shortlist（当前最多 5 个）；shortlist 复用 `HeuristicTetrisAgent` 的既有评分，不复制第二套权重。
 - TypeSafe 当前没有 Java SDK，Java 集成使用 JDK `HttpClient` 调用官方 System One HTTP API；JSON 使用 Jackson 3，不手写 JSON parser。
 - Benchmark 默认必须完全本地且 deterministic；真实 Jev benchmark 只能显式选择并使用环境变量 secret，CI 默认不得调用外部模型或消耗 provider quota。
 - Benchmark 状态推进必须来自 `BoardSimulator` 返回的 `PlacementCandidate.resultingBoard`，不得为 benchmark 单独实现旋转、碰撞、下落或消行规则。
