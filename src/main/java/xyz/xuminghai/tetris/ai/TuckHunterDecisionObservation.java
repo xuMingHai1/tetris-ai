@@ -47,6 +47,14 @@ public record TuckHunterDecisionObservation(
             throw new IllegalArgumentException(
                     "selectedBestFutureActionOnlyRank must be zero exactly when no future action-only candidate exists");
         }
+        if (selectedCurrentActionOnly
+                && (setupCandidates != 0
+                        || selectedFutureActionOnlyCandidates != 0
+                        || selectedFutureTopFiveActionOnlyCandidates != 0
+                        || selectedBestFutureActionOnlyRank != 0)) {
+            throw new IllegalArgumentException(
+                    "executing a current action-only plan cannot also report future setup facts");
+        }
     }
 
     public boolean objectiveApplied() {
