@@ -14,14 +14,14 @@ import java.util.function.Consumer;
 
 /**
  * Deterministic objective planner that tries to create a useful next-turn tuck opportunity while
- * staying inside an explicit risk budget relative to the current survival top choice.
+ * staying inside a state-aware risk budget relative to the current survival top choice.
  *
- * <p>The planner starts from the existing heuristic top five action-native plans, then applies
- * {@link ObjectiveSafetyBudget}. A current action-only landing may execute only when it is
- * safety-eligible. Future setup evaluation is performed only for safety-eligible current choices,
- * and the preview opportunity itself must also contain a safety-eligible action-only landing inside
- * the preview piece's top five. If no objective opportunity survives these guards, the planner
- * returns the current survival top choice unchanged.</p>
+ * <p>The planner starts from the existing heuristic top five action-native plans. The
+ * {@link ObjectiveRiskController} selects the active risk profile from the SURVIVAL top-1 resulting
+ * board, then {@link ObjectiveSafetyBudget} filters current objective choices. Future setup
+ * evaluation repeats the same risk decision against the preview piece's own SURVIVAL top-1 board.
+ * If no objective opportunity survives these guards, the planner returns the current survival top
+ * choice unchanged.</p>
  */
 public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
 
@@ -29,25 +29,43 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
     private static final Consumer<TuckHunterDecisionObservation> NOOP_OBSERVER = ignored -> {
     };
 
-    private final ObjectiveSafetyBudget safetyBudget;
+    private final ObjectiveRiskController riskController;
     private final Consumer<TuckHunterDecisionObservation> observer;
 
+    /**
+     * Runtime default: state-aware adaptive risk control.
+     */
     public TuckHunterActionPlanningAgent() {
-        this(ObjectiveRiskProfile.CONSERVATIVE, NOOP_OBSERVER);
+        this(ObjectiveRiskController.adaptive(), NOOP_OBSERVER);
     }
 
+    /**
+     * Runtime default with telemetry: state-aware adaptive risk control.
+     */
     public TuckHunterActionPlanningAgent(Consumer<TuckHunterDecisionObservation> observer) {
-        this(ObjectiveRiskProfile.CONSERVATIVE, observer);
+        this(ObjectiveRiskController.adaptive(), observer);
     }
 
+    /**
+     * Fixed-profile mode retained for deterministic calibration benchmarks.
+     */
     public TuckHunterActionPlanningAgent(ObjectiveRiskProfile riskProfile) {
-        this(riskProfile, NOOP_OBSERVER);
+        this(ObjectiveRiskController.fixed(riskProfile), NOOP_OBSERVER);
     }
 
+    /**
+     * Fixed-profile mode retained for deterministic calibration benchmarks with telemetry.
+     */
     public TuckHunterActionPlanningAgent(
             ObjectiveRiskProfile riskProfile,
             Consumer<TuckHunterDecisionObservation> observer) {
-        this.safetyBudget = Objects.requireNonNull(riskProfile, "riskProfile").budget();
+        this(ObjectiveRiskController.fixed(riskProfile), observer);
+    }
+
+    TuckHunterActionPlanningAgent(
+            ObjectiveRiskController riskController,
+            Consumer<TuckHunterDecisionObservation> observer) {
+        this.riskController = Objects.requireNonNull(riskController, "riskController");
         this.observer = Objects.requireNonNull(observer, "observer");
     }
 
@@ -64,6 +82,10 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
         List<ActionPlanCandidates.PlannedCandidate> shortlist =
                 ranked.subList(0, Math.min(MAX_CURRENT_CANDIDATES, ranked.size()));
         PlacementCandidate survivalBaseline = shortlist.getFirst().placement();
+        ObjectiveRiskController.Decision riskDecision =
+                riskController.decide(survivalBaseline);
+        ObjectiveSafetyBudget safetyBudget = riskDecision.profile().budget();
+
         List<ObjectiveCandidate> evaluated =
                 assess(shortlist, survivalBaseline, safetyBudget);
         int safetyEligibleCandidates =
@@ -80,6 +102,7 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
             if (candidate.safetyEligible()
                     && currentProvenance.isActionOnly(candidate.candidate())) {
                 observe(
+                        riskDecision,
                         shortlist.size(),
                         safetyEligibleCandidates,
                         candidate.currentRank(),
@@ -94,6 +117,7 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
         if (snapshot.nextType().isEmpty()) {
             ObjectiveCandidate fallback = evaluated.getFirst();
             observe(
+                    riskDecision,
                     shortlist.size(),
                     safetyEligibleCandidates,
                     1,
@@ -112,13 +136,14 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
                         FutureOpportunity.evaluate(
                                 candidate.candidate().placement(),
                                 nextType,
-                                safetyBudget)))
+                                riskController)))
                 .toList();
 
         SetupCandidate selected = choose(setups);
         int setupCandidates =
                 (int) setups.stream().filter(SetupCandidate::createsTopFiveOpportunity).count();
         observe(
+                riskDecision,
                 shortlist.size(),
                 safetyEligibleCandidates,
                 selected.current().currentRank(),
@@ -130,6 +155,7 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
     }
 
     private void observe(
+            ObjectiveRiskController.Decision riskDecision,
             int candidateCount,
             int safetyEligibleCandidates,
             int selectedRank,
@@ -140,6 +166,10 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
         observer.accept(new TuckHunterDecisionObservation(
                 candidateCount,
                 safetyEligibleCandidates,
+                riskDecision.level(),
+                riskDecision.profile(),
+                riskDecision.headroom(),
+                riskDecision.holes(),
                 selectedRank,
                 selectedCurrentActionOnly,
                 setupCandidates,
@@ -229,7 +259,7 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
         static FutureOpportunity evaluate(
                 PlacementCandidate currentCandidate,
                 TetrominoType nextType,
-                ObjectiveSafetyBudget safetyBudget) {
+                ObjectiveRiskController riskController) {
             GameSnapshot previewSnapshot = BoardSimulator.snapshotForSpawnedPiece(
                     currentCandidate.resultingBoard(),
                     nextType);
@@ -241,6 +271,8 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
 
             PlacementCandidate futureSurvivalBaseline =
                     ranked.getFirst().placement();
+            ObjectiveSafetyBudget futureSafetyBudget =
+                    riskController.decide(futureSurvivalBaseline).profile().budget();
             ActionPlanProvenance.Classification provenance =
                     ActionPlanProvenance.classify(previewSnapshot, ranked);
             int actionOnlyCount = 0;
@@ -250,7 +282,7 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
             for (int index = 0; index < ranked.size(); index++) {
                 ActionPlanCandidates.PlannedCandidate candidate = ranked.get(index);
                 if (!provenance.isActionOnly(candidate)
-                        || !safetyBudget
+                        || !futureSafetyBudget
                                 .assess(futureSurvivalBaseline, candidate.placement())
                                 .allowed()) {
                     continue;
