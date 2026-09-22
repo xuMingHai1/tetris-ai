@@ -48,6 +48,10 @@ public enum ShapeTarget {
         return mask[0].length;
     }
 
+    public int targetCells() {
+        return targetCells;
+    }
+
     /**
      * Evaluates the target against one post-lock/post-row-clear board.
      */
