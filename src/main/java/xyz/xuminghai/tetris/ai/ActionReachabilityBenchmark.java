@@ -6,6 +6,7 @@
 package xyz.xuminghai.tetris.ai;
 
 import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.BoardRules;
 
 import java.util.HashSet;
 import java.util.List;
@@ -14,6 +15,9 @@ import java.util.Set;
 
 /**
  * Compares legacy placement reachability with the action-native search on the same snapshot.
+ *
+ * <p>Both sides are canonicalized as post-lock boards after row clearing, so the comparison uses
+ * equivalent game outcomes even when a placement completes one or more rows.</p>
  */
 public final class ActionReachabilityBenchmark {
 
@@ -45,6 +49,7 @@ public final class ActionReachabilityBenchmark {
             for (BoardPosition cell : landing.cells()) {
                 board[cell.row()][cell.col()] = true;
             }
+            BoardRules.clearFullRows(board);
             actionLandings.add(occupiedCells(board));
         }
 
