@@ -64,7 +64,7 @@ Windows 对应使用 `mvnw.cmd`。
 - 修改 `core` 或 `game` 的状态语义时，必须考虑已有测试以及未来 AI 消费游戏状态的影响。
 - 远程或可能阻塞的 AI 实现可以实现 placement-oriented `TetrisAgent` 或 action-native `AiPlanningAgent`，但都必须通过 `AiDecisionExecutor` 执行；不要在 JavaFX application thread 或 `GameWorld` 内直接进行网络 I/O。
 - 远程 AI 的结果只能作用于它读取的原始 snapshot：应用前必须校验当前方块坐标仍完全一致；下一次自动下落若先到达，则必须先废弃远程 generation 并在状态变化前执行本地 fallback。手动输入优先并取消该方块的 pending remote decision。
-- AI 策略不得自行重新实现碰撞、旋转、下落或消行规则；placement 候选合法性来自 `BoardSimulator`，action-native 路径合法性来自 `ActionStateSearch`，落地事实统一复用 `PlacementCandidate`/`BoardRules`。策略可以改变评分或选择方式，但不能建立第二套游戏规则。
+- AI 策略不得自行重新实现碰撞、旋转、下落或消行规则；placement 候选合法性来自 `BoardSimulator`，action-native 路径合法性来自 `ActionStateSearch`，落地事实统一复用 `PlacementCandidate`/`BoardRules`。策略可以改变评分或选择方式，但不能建立第二套游戏规则。\n- AI objective 层只能改变 deterministic reachable plan 的偏好，不能自行定义移动合法性、碰撞或消行；非 survival objective 在目标机会不存在时必须回退到现有 survival 选择。
 - Jev 必须通过 `TETRIS_AI_AGENT=jev` 或 `TETRIS_AI_AGENT=jev-action` 显式启用，`TYPESAFE_API_KEY` 仅作为凭据，不得因为 key 存在就自动开启远程调用；secret 不写入仓库、不输出到日志。远程 Choice 只能接收 deterministic reachability 之后的本地 heuristic shortlist（当前最多 5 个）；shortlist 复用 `HeuristicTetrisAgent` 的既有评分，不复制第二套权重。
 - TypeSafe 当前没有 Java SDK，Java 集成使用 JDK `HttpClient` 调用官方 System One HTTP API；JSON 使用 Jackson 3，不手写 JSON parser。
 - Benchmark 默认必须完全本地且 deterministic；真实 Jev benchmark 只能显式选择并使用环境变量 secret，CI 默认不得调用外部模型或消耗 provider quota。
@@ -85,7 +85,7 @@ Windows 对应使用 `mvnw.cmd`。
 
 GitHub Actions 使用 `[self-hosted, linux, x64]`。
 
-`.github/workflows/ai-benchmark.yml` 仅允许 `workflow_dispatch` 手动运行，不属于普通 CI。默认运行本地 heuristic baseline；`compare` 模式会对相同 seed/参数顺序运行 heuristic、纯本地 lookahead 与 Jev，并生成同一份 artifact。Jev benchmark（含 `compare` 中的 Jev 部分）只有显式确认外部调用成本并存在 `TYPESAFE_API_KEY` repository secret 时才能运行，且单次最多 200 个潜在 Jev decision。benchmark 结果应上传 artifact，不提交生成结果到源码仓库。
+`.github/workflows/ai-benchmark.yml` 仅允许 `workflow_dispatch` 手动运行，不属于普通 CI。默认运行本地 heuristic baseline；`compare` 模式会对相同 seed/参数顺序运行 heuristic、纯本地 lookahead 与 Jev；`compare-objective` 完全本地比较 action survival 与 tuck-hunter，并生成同一份 artifact。Jev benchmark（含 `compare` 中的 Jev 部分）只有显式确认外部调用成本并存在 `TYPESAFE_API_KEY` repository secret 时才能运行，且单次最多 200 个潜在 Jev decision。benchmark 结果应上传 artifact，不提交生成结果到源码仓库。
 
 由于仓库是 public repository：
 - 外部 fork PR 不允许在 self-hosted runner 上执行任意代码。
@@ -111,3 +111,5 @@ Any change that alters architectural understanding must also evaluate its docume
 - 普通 bugfix / 小型测试补充通常无需额外 architecture 文档。
 - 包职责、AI 边界、游戏状态模型、运行方式、打包策略或关键依赖关系变化时，至少评估 README / AGENTS 是否需要同步。
 - 只有重要、长期且需要保存决策背景的变化才考虑 ADR，不为了流程机械创建文档。
+
+- AI objective 层只能改变 deterministic reachable plan 的偏好，不能自行定义移动合法性、碰撞或消行；非 survival objective 在目标机会不存在时必须回退到现有 survival 选择。

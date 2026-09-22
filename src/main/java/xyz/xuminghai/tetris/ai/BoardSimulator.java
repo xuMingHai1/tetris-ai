@@ -59,17 +59,34 @@ public final class BoardSimulator {
             throw new IllegalArgumentException("occupied board dimensions must be positive");
         }
 
+        return candidates(snapshotForSpawnedPiece(occupied, type));
+    }
+
+    /**
+     * Builds the same post-spawn decision snapshot used by the live runtime for a known piece.
+     *
+     * <p>The helper is shared by placement look-ahead and action-objective planning so spawn
+     * coordinates and the first automatic gravity move remain owned by one deterministic boundary.</p>
+     */
+    static GameSnapshot snapshotForSpawnedPiece(
+            boolean[][] occupied,
+            TetrominoType type) {
+        Objects.requireNonNull(occupied, "occupied");
+        Objects.requireNonNull(type, "type");
+        if (occupied.length == 0 || occupied[0].length == 0) {
+            throw new IllegalArgumentException("occupied board dimensions must be positive");
+        }
+
         int rows = occupied.length;
         int cols = occupied[0].length;
         Tetris tetris = TetrisFactory.create(type);
         tetris.downMove();
-        GameSnapshot snapshot = new GameSnapshot(
+        return new GameSnapshot(
                 rows,
                 cols,
                 occupied,
                 type,
                 positions(tetris));
-        return candidates(snapshot);
     }
 
     private static PlacementCandidate simulate(GameSnapshot snapshot, int rotations, int horizontalShift) {

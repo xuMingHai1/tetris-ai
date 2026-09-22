@@ -112,12 +112,20 @@ scripts\package-app.cmd msi
 
 项目也支持 TypeSafe AI 的 Jev。`jev` 保留原有 placement-oriented 模式：`BoardSimulator` 生成合法 `PlacementCandidate`，本地 heuristic 只保留前 5 个安全候选，再由 Jev 做二次选择。`jev-action` 则使用 `ActionStateSearch` 先生成真实可达的 `AiPlan`，同样只把 heuristic 排名前 5 的安全候选交给 Jev，因此模型可以利用 `SOFT_DROP`、横移和双向旋转的组合路径，但仍不负责碰撞、旋转、下落或消行规则。两种 Jev 模式都会接收 deterministic next-piece outlook。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
 
-远程 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。`TETRIS_AI_AGENT` 当前支持 `heuristic`（默认）、`action`、`jev` 和 `jev-action`。其中 `action` 是完全本地的 deterministic action-native baseline。
+远程 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。`TETRIS_AI_AGENT` 当前支持 `heuristic`（默认）、`action`、`jev` 和 `jev-action`。其中 `action` 是完全本地的 deterministic action-native baseline。 `action` 还支持独立的高层目标 `TETRIS_AI_OBJECTIVE`：默认 `survival` 完全保留现有行为；`tuck-hunter` 会优先执行当前 top-5 中已经存在的 action-only 落点，否则只在当前 top-5 生存安全候选中寻找能让已知 next piece 在下一手产生 top-5 action-only 落点的 setup。当前非 survival objective 只支持 `TETRIS_AI_AGENT=action`；其它 agent 会明确拒绝该配置。
 
 Linux / macOS：
 
 ```bash
 TETRIS_AI_AGENT=jev-action TYPESAFE_API_KEY=<your-key> ./mvnw javafx:run
+```
+
+本地 Tuck Hunter：
+
+```bash
+TETRIS_AI_AGENT=action \
+TETRIS_AI_OBJECTIVE=tuck-hunter \
+./mvnw javafx:run
 ```
 
 Windows CMD：
@@ -146,7 +154,7 @@ AI 决策不直接操作 JavaFX View；`GameWorld` 接收统一的 `AiPlan` 并�
 
 可通过环境变量调整：
 
-- `TETRIS_BENCHMARK_AGENT`: `heuristic`（默认）、`lookahead`、`jev`、`action`（deterministic action-native）、`action-provenance`（纯本地 action-only 分布扫描）或 `jev-action`
+- `TETRIS_BENCHMARK_AGENT`: `heuristic`（默认）、`lookahead`、`jev`、`action`（deterministic action-native）、`tuck-hunter`、`action-provenance`（纯本地 action-only 分布扫描）或 `jev-action`
 - `TETRIS_BENCHMARK_GAMES`: 局数，默认 `1`
 - `TETRIS_BENCHMARK_MAX_PIECES`: 每局最多方块数，默认 `50`
 - `TETRIS_BENCHMARK_SEED`: 第一局 seed，后续每局递增，默认 `1`
@@ -172,9 +180,9 @@ TYPESAFE_API_KEY=<your-key> \
 ./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication javafx:run
 ```
 
-输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。两种 Jev 模式都会汇总 confidence、token、candidate count、selected heuristic rank、top-1 agreement，以及相对本地 shortlist 第一名的 immediate metric delta。`jev-action` 还会在 shortlist 已经确定之后，按与 reachability benchmark 相同的 post-lock/post-row-clear outcome 口径标记哪些候选是旧 rotate-then-shift placement 路径无法达到的 action-only outcome，并统计候选占比与实际选择率；这个 provenance 只进入 telemetry，不发送给 Jev，也不参与排序。手动 workflow 会把逐 decision telemetry 保存为 `jev-decisions.csv`。这些 board-health 数值直接来自生产 `PlacementCandidate`；action-native 路径由 `ActionPlanSimulator` 解析后同样落到这套客观 metrics。benchmark latency 是完整 agent 调用耗时，不模拟桌面游戏的实时 gravity deadline。
+输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。两种 Jev 模式都会汇总 confidence、token、candidate count、selected heuristic rank、top-1 agreement，以及相对本地 shortlist 第一名的 immediate metric delta。`jev-action` 还会在 shortlist 已经确定之后，按与 reachability benchmark 相同的 post-lock/post-row-clear outcome 口径标记哪些候选是旧 rotate-then-shift placement 路径无法达到的 action-only outcome，并统计候选占比与实际选择率；这个 provenance 只进入 telemetry，不发送给 Jev，也不参与排序。手动 workflow 会把 Jev 逐 decision telemetry 保存为 `jev-decisions.csv`；`tuck-hunter` 还会输出 `tuck-hunter-decisions.csv`，区分“当前直接执行 action-only”与“为 next piece 创建 top-5 action-only setup”。这些 board-health 数值直接来自生产 `PlacementCandidate`；action-native 路径由 `ActionPlanSimulator` 解析后同样落到这套客观 metrics。benchmark latency 是完整 agent 调用耗时，不模拟桌面游戏的实时 gravity deadline。
 
-也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。`compare` 使用同一组 seed 运行 `heuristic / lookahead / jev`；`compare-action` 运行 `action / jev-action`；`action-provenance` 则完全本地运行 deterministic action baseline，并对每个真实决策状态统计 `total_action_candidates / total_action_only_candidates / best_action_only_rank / top5_action_only_candidates`。其 aggregate summary 会给出出现 action-only outcome 的状态占比、总体候选占比、action-only 最佳平均 rank，以及进入 top-5 的状态占比；逐 decision 数据保存到 `action-provenance.csv`。该模式不调用 Jev，也不需要 `confirm_jev_cost`。
+也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。`compare` 使用同一组 seed 运行 `heuristic / lookahead / jev`；`compare-action` 运行 `action / jev-action`；`compare-objective` 完全本地运行 `action / tuck-hunter`，用于测量主动制造 tuck 机会的收益和生存代价；`action-provenance` 则完全本地运行 deterministic action baseline，并对每个真实决策状态统计 `total_action_candidates / total_action_only_candidates / best_action_only_rank / top5_action_only_candidates`。其 aggregate summary 会给出出现 action-only outcome 的状态占比、总体候选占比、action-only 最佳平均 rank，以及进入 top-5 的状态占比；逐 decision 数据保存到 `action-provenance.csv`。该模式不调用 Jev，也不需要 `confirm_jev_cost`。
 
 Jev workflow 不会自动执行。选择 `jev`、`jev-action`、`compare` 或 `compare-action` 时必须同时：
 
