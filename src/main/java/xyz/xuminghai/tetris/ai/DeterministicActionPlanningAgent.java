@@ -5,10 +5,6 @@
  */
 package xyz.xuminghai.tetris.ai;
 
-import xyz.xuminghai.tetris.core.BoardPosition;
-import xyz.xuminghai.tetris.core.BoardRules;
-
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -25,41 +21,7 @@ public final class DeterministicActionPlanningAgent implements AiPlanningAgent {
     public AiPlan plan(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
 
-        List<PlannedCandidate> planned = new ArrayList<>();
-        for (ActionStateSearch.ReachableLanding landing : ActionStateSearch.landings(snapshot)) {
-            PlacementCandidate candidate = describe(snapshot, landing);
-            if (candidate != null) {
-                planned.add(new PlannedCandidate(landing.plan(), candidate));
-            }
-        }
-        if (planned.isEmpty()) {
-            return AiPlan.fromPlacement(AiMove.NONE);
-        }
-
-        List<PlacementCandidate> ranked =
-                HeuristicTetrisAgent.rankCandidates(planned.stream().map(PlannedCandidate::candidate).toList());
-        PlacementCandidate best = ranked.getFirst();
-        return planned.stream()
-                .filter(candidate -> candidate.candidate() == best)
-                .map(PlannedCandidate::plan)
-                .findFirst()
-                .orElseThrow();
-    }
-
-    private static PlacementCandidate describe(
-            GameSnapshot snapshot, ActionStateSearch.ReachableLanding landing) {
-        boolean[][] board = snapshot.occupied();
-        if (landing.cells().stream().anyMatch(cell -> cell.row() < 0)) {
-            return null;
-        }
-        for (BoardPosition cell : landing.cells()) {
-            board[cell.row()][cell.col()] = true;
-        }
-
-        int clearedLines = BoardRules.clearFullRows(board);
-        return BoardSimulator.describeForPlan(board, clearedLines);
-    }
-
-    private record PlannedCandidate(AiPlan plan, PlacementCandidate candidate) {
+        List<ActionPlanCandidates.PlannedCandidate> ranked = ActionPlanCandidates.ranked(snapshot);
+        return ranked.isEmpty() ? AiPlan.fromPlacement(AiMove.NONE) : ranked.getFirst().plan();
     }
 }
