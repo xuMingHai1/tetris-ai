@@ -172,7 +172,7 @@ TYPESAFE_API_KEY=<your-key> \
 ./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication javafx:run
 ```
 
-输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。两种 Jev 模式都会汇总 confidence、token、candidate count、selected heuristic rank、top-1 agreement，以及相对本地 shortlist 第一名的 immediate metric delta。手动 workflow 还会把逐 decision telemetry 保存为 `jev-decisions.csv`。这些 board-health 数值直接来自生产 `PlacementCandidate`；action-native 路径由 `ActionPlanSimulator` 解析后同样落到这套客观 metrics。benchmark latency 是完整 agent 调用耗时，不模拟桌面游戏的实时 gravity deadline。
+输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。两种 Jev 模式都会汇总 confidence、token、candidate count、selected heuristic rank、top-1 agreement，以及相对本地 shortlist 第一名的 immediate metric delta。`jev-action` 还会在 shortlist 已经确定之后，按与 reachability benchmark 相同的 post-lock/post-row-clear outcome 口径标记哪些候选是旧 rotate-then-shift placement 路径无法达到的 action-only outcome，并统计候选占比与实际选择率；这个 provenance 只进入 telemetry，不发送给 Jev，也不参与排序。手动 workflow 会把逐 decision telemetry 保存为 `jev-decisions.csv`。这些 board-health 数值直接来自生产 `PlacementCandidate`；action-native 路径由 `ActionPlanSimulator` 解析后同样落到这套客观 metrics。benchmark latency 是完整 agent 调用耗时，不模拟桌面游戏的实时 gravity deadline。
 
 也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认参数为 `heuristic / 20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天，其中包含逐局 CSV、summary、运行元数据和原始日志。`compare` 使用同一组 seed 运行 `heuristic / lookahead / jev`；`compare-action` 则运行 `action / jev-action`，用于直接判断 Jev 在同一 deterministic action reachability 与安全 shortlist 之上是否带来额外收益。
 

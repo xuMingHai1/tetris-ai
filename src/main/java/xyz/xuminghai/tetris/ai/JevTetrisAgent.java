@@ -97,7 +97,9 @@ public final class JevTetrisAgent implements TetrisAgent {
                 selected.clearedLines() - heuristicTopCandidate.clearedLines(),
                 selected.aggregateHeight() - heuristicTopCandidate.aggregateHeight(),
                 selected.holes() - heuristicTopCandidate.holes(),
-                selected.bumpiness() - heuristicTopCandidate.bumpiness()));
+                selected.bumpiness() - heuristicTopCandidate.bumpiness(),
+                0,
+                false));
         return selected.move();
     }
 }

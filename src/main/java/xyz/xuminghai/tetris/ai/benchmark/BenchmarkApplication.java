@@ -196,7 +196,9 @@ public final class BenchmarkApplication {
                             + "input_tokens=%d output_tokens=%d avg_candidates=%.2f "
                             + "avg_selected_rank=%.2f top1_rate=%.4f "
                             + "avg_cleared_lines_delta=%.3f avg_aggregate_height_delta=%.3f "
-                            + "avg_holes_delta=%.3f avg_bumpiness_delta=%.3f%n",
+                            + "avg_holes_delta=%.3f avg_bumpiness_delta=%.3f "
+                            + "action_only_candidates=%d action_only_candidate_rate=%.4f "
+                            + "selected_action_only=%d action_only_selection_rate=%.4f%n",
                     telemetry.samples,
                     telemetry.confidenceSum / telemetry.samples,
                     telemetry.minConfidence,
@@ -209,16 +211,23 @@ public final class BenchmarkApplication {
                     (double) telemetry.clearedLinesDeltaSum / telemetry.samples,
                     (double) telemetry.aggregateHeightDeltaSum / telemetry.samples,
                     (double) telemetry.holesDeltaSum / telemetry.samples,
-                    (double) telemetry.bumpinessDeltaSum / telemetry.samples);
+                    (double) telemetry.bumpinessDeltaSum / telemetry.samples,
+                    telemetry.actionOnlyCandidateCount,
+                    telemetry.candidateCount == 0
+                            ? 0.0
+                            : (double) telemetry.actionOnlyCandidateCount / telemetry.candidateCount,
+                    telemetry.selectedActionOnly,
+                    (double) telemetry.selectedActionOnly / telemetry.samples);
 
             System.out.println(
                     "jev_decision,seed,decision,confidence,input_tokens,output_tokens,candidate_count,"
-                            + "selected_rank,cleared_lines_delta,aggregate_height_delta,holes_delta,bumpiness_delta");
+                            + "selected_rank,cleared_lines_delta,aggregate_height_delta,holes_delta,bumpiness_delta,"
+                            + "action_only_candidate_count,selected_action_only");
             for (JevTrace trace : telemetry.traces) {
                 JevDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "jev_decision,%d,%d,%.4f,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        "jev_decision,%d,%d,%.4f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s%n",
                         trace.seed(),
                         trace.decision(),
                         observation.confidence(),
@@ -229,7 +238,9 @@ public final class BenchmarkApplication {
                         observation.clearedLinesDelta(),
                         observation.aggregateHeightDelta(),
                         observation.holesDelta(),
-                        observation.bumpinessDelta());
+                        observation.bumpinessDelta(),
+                        observation.actionOnlyCandidateCount(),
+                        observation.selectedActionOnly());
             }
         }
     }
@@ -252,6 +263,8 @@ public final class BenchmarkApplication {
         private long aggregateHeightDeltaSum;
         private long holesDeltaSum;
         private long bumpinessDeltaSum;
+        private long actionOnlyCandidateCount;
+        private long selectedActionOnly;
 
         void startGame(long seed) {
             currentSeed = seed;
@@ -275,6 +288,10 @@ public final class BenchmarkApplication {
             aggregateHeightDeltaSum += observation.aggregateHeightDelta();
             holesDeltaSum += observation.holesDelta();
             bumpinessDeltaSum += observation.bumpinessDelta();
+            actionOnlyCandidateCount += observation.actionOnlyCandidateCount();
+            if (observation.selectedActionOnly()) {
+                selectedActionOnly++;
+            }
             traces.add(new JevTrace(currentSeed, currentDecision, observation));
         }
     }

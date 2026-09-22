@@ -12,7 +12,12 @@ package xyz.xuminghai.tetris.ai;
  * {@code selected - heuristicTopCandidate}; positive aggregate-height, holes or bumpiness deltas
  * therefore mean the remote choice made the immediate board metric worse than the local heuristic
  * first choice, while a positive cleared-lines delta means it cleared more lines immediately.
- * These values never participate in gameplay decisions.</p>
+ *
+ * <p>For action-native decisions, {@code actionOnlyCandidateCount} reports how many shortlisted
+ * outcomes cannot be produced by the legacy rotate-then-shift placement path, and
+ * {@code selectedActionOnly} marks whether Jev selected one of those outcomes. Placement-oriented
+ * Jev reports zero and {@code false}. These values never participate in gameplay decisions or
+ * provider prompts.</p>
  */
 public record JevDecisionObservation(
         double confidence,
@@ -23,7 +28,9 @@ public record JevDecisionObservation(
         int clearedLinesDelta,
         int aggregateHeightDelta,
         int holesDelta,
-        int bumpinessDelta) {
+        int bumpinessDelta,
+        int actionOnlyCandidateCount,
+        boolean selectedActionOnly) {
 
     public JevDecisionObservation {
         if (confidence < 0.0 || confidence > 1.0) {
@@ -37,6 +44,14 @@ public record JevDecisionObservation(
         }
         if (selectedRank <= 0 || selectedRank > candidateCount) {
             throw new IllegalArgumentException("selectedRank must be within the candidate shortlist");
+        }
+        if (actionOnlyCandidateCount < 0 || actionOnlyCandidateCount > candidateCount) {
+            throw new IllegalArgumentException(
+                    "actionOnlyCandidateCount must be within the candidate shortlist");
+        }
+        if (selectedActionOnly && actionOnlyCandidateCount == 0) {
+            throw new IllegalArgumentException(
+                    "selectedActionOnly requires at least one action-only candidate");
         }
     }
 }
