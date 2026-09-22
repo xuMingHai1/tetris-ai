@@ -49,6 +49,24 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
 
         List<ActionPlanCandidates.PlannedCandidate> shortlist =
                 ranked.subList(0, Math.min(MAX_CURRENT_CANDIDATES, ranked.size()));
+
+        ActionPlanProvenance.Classification currentProvenance =
+                ActionPlanProvenance.classify(snapshot, shortlist);
+        for (int index = 0; index < shortlist.size(); index++) {
+            ActionPlanCandidates.PlannedCandidate candidate = shortlist.get(index);
+            if (currentProvenance.isActionOnly(candidate)) {
+                observer.accept(new TuckHunterDecisionObservation(
+                        shortlist.size(),
+                        index + 1,
+                        true,
+                        0,
+                        0,
+                        0,
+                        0));
+                return candidate.plan();
+            }
+        }
+
         if (snapshot.nextType().isEmpty()) {
             observeFallback(shortlist.size());
             return shortlist.getFirst().plan();
@@ -69,6 +87,7 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
         observer.accept(new TuckHunterDecisionObservation(
                 shortlist.size(),
                 selected.currentRank(),
+                false,
                 (int) setups.stream().filter(SetupCandidate::createsTopFiveOpportunity).count(),
                 opportunity.actionOnlyCandidates(),
                 opportunity.topFiveActionOnlyCandidates(),
@@ -80,6 +99,7 @@ public final class TuckHunterActionPlanningAgent implements AiPlanningAgent {
         observer.accept(new TuckHunterDecisionObservation(
                 candidateCount,
                 1,
+                false,
                 0,
                 0,
                 0,
