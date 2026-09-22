@@ -21,7 +21,8 @@ public record TuckHunterDecisionObservation(
         int selectedBestFutureActionOnlyRank) {
 
     public TuckHunterDecisionObservation {
-        if (candidateCount <= 0 || candidateCount > TuckHunterActionPlanningAgent.MAX_CURRENT_CANDIDATES) {
+        if (candidateCount <= 0
+                || candidateCount > TuckHunterActionPlanningAgent.MAX_CURRENT_CANDIDATES) {
             throw new IllegalArgumentException(
                     "candidateCount must be within the tuck-hunter safety shortlist");
         }
