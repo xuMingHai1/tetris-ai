@@ -13,7 +13,6 @@ import xyz.xuminghai.tetris.ai.JevActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
-import xyz.xuminghai.tetris.ai.ObjectiveRiskController;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskProfile;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterActionPlanningAgent;
