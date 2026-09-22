@@ -8,6 +8,7 @@ package xyz.xuminghai.tetris.ai;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ObjectiveSafetyBudgetTest {
@@ -15,6 +16,13 @@ class ObjectiveSafetyBudgetTest {
     private static final boolean[][] BOARD = new boolean[20][10];
 
     private final ObjectiveSafetyBudget budget = ObjectiveSafetyBudget.conservative();
+
+    @Test
+    void rejectsNegativeBudgetLimit() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new ObjectiveSafetyBudget(-1, 4, 4));
+    }
 
     @Test
     void allowsCandidateAtConservativeBoundary() {
