@@ -92,8 +92,8 @@ public final class JevActionPlanningAgent implements AiPlanningAgent {
 
         ActionPlanCandidates.PlannedCandidate heuristicTop = candidates.getFirst();
         int selectedRank = candidates.indexOf(selected) + 1;
-        int actionOnlyCandidateCount =
-                (int) candidates.stream().filter(ActionPlanCandidates.PlannedCandidate::actionOnly).count();
+        ActionPlanProvenance.Classification provenance =
+                ActionPlanProvenance.classify(snapshot, candidates);
         PlacementCandidate selectedPlacement = selected.placement();
         PlacementCandidate topPlacement = heuristicTop.placement();
         observer.accept(new JevDecisionObservation(
@@ -106,8 +106,8 @@ public final class JevActionPlanningAgent implements AiPlanningAgent {
                 selectedPlacement.aggregateHeight() - topPlacement.aggregateHeight(),
                 selectedPlacement.holes() - topPlacement.holes(),
                 selectedPlacement.bumpiness() - topPlacement.bumpiness(),
-                actionOnlyCandidateCount,
-                selected.actionOnly()));
+                provenance.actionOnlyCandidateCount(),
+                provenance.isActionOnly(selected)));
 
         return selected.plan();
     }
