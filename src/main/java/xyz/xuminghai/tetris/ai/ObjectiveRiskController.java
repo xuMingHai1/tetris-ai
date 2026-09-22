@@ -119,10 +119,6 @@ public final class ObjectiveRiskController {
             if (headroom < 0 || maxColumnHeight < 0 || holes < 0) {
                 throw new IllegalArgumentException("risk decision metrics must not be negative");
             }
-            if (profile == ObjectiveRiskProfile.RISKY && level != RiskLevel.LOW) {
-                // Fixed calibration may intentionally use RISKY at any board state.
-                // Adaptive mode never returns RISKY, so this is intentionally not rejected.
-            }
         }
     }
 }
