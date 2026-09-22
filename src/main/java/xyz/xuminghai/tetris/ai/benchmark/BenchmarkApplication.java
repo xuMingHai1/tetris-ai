@@ -347,7 +347,7 @@ public final class BenchmarkApplication {
                             / tuckHunterTelemetry.samples);
 
             System.out.println(
-                    "tuck_hunter_decision,seed,decision,candidate_count,safety_eligible_candidates,"
+                    "tuck_hunter_decision,risk_profile,seed,decision,candidate_count,safety_eligible_candidates,"
                             + "safety_rejected_candidates,selected_rank,selected_current_action_only,"
                             + "setup_candidates,future_action_only_candidates,"
                             + "future_top5_action_only_candidates,best_future_action_only_rank,"
@@ -357,7 +357,8 @@ public final class BenchmarkApplication {
                 TuckHunterDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "tuck_hunter_decision,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        "tuck_hunter_decision,%s,%d,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                        configuration.riskProfile().configValue(),
                         trace.seed(),
                         trace.decision(),
                         observation.candidateCount(),
