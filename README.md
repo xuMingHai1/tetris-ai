@@ -112,7 +112,7 @@ scripts\package-app.cmd msi
 
 项目也支持 TypeSafe AI 的 Jev。`jev` 保留原有 placement-oriented 模式：`BoardSimulator` 生成合法 `PlacementCandidate`，本地 heuristic 只保留前 5 个安全候选，再由 Jev 做二次选择。`jev-action` 则使用 `ActionStateSearch` 先生成真实可达的 `AiPlan`，同样只把 heuristic 排名前 5 的安全候选交给 Jev，因此模型可以利用 `SOFT_DROP`、横移和双向旋转的组合路径，但仍不负责碰撞、旋转、下落或消行规则。两种 Jev 模式都会接收 deterministic next-piece outlook。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
 
-远程 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。`TETRIS_AI_AGENT` 当前支持 `heuristic`（默认）、`action`、`jev` 和 `jev-action`。其中 `action` 是完全本地的 deterministic action-native baseline。 `action` 还支持独立的高层目标 `TETRIS_AI_OBJECTIVE`：默认 `survival` 完全保留现有行为；`tuck-hunter` 先把 heuristic top-5 作为 objective 搜索范围，再通过 `ObjectiveSafetyBudget` 相对 SURVIVAL top-1 做风险过滤。当前 conservative budget 不允许新增 holes，并把 aggregate-height / bumpiness 增量各限制为最多 `+4`；只有通过 budget 的当前 tuck 或 next-piece setup 才能改变 SURVIVAL 选择。当前非 survival objective 只支持 `TETRIS_AI_AGENT=action`；其它 agent 会明确拒绝该配置。
+远程 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。`TETRIS_AI_AGENT` 当前支持 `heuristic`（默认）、`action`、`jev` 和 `jev-action`。其中 `action` 是完全本地的 deterministic action-native baseline。`action` 还支持独立的高层目标 `TETRIS_AI_OBJECTIVE`：默认 `survival` 完全保留现有行为；`tuck-hunter` 先把 heuristic top-5 作为 objective 搜索范围，再通过 `ObjectiveSafetyBudget` 相对 SURVIVAL top-1 做风险过滤。当前 conservative budget 不允许新增 holes，并把 aggregate-height / bumpiness 增量各限制为最多 `+4`；只有通过 budget 的当前 tuck 或 next-piece setup 才能改变 SURVIVAL 选择。当前非 survival objective 只支持 `TETRIS_AI_AGENT=action`；其它 agent 会明确拒绝该配置。
 
 Linux / macOS：
 
