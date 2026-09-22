@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Tetris AI V1 设计交接预览：浅灰靛蓝、棋盘与 AI 驾驶舱。仅含示例数据。">
+<title>Tetris AI — UI V1 设计基准</title>
+<style>
+html{color-scheme:light;background:#f2f4f8}
+body{margin:0;padding:24px;box-sizing:border-box}
+#tetris-ui-v1{max-width:1024px;margin:0 auto}
+.cursor-interaction,summary{cursor:pointer}
+button:disabled{cursor:default}
+@media(max-width:680px){body{padding:8px}}
+</style>
+<style>
+#tetris-ui-v1{--ta-bg:light-dark(#f3f5f6,#111419);--ta-panel:light-dark(#ffffff,#1a1e25);--ta-ink:light-dark(#202a31,#ecf1f4);--ta-sub:light-dark(#5b6872,#9daab6);--ta-line:light-dark(#dbe2e5,#303740);--ta-soft:light-dark(#eaf0f1,#222a32);--ta-accent:light-dark(#11695f,#8fe3cd);--ta-active:light-dark(#dbf3ec,#223e37);--ta-button:light-dark(#183d35,#a6eedb);--ta-button-text:light-dark(#ffffff,#102820);font:14px/1.5 Inter,"Segoe UI","Microsoft YaHei",sans-serif;color:var(--ta-ink);background:var(--ta-bg);border:1px solid var(--ta-line);border-radius:18px;overflow:hidden;color-scheme:light dark}
+#tetris-ui-v1 *{box-sizing:border-box}
+#tetris-ui-v1 button,#tetris-ui-v1 select,#tetris-ui-v1 textarea{font:inherit}
+#tetris-ui-v1 button{color:var(--ta-ink);background:var(--ta-panel);border:1px solid var(--ta-line);border-radius:8px;padding:9px 13px;min-height:40px}
+#tetris-ui-v1 button:hover{background:var(--ta-soft)}
+#tetris-ui-v1 button:disabled{opacity:.48}
+#tetris-ui-v1 button:focus-visible,#tetris-ui-v1 select:focus-visible{outline:2px solid var(--ta-accent);outline-offset:3px}
+#tetris-ui-v1 .ta-primary{background:var(--ta-button);color:var(--ta-button-text);border-color:transparent}
+#tetris-ui-v1 .ta-primary:hover{filter:brightness(.95);background:var(--ta-button)}
+#tetris-ui-v1 .ta-header{padding:18px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--ta-line);background:var(--ta-panel)}
+#tetris-ui-v1 .ta-brand{display:flex;align-items:center;gap:12px;font-size:18px;font-weight:700;letter-spacing:1.6px}
+#tetris-ui-v1 .ta-logo{display:grid;grid-template-columns:repeat(3,7px);grid-template-rows:repeat(2,7px);gap:2px}
+#tetris-ui-v1 .ta-logo i{background:var(--ta-accent);border-radius:1px}
+#tetris-ui-v1 .ta-logo i:first-child{grid-column:2}
+#tetris-ui-v1 .ta-logo i:nth-child(2){grid-row:2}
+#tetris-ui-v1 .ta-brand span{color:var(--ta-sub);font-weight:400}
+#tetris-ui-v1 .ta-meta{font-size:11px;color:var(--ta-sub);letter-spacing:.5px}
+#tetris-ui-v1 .ta-toolbar{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 24px 4px;flex-wrap:wrap}
+#tetris-ui-v1 .ta-title{font-size:19px;font-weight:600;margin:0}
+#tetris-ui-v1 .ta-subtitle{font-size:12px;color:var(--ta-sub);margin-top:3px}
+#tetris-ui-v1 .ta-modes{display:flex;gap:4px;padding:4px;background:var(--ta-soft);border-radius:10px;flex-wrap:wrap}
+#tetris-ui-v1 .ta-modes button{background:transparent;border:0;min-height:34px;padding:6px 12px;font-size:12px}
+#tetris-ui-v1 .ta-modes button[aria-pressed=true]{background:var(--ta-panel);box-shadow:0 1px 4px #00000012;color:var(--ta-accent);font-weight:600}
+#tetris-ui-v1 .ta-main{display:grid;grid-template-columns:128px minmax(245px,1fr) 272px;gap:22px;padding:24px}
+#tetris-ui-v1 .ta-label{font-size:11px;letter-spacing:1.8px;color:var(--ta-sub);text-transform:uppercase}
+#tetris-ui-v1 .ta-score{font-size:32px;font-weight:600;letter-spacing:-1.4px;margin:5px 0 22px;font-variant-numeric:tabular-nums}
+#tetris-ui-v1 .ta-stats{display:flex;gap:24px;border-bottom:1px solid var(--ta-line);padding-bottom:20px;margin-bottom:22px}
+#tetris-ui-v1 .ta-stat-value{font-size:20px;margin-top:4px;font-variant-numeric:tabular-nums}
+#tetris-ui-v1 .ta-next{margin:12px 0 24px;display:flex;flex-direction:column;gap:20px}
+#tetris-ui-v1 .ta-piece{width:72px;height:34px;display:grid;grid-template-columns:repeat(4,16px);grid-template-rows:repeat(2,16px);gap:2px}
+#tetris-ui-v1 .ta-piece span{border-radius:2px;box-shadow:inset 0 1px 0 #ffffff50}
+#tetris-ui-v1 .ta-side-foot{font-size:12px;color:var(--ta-sub);padding-top:14px;border-top:1px solid var(--ta-line)}
+#tetris-ui-v1 .ta-side-foot strong{font-weight:500;color:var(--ta-ink);display:block;margin-top:4px}
+#tetris-ui-v1 .ta-stage{display:flex;flex-direction:column;align-items:center;min-width:0}
+#tetris-ui-v1 .ta-stage-head{width:100%;max-width:260px;display:flex;justify-content:space-between;gap:8px;font-size:11px;color:var(--ta-sub);margin-bottom:10px;font-variant-numeric:tabular-nums}
+#tetris-ui-v1 .ta-running{display:flex;align-items:center;gap:6px}
+#tetris-ui-v1 .ta-dot{width:6px;height:6px;display:inline-block;border-radius:50%;background:var(--ta-accent)}
+#tetris-ui-v1 .ta-board-wrap{position:relative;width:100%;max-width:260px;padding:8px;border-radius:10px;background:light-dark(#e1e7ea,#080c11);box-shadow:0 8px 24px #00000010}
+#tetris-ui-v1 .ta-board{display:grid;grid-template-columns:repeat(10,1fr);aspect-ratio:1/2;gap:1px;background:light-dark(#dce4e8,#1c2630);border:1px solid light-dark(#d4dfe3,#25323d)}
+#tetris-ui-v1 .ta-cell{background:light-dark(#f8fbfc,#111a23);min-width:0;min-height:0}
+#tetris-ui-v1 .ta-cell.filled{background:var(--block);border-radius:2px;box-shadow:inset 0 2px 0 #ffffff45,inset 0 -2px 0 #00000015}
+#tetris-ui-v1 .ta-cell.ghost{background:color-mix(in srgb,var(--block) 12%,light-dark(#f8fbfc,#111a23));box-shadow:inset 0 0 0 1.5px var(--block);border-radius:2px}
+#tetris-ui-v1 .ta-board-mask{position:absolute;inset:8px;background:light-dark(#f8fbfce8,#111a23e8);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px;z-index:2;border-radius:4px}
+#tetris-ui-v1 [hidden]{display:none!important}
+#tetris-ui-v1 .ta-mask-title{font-size:24px;font-weight:600}
+#tetris-ui-v1 .ta-stage-controls{display:flex;gap:8px;justify-content:center;margin-top:16px;width:100%;max-width:300px}
+#tetris-ui-v1 .ta-stage-controls button{flex:1;padding:8px;font-size:12px}
+#tetris-ui-v1 .ta-stage-note{font-size:11px;color:var(--ta-sub);margin-top:10px;text-align:center}
+#tetris-ui-v1 .ta-agent{background:var(--ta-panel);border:1px solid var(--ta-line);border-radius:12px;align-self:start;overflow:hidden}
+#tetris-ui-v1 .ta-agent-head{padding:18px 18px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+#tetris-ui-v1 .ta-agent-title{font-weight:600;font-size:15px}
+#tetris-ui-v1 .ta-badge{background:var(--ta-active);color:var(--ta-accent);padding:3px 7px;border-radius:5px;font-size:11px;letter-spacing:1px}
+#tetris-ui-v1 .ta-agent-body{padding:0 18px 18px}
+#tetris-ui-v1 .ta-status{font-size:12px;color:var(--ta-accent);display:flex;align-items:center;gap:6px}
+#tetris-ui-v1 .ta-agent-message{font-size:12px;color:var(--ta-sub);margin:9px 0 18px;min-height:36px}
+#tetris-ui-v1 .ta-section{padding-top:15px;margin-top:16px;border-top:1px solid var(--ta-line)}
+#tetris-ui-v1 .ta-section-title{font-size:12px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;gap:8px}
+#tetris-ui-v1 .ta-secondary{color:var(--ta-sub);font-size:11px;font-weight:400}
+#tetris-ui-v1 .ta-goal{display:flex;align-items:center;gap:8px;font-size:13px;background:var(--ta-soft);border-radius:7px;padding:10px}
+#tetris-ui-v1 .ta-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+#tetris-ui-v1 .ta-action{background:var(--ta-soft);padding:5px 7px;border-radius:5px;font:11px/1.5 ui-monospace,monospace}
+#tetris-ui-v1 .ta-arrow{color:var(--ta-sub);font-size:11px}
+#tetris-ui-v1 .ta-decision{font-size:12px;color:var(--ta-sub);margin-top:10px}
+#tetris-ui-v1 .ta-agent button.ta-takeover{width:100%;margin-top:20px;font-size:12px}
+#tetris-ui-v1 details{padding:15px 18px;background:var(--ta-soft);border-top:1px solid var(--ta-line)}
+#tetris-ui-v1 summary{font-size:12px;user-select:none}
+#tetris-ui-v1 .ta-future{font-size:11px;border:1px solid var(--ta-line);padding:2px 5px;border-radius:4px;margin-left:8px;color:var(--ta-sub)}
+#tetris-ui-v1 .ta-creative-content{font-size:12px;color:var(--ta-sub);padding-top:12px}
+#tetris-ui-v1 .ta-target{display:grid;grid-template-columns:repeat(8,10px);grid-template-rows:repeat(6,10px);gap:2px;margin:13px 0}
+#tetris-ui-v1 .ta-target span{background:var(--ta-panel);border-radius:2px}
+#tetris-ui-v1 .ta-target span.on{background:light-dark(#c14570,#e988aa)}
+#tetris-ui-v1 .ta-keyboard{margin-top:16px;font-size:11px;color:var(--ta-sub);display:flex;flex-wrap:wrap;gap:6px 12px}
+#tetris-ui-v1 kbd{font:11px/1.5 ui-monospace,monospace;background:var(--ta-soft);border:1px solid var(--ta-line);border-radius:4px;padding:2px 4px;color:var(--ta-ink)}
+#tetris-ui-v1 .ta-footer{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:12px 24px;border-top:1px solid var(--ta-line);font:11px/1.5 ui-monospace,monospace;color:var(--ta-sub)}
+#tetris-ui-v1 .ta-live-message{max-width:100%}
+@media(max-width:800px){#tetris-ui-v1 .ta-main{grid-template-columns:105px minmax(210px,1fr) 240px;gap:14px;padding:20px 16px}
+#tetris-ui-v1 .ta-score{font-size:28px}
+#tetris-ui-v1 .ta-agent-head,#tetris-ui-v1 .ta-agent-body{padding-left:14px;padding-right:14px}}
+@media(max-width:680px){#tetris-ui-v1 .ta-main{grid-template-columns:90px minmax(0,1fr);gap:18px}
+#tetris-ui-v1 .ta-right{grid-column:1/-1}
+#tetris-ui-v1 .ta-board-wrap,#tetris-ui-v1 .ta-stage-head{max-width:250px}
+#tetris-ui-v1 .ta-header{padding:15px 16px;align-items:flex-start}
+#tetris-ui-v1 .ta-meta{max-width:105px;text-align:right}
+#tetris-ui-v1 .ta-toolbar{padding:18px 16px 0}
+#tetris-ui-v1 .ta-stats{gap:18px}
+#tetris-ui-v1 .ta-score{font-size:24px}
+#tetris-ui-v1 .ta-brand{font-size:15px}
+#tetris-ui-v1 .ta-footer{padding:12px 16px}
+#tetris-ui-v1 .ta-stage-controls{flex-wrap:wrap}
+#tetris-ui-v1 .ta-stage-controls button{min-width:70px}}
+@media(pointer:coarse){#tetris-ui-v1 button,#tetris-ui-v1 .ta-modes button{min-height:44px}
+#tetris-ui-v1 summary{min-height:32px;padding-top:7px}}
+</style>
+<style>
+#tetris-ui-v1{--ta-bg:light-dark(#edf1f0,#1a2224);--ta-panel:light-dark(#fafcfb,#222d30);--ta-ink:light-dark(#283c3e,#e0ebea);--ta-sub:light-dark(#627776,#9cafae);--ta-line:light-dark(#d7e1de,#39484a);--ta-soft:light-dark(#ecf2ef,#2c3b3c);--ta-accent:light-dark(#426e65,#a0c4b9);--ta-active:light-dark(#e1ede6,#344b43);--ta-button:light-dark(#456d64,#a2c6ba);--ta-button-text:light-dark(#ffffff,#1b322a);--ta-well:light-dark(#e6eeeb,#253235);--ta-grid:light-dark(#dce6e1,#324044);font-family:Inter,"Segoe UI","Microsoft YaHei",sans-serif;border-radius:18px;border:1px solid var(--ta-line)}
+#tetris-ui-v1 .ta-header{padding:19px 28px;background:var(--ta-panel)}
+#tetris-ui-v1 .ta-brand{font-size:17px;letter-spacing:1px;font-weight:600;gap:13px}
+#tetris-ui-v1 .ta-brand span{color:var(--ta-accent);font-weight:500}
+#tetris-ui-v1 .ta-logo{width:32px;height:32px;padding:8px 4px;grid-template-columns:repeat(3,7px);grid-template-rows:repeat(2,7px);background:var(--ta-active);border-radius:9px}
+#tetris-ui-v1 .ta-meta{font-size:11px;letter-spacing:0}
+#tetris-ui-v1 .ta-toolbar{padding:26px 28px 8px;gap:18px}
+#tetris-ui-v1 .ta-title{font-size:23px;letter-spacing:-.6px;font-weight:600}
+#tetris-ui-v1 .ta-subtitle{font-size:11px;margin-top:5px;letter-spacing:.3px}
+#tetris-ui-v1 .ta-modes{background:color-mix(in srgb,var(--ta-line) 50%,var(--ta-bg));padding:4px;border-radius:11px}
+#tetris-ui-v1 .ta-modes button{border-radius:8px;padding:8px 14px}
+#tetris-ui-v1 .ta-modes button[aria-pressed=true]{box-shadow:0 2px 4px #162c2512}
+#tetris-ui-v1 .ta-main{grid-template-columns:142px minmax(240px,1fr) 260px;gap:24px;padding:20px 28px 28px}
+#tetris-ui-v1 .ta-score-panel{padding-top:28px}
+#tetris-ui-v1 .ta-label{font-size:11px;letter-spacing:.5px}
+#tetris-ui-v1 .ta-score{font-size:38px;line-height:1.2;letter-spacing:-1.5px;font-weight:500;margin:10px 0 27px}
+#tetris-ui-v1 .ta-stats{gap:30px;padding-bottom:24px;margin-bottom:25px}
+#tetris-ui-v1 .ta-stat-value{font-size:23px;font-weight:500;margin-top:7px}
+#tetris-ui-v1 .ta-next{gap:9px;margin:14px 0 25px}
+#tetris-ui-v1 .ta-next-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 10px;background:var(--ta-panel);border-radius:9px;border:1px solid var(--ta-line)}
+#tetris-ui-v1 .ta-next-index{font:11px/1.5 ui-monospace,monospace;color:var(--ta-sub)}
+#tetris-ui-v1 .ta-piece{width:68px;height:32px;grid-template-columns:repeat(4,15px);grid-template-rows:repeat(2,15px)}
+#tetris-ui-v1 .ta-piece span{box-shadow:inset 0 1px 0 #ffffff40,inset 0 -1px 0 #213d2d16}
+#tetris-ui-v1 .ta-stage-head{max-width:280px;font-size:11px;margin-bottom:12px}
+#tetris-ui-v1 .ta-board-wrap{max-width:280px;background:var(--ta-panel);padding:10px;border:1px solid var(--ta-line);border-radius:13px;box-shadow:0 5px 15px #183a2b08}
+#tetris-ui-v1 .ta-board{background:var(--ta-grid);border:1px solid var(--ta-grid);border-radius:3px;overflow:hidden}
+#tetris-ui-v1 .ta-cell{background:var(--ta-well)}
+#tetris-ui-v1 .ta-cell.filled{background:linear-gradient(145deg,color-mix(in srgb,var(--block) 90%,white),var(--block));box-shadow:inset 0 1px 0 #ffffff45,inset 0 -2px 0 #263d3018;position:relative}
+#tetris-ui-v1 .ta-cell.filled:after{content:"";position:absolute;inset:3px;border:1px solid #ffffff20;border-radius:1px}
+#tetris-ui-v1 .ta-cell.ghost{background:color-mix(in srgb,var(--block) 10%,var(--ta-well));box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--block) 90%,var(--ta-well))}
+#tetris-ui-v1 .ta-board-mask{inset:10px;background:color-mix(in srgb,var(--ta-panel) 94%,transparent)}
+#tetris-ui-v1 .ta-stage-controls{max-width:280px;gap:9px;margin-top:14px}
+#tetris-ui-v1 .ta-stage-controls button{flex:0 0 32%;border-radius:8px;min-height:42px}
+#tetris-ui-v1 .ta-stage-controls .ta-primary{flex:1;font-weight:500;box-shadow:0 2px 4px #284c3910}
+#tetris-ui-v1 .ta-stage-note{font-size:11px;margin-top:11px}
+#tetris-ui-v1 .ta-right{padding-top:28px}
+#tetris-ui-v1 .ta-agent{border-radius:13px;border-color:var(--ta-line);box-shadow:0 3px 12px #183a2b04}
+#tetris-ui-v1 .ta-agent-head{padding:19px 19px 16px;border-bottom:1px solid var(--ta-line);background:color-mix(in srgb,var(--ta-panel) 55%,var(--ta-soft))}
+#tetris-ui-v1 .ta-agent-title{font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+#tetris-ui-v1 .ta-badge{font-size:11px;border-radius:5px;padding:4px 7px;letter-spacing:.5px}
+#tetris-ui-v1 .ta-agent-body{padding:19px}
+#tetris-ui-v1 .ta-status{font-size:12px;font-weight:500}
+#tetris-ui-v1 .ta-agent-message{font-size:12px;line-height:1.8;margin:10px 0 19px;min-height:0}
+#tetris-ui-v1 .ta-section{padding-top:18px;margin-top:18px}
+#tetris-ui-v1 .ta-section-title{font-size:12px;margin-bottom:12px;font-weight:500}
+#tetris-ui-v1 .ta-goal{font-size:12px;padding:12px 10px;gap:9px;background:var(--ta-active);color:var(--ta-accent);border-radius:8px}
+#tetris-ui-v1 .ta-actions{display:flex;flex-direction:column;align-items:stretch;gap:0;counter-reset:actions}
+#tetris-ui-v1 .ta-action{background:transparent;border-radius:0;padding:9px 0;font:12px/1.5 Inter,"Segoe UI","Microsoft YaHei",sans-serif;display:flex;align-items:center;gap:12px;counter-increment:actions}
+#tetris-ui-v1 .ta-action:before{content:counter(actions,decimal-leading-zero);font:11px/1.5 ui-monospace,monospace;width:25px;height:25px;display:flex;align-items:center;justify-content:center;border:1px solid var(--ta-line);border-radius:7px;color:var(--ta-sub);background:var(--ta-panel)}
+#tetris-ui-v1 .ta-arrow{display:none}
+#tetris-ui-v1 .ta-decision{font-size:11px;margin-top:8px;line-height:1.7}
+#tetris-ui-v1 .ta-agent button.ta-takeover{font-size:12px;margin-top:20px;min-height:40px;background:var(--ta-panel);color:var(--ta-accent);border-color:color-mix(in srgb,var(--ta-accent) 30%,var(--ta-line));border-radius:8px}
+#tetris-ui-v1 details{padding:14px 19px;background:color-mix(in srgb,var(--ta-panel) 55%,var(--ta-soft))}
+#tetris-ui-v1 summary{color:var(--ta-sub);font-size:11px}
+#tetris-ui-v1 .ta-future{font-size:11px;border:0;padding:2px 6px;background:var(--ta-panel)}
+#tetris-ui-v1 .ta-keyboard{padding:0 3px;gap:9px 12px;margin-top:16px;font-size:11px}
+#tetris-ui-v1 kbd{font-size:11px;border-color:var(--ta-line);background:var(--ta-panel)}
+#tetris-ui-v1 .ta-footer{font:11px/1.6 Inter,"Segoe UI","Microsoft YaHei",sans-serif;padding:13px 28px;background:var(--ta-panel)}
+@media(max-width:800px){#tetris-ui-v1 .ta-main{grid-template-columns:112px minmax(205px,1fr) 224px;gap:17px;padding:20px}
+#tetris-ui-v1 .ta-header{padding:17px 20px}
+#tetris-ui-v1 .ta-toolbar{padding:22px 20px 4px}
+#tetris-ui-v1 .ta-score{font-size:32px}
+#tetris-ui-v1 .ta-next-item{padding:11px 8px;gap:5px}
+#tetris-ui-v1 .ta-agent-head{padding:17px 14px}
+#tetris-ui-v1 .ta-agent-body{padding:17px 14px}
+#tetris-ui-v1 details{padding:13px 14px}
+#tetris-ui-v1 .ta-stats{gap:24px}}
+@media(max-width:680px){#tetris-ui-v1 .ta-main{grid-template-columns:88px minmax(0,1fr);gap:18px;padding:20px 16px}
+#tetris-ui-v1 .ta-right{grid-column:1/-1;padding-top:5px}
+#tetris-ui-v1 .ta-score-panel{padding-top:27px}
+#tetris-ui-v1 .ta-next-item{padding:11px 7px}
+#tetris-ui-v1 .ta-next-index{display:none}
+#tetris-ui-v1 .ta-score{font-size:28px;margin-top:10px}
+#tetris-ui-v1 .ta-stats{gap:18px}
+#tetris-ui-v1 .ta-stat-value{font-size:21px}
+#tetris-ui-v1 .ta-header{padding:17px 16px}
+#tetris-ui-v1 .ta-toolbar{padding:20px 16px 4px}
+#tetris-ui-v1 .ta-title{font-size:21px}
+#tetris-ui-v1 .ta-modes{width:100%}
+#tetris-ui-v1 .ta-modes button{flex:1;padding:8px}
+#tetris-ui-v1 .ta-meta{max-width:100px}
+#tetris-ui-v1 .ta-stage-controls{flex-wrap:wrap}
+#tetris-ui-v1 .ta-stage-controls button{flex:1;min-width:56px}
+#tetris-ui-v1 .ta-board-wrap{padding:7px;border-radius:10px}
+#tetris-ui-v1 .ta-board-mask{inset:7px}
+#tetris-ui-v1 .ta-footer{padding:12px 16px}}
+</style>
+<style>
+#tetris-ui-v1{color-scheme:light;--ta-bg:#f2f4f8;--ta-panel:#fcfdff;--ta-ink:#303e56;--ta-sub:#6c7a8f;--ta-line:#dbe2ec;--ta-soft:#edf1f7;--ta-accent:#627ba9;--ta-active:#e9eef8;--ta-button:#647fae;--ta-button-text:#ffffff;--ta-well:#ebeff5;--ta-grid:#e0e6ef;background:#f2f4f8}
+#tetris-ui-v1 .ta-cell.filled{background:var(--block);box-shadow:inset 0 1px 0 #ffffff65,inset 0 -1px 0 #42587718}
+#tetris-ui-v1 .ta-cell.filled:after{display:none}
+#tetris-ui-v1 .ta-agent-head{background:#f5f7fc}
+#tetris-ui-v1 .ta-agent{box-shadow:0 3px 14px #253c5910}
+#tetris-ui-v1 .ta-board-wrap{padding:10px;box-shadow:0 4px 14px #253c5909}
+#tetris-ui-v1 .ta-board{position:relative;overflow:hidden}
+#tetris-ui-v1 .tm-piece{position:absolute;z-index:3;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:1px;left:calc(30% + .3px);top:calc(10% + .1px);width:calc(40% - .6px);height:calc(10% - .9px);pointer-events:none;transform-origin:center 25%}
+#tetris-ui-v1 .tm-piece span.on{border-radius:2px;background:var(--block);box-shadow:inset 0 1px 0 #ffffff85,inset 0 -1px 0 #3d506e20}
+#tetris-ui-v1 .tm-trail{position:absolute;z-index:1;left:60%;top:12%;width:40%;height:88%;background:linear-gradient(to bottom,transparent,#7c98c333);opacity:0;pointer-events:none}
+#tetris-ui-v1 .tm-sweep{position:absolute;z-index:4;left:0;bottom:0;width:100%;height:5%;background:linear-gradient(90deg,#7b99c44d,#f9fcffdd,#829cc95e);pointer-events:none;opacity:0}
+#tetris-ui-v1 .tm-result{position:absolute;z-index:5;left:0;top:38%;width:100%;text-align:center;color:#4d6897;pointer-events:none;opacity:0;font-size:20px;font-weight:600;letter-spacing:.5px}
+#tetris-ui-v1 .tm-result small{font-size:12px;display:block;font-weight:400;letter-spacing:0;margin-top:3px}
+#tetris-ui-v1 .ta-action{padding:8px;border-radius:8px;transition:background-color .15s;color:#6c7a8f}
+#tetris-ui-v1 .ta-action[data-phase="active"]{background:#edf2fb;color:#3f5d8e}
+#tetris-ui-v1 .ta-action[data-phase="done"]{color:#3e536b}
+#tetris-ui-v1 .ta-action[data-phase="done"]:before{content:"✓";color:#5c799a;background:#edf2f8}
+#tetris-ui-v1 .ta-action[data-phase="active"]:before{background:#6b84b1;border-color:#6b84b1;color:#ffffff}
+#tetris-ui-v1 .ta-board-mask{z-index:8;background:#f7f9fced}
+#tetris-ui-v1 .ta-section-title{align-items:center}
+#tetris-ui-v1 .ta-agent-message{min-height:42px}
+#tetris-ui-v1 .ta-stage-controls button{white-space:nowrap}
+#tetris-ui-v1 .ta-target span.on{background:#af95b7}
+#tetris-ui-v1 .ta-meta{font-size:11px}
+@media(max-width:680px){#tetris-ui-v1 .ta-board-wrap{padding:7px}
+#tetris-ui-v1 .ta-stage-controls button{font-size:11px;padding:8px 5px}}
+#tetris-ui-v1 .ta-stage-head{flex-wrap:wrap}
+#tetris-ui-v1 .ta-status{align-items:flex-start;line-height:1.6}
+#tetris-ui-v1 .ta-status .ta-dot{flex:none;margin-top:6px}
+#tetris-ui-v1 .ta-agent-message{line-height:1.7}
+#tetris-ui-v1 .ta-goal{line-height:1.6}
+#tetris-ui-v1 .ta-goal i,#tetris-ui-v1 .ta-goal svg{flex-shrink:0}
+#tetris-ui-v1 .ta-stage-note{line-height:1.6}
+@media(pointer:coarse){#tetris-ui-v1 button,#tetris-ui-v1 .ta-modes button,#tetris-ui-v1 .ta-agent button.ta-takeover{min-height:44px}
+#tetris-ui-v1 summary{min-height:44px}}
+@media(prefers-reduced-motion:reduce){#tetris-ui-v1 .ta-action{transition:none}}
+</style>
+</head>
+<body>
+<!-- Design reference only: sample state, no game or provider connection. -->
+<div id="tetris-ui-v1">
+  <header class="ta-header">
+    <div class="ta-brand"><div class="ta-logo" aria-hidden="true"><i></i><i></i><i></i><i></i></div>TETRIS <span>/ AI</span></div>
+    <div class="ta-meta">设计基准 V1 · 示例数据</div>
+  </header>
+  <div class="ta-toolbar">
+    <div><h2 class="ta-title">自由对局</h2><div class="ta-subtitle">经典模式 · 10 × 20</div></div>
+    <div class="ta-modes" role="group" aria-label="控制模式">
+      <button type="button" class="cursor-interaction" data-mode="manual" aria-pressed="false">手动</button>
+      <button type="button" class="cursor-interaction" data-mode="heuristic" aria-pressed="false">Heuristic</button>
+      <button type="button" class="cursor-interaction" data-mode="jev" aria-pressed="true">Jev AI</button>
+    </div>
+  </div>
+  <main class="ta-main">
+    <aside class="ta-score-panel" aria-label="对局信息">
+      <div class="ta-label">本局得分</div><div class="ta-score" data-score>2,480</div>
+      <div class="ta-stats"><div><div class="ta-label">消行</div><div class="ta-stat-value" data-lines>18</div></div><div><div class="ta-label">等级</div><div class="ta-stat-value">3</div></div></div>
+      <div class="ta-label">接下来</div><div class="ta-next" data-next aria-label="后续方块预览：I、L、O"></div>
+      <div class="ta-side-foot">当前控制<strong data-controller>Jev AI</strong></div>
+    </aside>
+    <section class="ta-stage" aria-label="游戏区域">
+      <div class="ta-stage-head"><span class="ta-running"><span class="ta-dot"></span><span data-run-state>对局演示</span></span><span data-piece-label>PIECE 042</span></div>
+      <div class="ta-board-wrap">
+        <div class="ta-board" role="img" aria-label="10 列 20 行的示例棋盘，T 方块与落点轮廓" data-board></div>
+        <div class="ta-board-mask" data-mask hidden><div class="ta-mask-title">已暂停</div><div class="ta-secondary">棋盘与 AI 执行一同暂停</div></div>
+      </div>
+      <div class="ta-stage-controls"><button type="button" class="cursor-interaction" data-pause>暂停</button><button type="button" class="cursor-interaction ta-primary" data-step>播放动效</button></div>
+      <div class="ta-stage-note" data-stage-note>空心轮廓：预计落点</div>
+    </section>
+    <aside class="ta-right" aria-label="AI 控制与决策">
+      <div class="ta-agent">
+        <div class="ta-agent-head"><span class="ta-agent-title" data-agent-title>AI 驾驶舱</span><span class="ta-badge" data-badge>JEV</span></div>
+        <div class="ta-agent-body">
+          <div class="ta-status"><span class="ta-dot"></span><span data-status>REMOTE · 远程决策</span></div>
+          <div class="ta-agent-message" data-message>先确定落点，再执行移动与落子。</div>
+          <div class="ta-section"><div class="ta-section-title">当前目标</div><div class="ta-goal"><span aria-hidden="true">◇</span><span>优先生存，持续消行</span></div></div>
+          <div class="ta-section"><div class="ta-section-title">本次动作<span class="ta-secondary" data-action-number>#042 · 示例</span></div><div class="ta-actions" data-actions><span class="ta-action">右移 ×2</span><span class="ta-arrow">→</span><span class="ta-action">Hard Drop</span></div><div class="ta-decision" data-decision>跟随执行进度查看当前动作。</div></div>
+          <button type="button" class="cursor-interaction ta-takeover" data-takeover>接管游戏 · 切换手动</button>
+        </div>
+        <details><summary>创意目标<span class="ta-future">界面待实现</span></summary><div class="ta-creative-content">用方块拼出一颗心<div class="ta-target" data-target role="img" aria-label="心形目标图案"></div>内置心形规划已支持；此面板为界面示意。当前仅比较占用格，不支持颜色目标或自定义图案。</div></details>
+      </div>
+      <div class="ta-keyboard" aria-label="建议快捷键，尚未绑定；与现有游戏按键不同"><span><kbd>← →</kbd> 移动</span><span><kbd>↑</kbd> 旋转</span><span><kbd>↓</kbd> 软降</span><span><kbd>Space</kbd> 硬降</span><span><kbd>F2</kbd> 切换控制</span></div>
+    </aside>
+  </main>
+  <footer class="ta-footer"><span class="ta-live-message" data-live aria-live="polite">JEV / REMOTE · 仅演示交互，未连接游戏</span><span>10 × 20</span></footer>
+</div>
+<script>
+(()=>{
+const root=document.getElementById('tetris-ui-v1');
+const $=s=>root.querySelector(s);
+const colors={I:'#86a2c4',T:'#a59bc2',L:'#c4a18b',J:'#8c9fbd',O:'#c7b680',S:'#8dadac',Z:'#be9ca9'};
+const shapes={I:[[0,0],[1,0],[2,0],[3,0]],T:[[1,0],[0,1],[1,1],[2,1]],L:[[2,0],[0,1],[1,1],[2,1]],O:[[1,0],[2,0],[1,1],[2,1]]};
+const cells=[];
+const board=$('[data-board]');
+for(let i=0;i<200;i++){const e=document.createElement('div');e.className='ta-cell';board.append(e);cells.push(e);}
+const active=document.createElement('div');active.className='tm-piece';active.setAttribute('aria-hidden','true');board.append(active);
+const trail=document.createElement('div');trail.className='tm-trail';trail.setAttribute('aria-hidden','true');board.append(trail);
+const sweep=document.createElement('div');sweep.className='tm-sweep';sweep.setAttribute('aria-hidden','true');board.append(sweep);
+const result=document.createElement('div');result.className='tm-result';result.setAttribute('aria-hidden','true');result.append(document.createTextNode('消除 1 行'));const bonus=document.createElement('small');bonus.textContent='+100 · 示例计分';result.append(bonus);board.append(result);
+let mode='jev',busy=false,paused=false,finished=false,phase='ready',field=[],pieceType='I';
+const running=new Set();
+const reduced=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+function makeField(){field=Array.from({length:20},()=>Array(10).fill(null));['J.........','JJSS......','JSSLOO....','LLLLOO....'].forEach((r,i)=>r.split('').forEach((v,x)=>{if(v!=='.')field[16+i][x]=v;}));}
+function paintField(){cells.forEach((c,i)=>{const t=field[Math.floor(i/10)][i%10];c.className='ta-cell'+(t?' filled':'');c.style.removeProperty('opacity');c.style.removeProperty('transform');c.style.removeProperty('filter');if(t)c.style.setProperty('--block',colors[t]);else c.style.removeProperty('--block');});}
+function paintGhost(){let x=finished?3:6,y=0;while(shapes[pieceType].every(([dx,dy])=>y+dy+1<20&&!field[y+dy+1][x+dx]))y++;for(const [dx,dy]of shapes[pieceType]){const cell=cells[(y+dy)*10+x+dx];if(cell&&!field[y+dy][x+dx]){cell.className='ta-cell ghost';cell.style.setProperty('--block',colors[pieceType]);}}}
+function paintPiece(){active.replaceChildren();active.style.setProperty('--block',colors[pieceType]);for(let i=0;i<8;i++){const e=document.createElement('span');if(shapes[pieceType].some(([x,y])=>y*4+x===i))e.className='on';active.append(e);}active.style.left='calc(30% + .3px)';active.style.top='calc(10% + .1px)';active.hidden=false;}
+function paintNext(){const next=finished?['L','O','I']:['T','L','O'];$('[data-next]').replaceChildren();$('[data-next]').setAttribute('aria-label','后续方块预览');next.forEach((t,i)=>{const row=document.createElement('div');row.className='ta-next-item';row.setAttribute('aria-label','第 '+(i+1)+' 个方块：'+t);const index=document.createElement('span');index.className='ta-next-index';index.textContent='0'+(i+1);row.append(index);const shape=document.createElement('div');shape.className='ta-piece';for(let j=0;j<8;j++){const e=document.createElement('span');if(shapes[t].some(([x,y])=>y*4+x===j))e.style.background=colors[t];shape.append(e);}row.append(shape);$('[data-next]').append(row);});}
+const actionRows=[];
+['右移 ×3','Hard Drop','消除 1 行'].forEach(label=>{const e=document.createElement('span');e.className='ta-action';e.textContent=label;actionRows.push(e);});$('[data-actions]').replaceChildren(...actionRows);
+['01100110','11111111','11111111','01111110','00111100','00011000'].join('').split('').forEach(v=>{const e=document.createElement('span');if(v==='1')e.className='on';$('[data-target]').append(e);});
+function state(){const names={manual:'手动',heuristic:'Heuristic',jev:'Jev AI'};root.querySelectorAll('[data-mode]').forEach(b=>{b.setAttribute('aria-pressed',String(mode===b.dataset.mode));b.disabled=busy;});$('[data-controller]').textContent=names[mode];$('[data-agent-title]').textContent=mode==='manual'?'手动控制':'AI 驾驶舱';$('[data-badge]').textContent=mode==='manual'?'MANUAL':mode==='jev'?'JEV':'LOCAL';const statuses={ready:mode==='manual'?'MANUAL · 等待输入':mode==='jev'?'REMOTE · 就绪':'LOCAL · 就绪',thinking:mode==='manual'?'PREVIEW · 动效演示':'THINKING · 选择落点',move:'EXECUTING · 正在横移',drop:'EXECUTING · 正在落子',clear:'CLEAR · 消行',settle:'CLEAR · 整理棋盘',done:'COMPLETE · 本步完成'};$('[data-status]').textContent=paused?'PAUSED · 已暂停':statuses[phase];$('[data-message]').textContent=mode==='manual'?'当前为手动界面；播放按钮仅展示同一段落子动效。':'先确定落点，再执行移动与落子。';$('[data-pause]').textContent=paused?'继续':'暂停';$('[data-mask]').hidden=!paused;$('[data-step]').disabled=paused||busy;$('[data-step]').textContent=busy?'演示中…':finished?'重播动效':'播放动效';$('[data-takeover]').disabled=busy;$('[data-takeover]').textContent=mode==='manual'?'交给 Jev AI':'接管游戏';$('[data-run-state]').textContent=paused?'已暂停':busy?'动效演示':finished?'本步完成':'准备就绪';$('[data-piece-label]').textContent=finished?'PIECE 043':'PIECE 042';$('[data-action-number]').textContent='#042 · 示例';$('[data-actions]').setAttribute('aria-label',busy?'当前动作：'+statuses[phase]:'示例动作序列');const phaseIndex={ready:-1,thinking:-1,move:0,drop:1,clear:2,settle:3,done:3}[phase];actionRows.forEach((e,i)=>e.dataset.phase=i<phaseIndex?'done':i===phaseIndex?'active':'pending');$('[data-stage-note]').textContent=finished?'本步已完成 · 可重播查看细节':'空心轮廓：预计落点';}
+async function animate(el,frames,options={}){if(reduced()||!el.animate)return;const a=el.animate(frames,{duration:250,easing:'ease-out',fill:'both',...options});running.add(a);if(paused)a.pause();try{await a.finished;}finally{running.delete(a);a.cancel();}}
+function phaseTo(p){phase=p;state();}
+function reset(){finished=false;pieceType='I';phase='ready';makeField();paintField();paintGhost();paintPiece();paintNext();$('[data-score]').textContent='2,480';$('[data-lines]').textContent='18';board.setAttribute('aria-label','10 列 20 行示例棋盘，I 方块将填入最底行右侧缺口');state();}
+async function play(){if(busy||paused)return;reset();busy=true;$('[data-live]').textContent='正在播放示例动作；可随时暂停。';try{
+ phaseTo('thinking');await animate($('.ta-status .ta-dot'),[{transform:'scale(1)',opacity:.5},{transform:'scale(1.65)',opacity:1,offset:.5},{transform:'scale(1)',opacity:.8}],{duration:560});
+ phaseTo('move');await animate(active,[{left:'calc(30% + .3px)'},{left:'calc(60% + .6px)'}],{duration:310,easing:'cubic-bezier(.2,.8,.2,1)'});active.style.left='calc(60% + .6px)';
+ phaseTo('drop');await Promise.all([animate(active,[{top:'calc(10% + .1px)'},{top:'calc(95% + .95px)'}],{duration:190,easing:'cubic-bezier(.65,0,.95,.45)'}).then(()=>{active.style.top='calc(95% + .95px)';}),animate(trail,[{opacity:0},{opacity:1,offset:.65},{opacity:0}],{duration:240})]);active.style.top='calc(95% + .95px)';
+ await animate(active,[{transform:'scaleY(1)'},{transform:'scaleY(.9)',offset:.45},{transform:'scaleY(1)'}],{duration:110});
+ active.hidden=true;for(let x=6;x<10;x++)field[19][x]='I';paintField();
+ phaseTo('clear');await Promise.all([animate(sweep,[{transform:'translateX(-100%)',opacity:0},{transform:'translateX(0)',opacity:.9,offset:.55},{transform:'translateX(100%)',opacity:0}],{duration:350}),...cells.slice(190).map((e,i)=>animate(e,[{transform:'scale(1)',opacity:1},{transform:'scale(.92)',opacity:.5,offset:.65},{transform:'scale(.82)',opacity:0}],{duration:260,delay:i*12}).then(()=>{e.style.opacity='0';}))]);
+ phaseTo('settle');field.pop();field.unshift(Array(10).fill(null));paintField();
+ await Promise.all(cells.filter((e,i)=>field[Math.floor(i/10)][i%10]).map(e=>animate(e,[{transform:'translateY(calc(-100% - 1px))'},{transform:'translateY(0)'}],{duration:240,easing:'cubic-bezier(.2,.8,.2,1)'})));
+ $('[data-score]').textContent='2,580';$('[data-lines]').textContent='19';
+ await Promise.all([animate(result,[{transform:'translateY(8px)',opacity:0},{transform:'translateY(0)',opacity:1,offset:.28},{transform:'translateY(0)',opacity:1,offset:.75},{transform:'translateY(-8px)',opacity:0}],{duration:540}),animate($('[data-score]'),[{transform:'translateY(3px)'},{transform:'translateY(0)'}],{duration:220})]);
+ finished=true;pieceType='T';paintPiece();paintGhost();paintNext();phase='done';board.setAttribute('aria-label','示例动作完成，已消除最底部一行，新的 T 方块已出现');$('[data-live]').textContent='演示完成：横移 → 硬降 → 消除 1 行。示例计分 +100，未连接游戏。';
+ }catch(error){$('[data-live]').textContent='动效已中断，可以重新播放。';phase='ready';}finally{busy=false;state();}}
+root.querySelectorAll('[data-mode]').forEach(b=>b.addEventListener('click',()=>{mode=b.dataset.mode;state();}));
+$('[data-takeover]').addEventListener('click',()=>{mode=mode==='manual'?'jev':'manual';state();});
+$('[data-pause]').addEventListener('click',()=>{paused=!paused;for(const a of running){if(paused)a.pause();else a.play();}state();$('[data-live]').textContent=paused?'演示已暂停。':'演示已继续。';});
+$('[data-step]').addEventListener('click',play);
+reset();$('[data-live]').textContent='交互设计基准 V1 · 示例数据，未连接游戏';
+})();
+</script>
+</body>
+</html>

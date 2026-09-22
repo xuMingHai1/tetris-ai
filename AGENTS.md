@@ -106,6 +106,8 @@ GitHub Actions 使用 `[self-hosted, linux, x64]`。
 
 ## Documentation Impact
 
+UI 改版采用用户已确认的 [UI V1 设计基准](docs/design/ui-v1/README.md)。该目录是开发交接资料，HTML 使用示例状态；不得将其碰撞、计分、按键或 AI 模式示意当作当前生产契约。实施前核对文档中的能力差异，并保持已确认的浅灰靛蓝与三栏方向。
+
 Any change that alters architectural understanding must also evaluate its documentation impact.
 
 判断标准：是否会改变后来者对系统结构、职责、依赖关系、运行方式或关键设计决策的理解？
