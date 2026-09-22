@@ -5,7 +5,9 @@
  */
 package xyz.xuminghai.tetris.ai.benchmark;
 
+import xyz.xuminghai.tetris.ai.ActionPlanSimulator;
 import xyz.xuminghai.tetris.ai.AiMove;
+import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.BoardSimulator;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
 import xyz.xuminghai.tetris.ai.PlacementCandidate;
@@ -24,10 +26,10 @@ import java.util.Objects;
 /**
  * Runs deterministic Tetris games without JavaFX animation, input, audio or wall-clock gravity.
  *
- * <p>The runner does not implement a second game engine. Each turn is advanced by the resulting
- * board of a {@link PlacementCandidate} produced by the same {@link BoardSimulator} used by live
- * agents. It therefore measures strategy quality and decision cost while reusing the production
- * placement and row-clear semantics.</p>
+ * <p>Placement-oriented runs advance from {@link BoardSimulator} candidates. Action-native runs
+ * resolve {@link xyz.xuminghai.tetris.ai.AiPlan} through {@link ActionPlanSimulator}. Both paths
+ * therefore reuse production movement, collision, hard-drop and row-clear semantics instead of
+ * introducing benchmark-only Tetris rules.</p>
  */
 public final class HeadlessGameRunner {
 
@@ -50,7 +52,7 @@ public final class HeadlessGameRunner {
     }
 
     /**
-     * Runs one reproducible game.
+     * Runs one reproducible placement-oriented game.
      *
      * @param seed deterministic 7-bag seed
      * @param pieceLimit maximum pieces placed before ending the sample
@@ -62,10 +64,91 @@ public final class HeadlessGameRunner {
             int pieceLimit,
             TetrisAgent primaryAgent,
             TetrisAgent fallbackAgent) {
+        Objects.requireNonNull(primaryAgent, "primaryAgent");
+        return runGame(
+                seed,
+                pieceLimit,
+                primaryAgent,
+                fallbackAgent,
+                new TurnAdapter<>() {
+                    @Override
+                    public List<PlacementCandidate> prepare(GameSnapshot snapshot) {
+                        List<PlacementCandidate> candidates = BoardSimulator.candidates(snapshot);
+                        return candidates.isEmpty() ? null : candidates;
+                    }
+
+                    @Override
+                    public PlacementCandidate decide(
+                            TetrisAgent agent,
+                            GameSnapshot snapshot,
+                            List<PlacementCandidate> candidates) {
+                        AiMove move = requireLegalMove(agent.decide(snapshot), candidates);
+                        return candidateFor(move, candidates);
+                    }
+                });
+    }
+
+    public GameBenchmarkResult run(long seed, int pieceLimit, TetrisAgent agent) {
+        return run(seed, pieceLimit, agent, null);
+    }
+
+    /**
+     * Runs one reproducible action-native game.
+     *
+     * <p>The distinct method name intentionally avoids overload ambiguity between the
+     * {@link TetrisAgent} and {@link AiPlanningAgent} functional interfaces.</p>
+     *
+     * @param seed deterministic 7-bag seed
+     * @param pieceLimit maximum pieces placed before ending the sample
+     * @param primaryAgent action-native strategy under evaluation
+     * @param fallbackAgent optional action-native fallback for provider or illegal-plan failures
+     */
+    public GameBenchmarkResult runPlanning(
+            long seed,
+            int pieceLimit,
+            AiPlanningAgent primaryAgent,
+            AiPlanningAgent fallbackAgent) {
+        Objects.requireNonNull(primaryAgent, "primaryAgent");
+        return runGame(
+                seed,
+                pieceLimit,
+                primaryAgent,
+                fallbackAgent,
+                new TurnAdapter<>() {
+                    @Override
+                    public Boolean prepare(GameSnapshot snapshot) {
+                        return ActionPlanSimulator.hasReachableTerminalPlacement(snapshot)
+                                ? Boolean.TRUE
+                                : null;
+                    }
+
+                    @Override
+                    public PlacementCandidate decide(
+                            AiPlanningAgent agent,
+                            GameSnapshot snapshot,
+                            Boolean ignored) {
+                        return ActionPlanSimulator.requireTerminalPlacement(
+                                snapshot,
+                                agent.plan(snapshot));
+                    }
+                });
+    }
+
+    public GameBenchmarkResult runPlanning(long seed, int pieceLimit, AiPlanningAgent agent) {
+        return runPlanning(seed, pieceLimit, agent, null);
+    }
+
+    private <A, C> GameBenchmarkResult runGame(
+            long seed,
+            int pieceLimit,
+            A primaryAgent,
+            A fallbackAgent,
+            TurnAdapter<A, C> adapter) {
         if (pieceLimit <= 0) {
             throw new IllegalArgumentException("pieceLimit must be greater than 0");
         }
         Objects.requireNonNull(primaryAgent, "primaryAgent");
+        Objects.requireNonNull(adapter, "adapter");
 
         PieceGenerator pieceGenerator = new BagPieceGenerator(seed);
         Tetris currentPiece = pieceGenerator.next();
@@ -92,15 +175,15 @@ public final class HeadlessGameRunner {
             // reachability and rotation checks are evaluated from the same coordinates.
             currentPiece.downMove();
             GameSnapshot snapshot = snapshot(board, currentPiece, nextPiece);
-            List<PlacementCandidate> candidates = BoardSimulator.candidates(snapshot);
-            if (candidates.isEmpty()) {
+            C context = adapter.prepare(snapshot);
+            if (context == null) {
                 break;
             }
 
             long started = System.nanoTime();
-            AiMove move;
+            PlacementCandidate selected;
             try {
-                move = requireLegalMove(primaryAgent.decide(snapshot), candidates);
+                selected = adapter.decide(primaryAgent, snapshot, context);
             }
             catch (RuntimeException primaryFailure) {
                 primaryFailures++;
@@ -109,11 +192,10 @@ public final class HeadlessGameRunner {
                             "Primary benchmark agent failed and no fallback is configured", primaryFailure);
                 }
                 fallbackDecisions++;
-                move = requireLegalMove(fallbackAgent.decide(snapshot), candidates);
+                selected = adapter.decide(fallbackAgent, snapshot, context);
             }
             long elapsed = System.nanoTime() - started;
 
-            PlacementCandidate selected = candidateFor(move, candidates);
             board = selected.resultingBoard();
             linesCleared += selected.clearedLines();
             aggregateHeightSum += selected.aggregateHeight();
@@ -154,10 +236,6 @@ public final class HeadlessGameRunner {
                 maxDecisionNanos,
                 boardHealth,
                 piecesPlaced == pieceLimit);
-    }
-
-    public GameBenchmarkResult run(long seed, int pieceLimit, TetrisAgent agent) {
-        return run(seed, pieceLimit, agent, null);
     }
 
     private static BoardHealthSummary boardHealth(
@@ -209,5 +287,17 @@ public final class HeadlessGameRunner {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException(
                         "TetrisAgent returned a move that is not legal for the current snapshot: " + move));
+    }
+
+    private interface TurnAdapter<A, C> {
+
+        /**
+         * Prepares legality facts outside the measured agent latency.
+         *
+         * @return turn context, or {@code null} when the game has no legal terminal placement
+         */
+        C prepare(GameSnapshot snapshot);
+
+        PlacementCandidate decide(A agent, GameSnapshot snapshot, C context);
     }
 }
