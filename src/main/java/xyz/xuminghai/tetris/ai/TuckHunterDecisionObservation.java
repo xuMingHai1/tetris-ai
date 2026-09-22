@@ -14,6 +14,7 @@ package xyz.xuminghai.tetris.ai;
 public record TuckHunterDecisionObservation(
         int candidateCount,
         int selectedRank,
+        boolean selectedCurrentActionOnly,
         int setupCandidates,
         int selectedFutureActionOnlyCandidates,
         int selectedFutureTopFiveActionOnlyCandidates,
