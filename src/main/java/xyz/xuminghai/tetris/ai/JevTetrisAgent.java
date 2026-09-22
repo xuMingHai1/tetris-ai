@@ -5,14 +5,10 @@
  */
 package xyz.xuminghai.tetris.ai;
 
-import xyz.xuminghai.tetris.core.TetrominoType;
-
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.function.Consumer;
 
 /**
@@ -80,11 +76,11 @@ public final class JevTetrisAgent implements TetrisAgent {
             String id = "c" + index;
             PlacementCandidate candidate = candidates.get(index);
             candidatesById.put(id, candidate);
-            criteria.put(id, candidateDescription(candidate, snapshot.nextType()));
+            criteria.put(id, JevPromptSupport.placementCandidate(candidate, snapshot.nextType()));
         }
 
         TypeSafeSystemOneClient.ChoiceResult result =
-                client.choose(QUESTION_ID, state(snapshot), INSTRUCTIONS, criteria);
+                client.choose(QUESTION_ID, JevPromptSupport.state(snapshot), INSTRUCTIONS, criteria);
         PlacementCandidate selected = candidatesById.get(result.choice());
         if (selected == null) {
             throw new IllegalStateException("TypeSafe selected an unknown placement candidate: " + result.choice());
@@ -103,76 +99,5 @@ public final class JevTetrisAgent implements TetrisAgent {
                 selected.holes() - heuristicTopCandidate.holes(),
                 selected.bumpiness() - heuristicTopCandidate.bumpiness()));
         return selected.move();
-    }
-
-    private static Map<String, Object> state(GameSnapshot snapshot) {
-        Map<String, Object> metricSemantics = new LinkedHashMap<>();
-        metricSemantics.put("cleared_lines", "higher is beneficial when board safety is preserved");
-        metricSemantics.put("aggregate_height", "lower is safer; high values approach top-out");
-        metricSemantics.put("holes", "lower is strongly preferred; buried empty cells create long-term risk");
-        metricSemantics.put("bumpiness", "lower is generally better, but less important than holes and height");
-
-        Map<String, Object> state = new LinkedHashMap<>();
-        state.put("game", "Tetris");
-        state.put("current_piece", snapshot.currentType().name());
-        snapshot.nextType().ifPresent(type -> state.put("next_piece", type.name()));
-        state.put("board_encoding", "# = occupied, . = empty");
-        state.put("current_board", boardRows(snapshot.occupied()));
-        state.put("rows", snapshot.rows());
-        state.put("cols", snapshot.cols());
-        state.put("metric_semantics", metricSemantics);
-        return state;
-    }
-
-    private static Map<String, Object> candidateDescription(
-            PlacementCandidate candidate,
-            Optional<TetrominoType> nextType) {
-        Map<String, Object> move = new LinkedHashMap<>();
-        move.put("clockwise_rotations", candidate.move().clockwiseRotations());
-        move.put("horizontal_shift", candidate.move().horizontalShift());
-
-        Map<String, Object> description = new LinkedHashMap<>();
-        description.put("move", move);
-        description.put("metrics", metrics(candidate));
-        description.put("resulting_board", boardRows(candidate.resultingBoard()));
-        nextType.ifPresent(type -> description.put(
-                "next_piece_outlook",
-                nextPieceOutlook(candidate, type)));
-        return description;
-    }
-
-    private static Map<String, Object> nextPieceOutlook(
-            PlacementCandidate candidate,
-            TetrominoType nextType) {
-        NextPieceOutlook evaluated = NextPieceOutlook.evaluate(candidate, nextType);
-
-        Map<String, Object> outlook = new LinkedHashMap<>();
-        outlook.put("piece", evaluated.piece().name());
-        outlook.put("legal_placements", evaluated.legalPlacements());
-        outlook.put("can_place", evaluated.canPlace());
-        evaluated.bestLocalResponse().ifPresent(
-                bestResponse -> outlook.put("best_local_response_metrics", metrics(bestResponse)));
-        return outlook;
-    }
-
-    private static Map<String, Object> metrics(PlacementCandidate candidate) {
-        Map<String, Object> metrics = new LinkedHashMap<>();
-        metrics.put("cleared_lines", candidate.clearedLines());
-        metrics.put("aggregate_height", candidate.aggregateHeight());
-        metrics.put("holes", candidate.holes());
-        metrics.put("bumpiness", candidate.bumpiness());
-        return metrics;
-    }
-
-    private static List<String> boardRows(boolean[][] board) {
-        List<String> rows = new ArrayList<>(board.length);
-        for (boolean[] row : board) {
-            StringBuilder encoded = new StringBuilder(row.length);
-            for (boolean occupied : row) {
-                encoded.append(occupied ? '#' : '.');
-            }
-            rows.add(encoded.toString());
-        }
-        return List.copyOf(rows);
     }
 }
