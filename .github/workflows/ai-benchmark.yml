@@ -13,6 +13,7 @@ on:
           - lookahead
           - jev
           - compare
+          - reachability
       games:
         description: Number of deterministic games
         required: true
@@ -149,6 +150,15 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
             javafx:run | tee -a "$RUNNER_TEMP/benchmark-output.log"
 
+      - name: Run action reachability benchmark
+        if: ${{ inputs.agent == 'reachability' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.ReachabilityBenchmarkApplication \
+            javafx:run | tee "$RUNNER_TEMP/benchmark-output.log"
+
       - name: Collect benchmark results
         shell: bash
         env:
@@ -169,11 +179,11 @@ jobs:
               }
               next
             }
-            /^(heuristic|lookahead|jev),/ {
+            /^(heuristic|lookahead|jev|reachability),/ {
               print
             }
           ' target/benchmark/raw.log > target/benchmark/results.csv
-          grep '^# ' target/benchmark/raw.log > target/benchmark/summary.txt
+          grep '^# ' target/benchmark/raw.log > target/benchmark/summary.txt || true
           grep '^jev_decision,' target/benchmark/raw.log > target/benchmark/jev-decisions.csv || true
 
           {
