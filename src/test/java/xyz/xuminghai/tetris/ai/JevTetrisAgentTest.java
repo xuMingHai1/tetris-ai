@@ -78,6 +78,8 @@ class JevTetrisAgentTest {
         assertEquals(0, observed.get().aggregateHeightDelta());
         assertEquals(0, observed.get().holesDelta());
         assertEquals(0, observed.get().bumpinessDelta());
+        assertEquals(0, observed.get().actionOnlyCandidateCount());
+        assertEquals(false, observed.get().selectedActionOnly());
     }
 
     @Test
