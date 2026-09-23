@@ -8,10 +8,16 @@ package xyz.xuminghai.tetris.ai;
 import java.util.Objects;
 
 /**
- * Observational facts from one BUILD_SHAPE decision over the full reachable candidate ranking.
+ * Observational facts from one BUILD_SHAPE decision.
+ *
+ * <p>{@code reachableCandidateCount} reports the full action-native search result, while
+ * {@code candidateCount} reports the survival-quality shortlist that BUILD_SHAPE actually
+ * evaluates. Keeping both makes the search envelope observable without conflating reachability
+ * with creative eligibility.</p>
  */
 public record BuildShapeDecisionObservation(
         ShapeTarget target,
+        int reachableCandidateCount,
         int candidateCount,
         int safetyEligibleCandidates,
         ObjectiveRiskController.RiskLevel riskLevel,
@@ -33,9 +39,15 @@ public record BuildShapeDecisionObservation(
         Objects.requireNonNull(riskProfile, "riskProfile");
         Objects.requireNonNull(baselineProgress, "baselineProgress");
         Objects.requireNonNull(selectedProgress, "selectedProgress");
-        if (candidateCount <= 0) {
+        if (reachableCandidateCount <= 0) {
             throw new IllegalArgumentException(
-                    "candidateCount must be positive");
+                    "reachableCandidateCount must be positive");
+        }
+        if (candidateCount <= 0
+                || candidateCount > BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES
+                || candidateCount > reachableCandidateCount) {
+            throw new IllegalArgumentException(
+                    "candidateCount must be within the BUILD_SHAPE quality shortlist");
         }
         if (safetyEligibleCandidates <= 0 || safetyEligibleCandidates > candidateCount) {
             throw new IllegalArgumentException(

@@ -411,6 +411,9 @@ public final class BenchmarkApplication {
 
         if (buildShapeTelemetry.samples > 0) {
             double averageReachableCandidates =
+                    (double) buildShapeTelemetry.reachableCandidateCountSum
+                            / buildShapeTelemetry.samples;
+            double averageCreativeCandidates =
                     (double) buildShapeTelemetry.candidateCountSum / buildShapeTelemetry.samples;
             double averageSafetyEligibleCandidates =
                     (double) buildShapeTelemetry.safetyEligibleCandidates
@@ -442,8 +445,9 @@ public final class BenchmarkApplication {
                     "# build_shape target=%s required_cells=%d forbidden_cells=%d samples=%d "
                             + "objective_applied=%d objective_applied_rate=%.4f "
                             + "creative_suppressed_danger=%d creative_suppressed_danger_rate=%.4f "
-                            + "avg_reachable_candidates=%.2f avg_safety_eligible_candidates=%.2f "
-                            + "avg_selected_rank=%.2f avg_matched_required_cells=%.3f "
+                            + "avg_reachable_candidates=%.2f avg_creative_candidates=%.2f "
+                            + "avg_safety_eligible_candidates=%.2f avg_selected_rank=%.2f "
+                            + "avg_matched_required_cells=%.3f "
                             + "max_matched_required_cells=%d avg_forbidden_occupied_cells=%.3f "
                             + "avg_support_occupied_cells=%.3f avg_visual_error_cells=%.3f "
                             + "min_visual_error_cells=%d avg_required_completion_rate=%.4f "
@@ -463,6 +467,7 @@ public final class BenchmarkApplication {
                     (double) buildShapeTelemetry.creativeSuppressedDanger
                             / buildShapeTelemetry.samples,
                     averageReachableCandidates,
+                    averageCreativeCandidates,
                     averageSafetyEligibleCandidates,
                     averageSelectedRank,
                     averageMatchedRequired,
@@ -489,7 +494,8 @@ public final class BenchmarkApplication {
             System.out.println(
                     "build_shape_decision,target,seed,decision,risk_level,risk_profile,"
                             + "creative_suppressed_by_danger,baseline_headroom,baseline_holes,"
-                            + "candidate_count,safety_eligible_candidates,safety_rejected_candidates,"
+                            + "reachable_candidate_count,candidate_count,safety_eligible_candidates,"
+                            + "safety_rejected_candidates,"
                             + "selected_rank,baseline_matched_required_cells,"
                             + "baseline_forbidden_occupied_cells,baseline_support_occupied_cells,"
                             + "baseline_visual_error_cells,selected_matched_required_cells,"
@@ -503,8 +509,8 @@ public final class BenchmarkApplication {
                 BuildShapeDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "build_shape_decision,%s,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,"
-                                + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%s,%d,%d,%d,%d%n",
+                        "build_shape_decision,%s,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,"
+                                + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%s,%d,%d,%d,%d%n",
                         observation.target().configValue(),
                         trace.seed(),
                         trace.decision(),
@@ -513,6 +519,7 @@ public final class BenchmarkApplication {
                         observation.creativeSuppressedByDanger(),
                         observation.baselineHeadroom(),
                         observation.baselineHoles(),
+                        observation.reachableCandidateCount(),
                         observation.candidateCount(),
                         observation.safetyEligibleCandidates(),
                         observation.safetyRejectedCandidates(),
@@ -759,6 +766,7 @@ public final class BenchmarkApplication {
         private long samples;
         private long objectiveApplied;
         private long creativeSuppressedDanger;
+        private long reachableCandidateCountSum;
         private long candidateCountSum;
         private long safetyEligibleCandidates;
         private long selectedRankSum;
@@ -796,6 +804,7 @@ public final class BenchmarkApplication {
             if (observation.creativeSuppressedByDanger()) {
                 creativeSuppressedDanger++;
             }
+            reachableCandidateCountSum += observation.reachableCandidateCount();
             candidateCountSum += observation.candidateCount();
             safetyEligibleCandidates += observation.safetyEligibleCandidates();
             selectedRankSum += observation.selectedRank();

@@ -32,22 +32,31 @@ class BuildShapeActionPlanningAgentTest {
 
         List<ActionPlanCandidates.PlannedCandidate> ranked =
                 ActionPlanCandidates.ranked(snapshot);
-        assertTrue(ranked.size() > 5);
-        assertEquals(ranked.size(), observation.candidateCount());
+        assertTrue(ranked.size() > BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES);
+        List<ActionPlanCandidates.PlannedCandidate> shortlist =
+                ranked.subList(
+                        0,
+                        Math.min(
+                                BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES,
+                                ranked.size()));
 
-        ActionPlanCandidates.PlannedCandidate selectedCandidate = ranked.stream()
+        assertEquals(ranked.size(), observation.reachableCandidateCount());
+        assertEquals(shortlist.size(), observation.candidateCount());
+        assertTrue(observation.selectedRank() <= BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES);
+
+        ActionPlanCandidates.PlannedCandidate selectedCandidate = shortlist.stream()
                 .filter(candidate -> candidate.plan().equals(selected))
                 .findFirst()
                 .orElseThrow();
 
         ObjectiveRiskController.Decision riskDecision =
-                ObjectiveRiskController.adaptive().decide(ranked.getFirst().placement());
+                ObjectiveRiskController.adaptive().decide(shortlist.getFirst().placement());
         ObjectiveSafetyBudget safetyBudget = riskDecision.profile().budget();
         ObjectiveSafetyBudget.Assessment safety =
-                safetyBudget.assess(ranked.getFirst().placement(), selectedCandidate.placement());
-        long expectedEligible = ranked.stream()
+                safetyBudget.assess(shortlist.getFirst().placement(), selectedCandidate.placement());
+        long expectedEligible = shortlist.stream()
                 .filter(candidate -> safetyBudget
-                        .assess(ranked.getFirst().placement(), candidate.placement())
+                        .assess(shortlist.getFirst().placement(), candidate.placement())
                         .allowed())
                 .count();
 
