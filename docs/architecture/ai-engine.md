@@ -105,7 +105,7 @@ missing required + occupied forbidden
 
 Required-cell coverage alone is not completion. `cleanCompletion` is true only when every REQUIRED cell is occupied and every FORBIDDEN cell is empty. SUPPORT_ALLOWED occupancy is neutral.
 
-`BuildShapeActionPlanningAgent` keeps SURVIVAL heuristic rank 1 as the risk baseline but uses the full action-native reachable ranking as its creative search envelope. Every non-baseline candidate is still compared with SURVIVAL top-1 through the active `ObjectiveSafetyBudget`; survival rank alone is no longer used to truncate creative possibilities. LOW and NORMAL states may choose any safety-eligible reachable candidate that reduces visual error; ties prefer fewer occupied forbidden cells and then better survival rank. DANGER is a hard creative stop: the planner returns SURVIVAL top-1 unchanged even if another safety-eligible candidate would improve the shape. This prevents repeated locally-safe creative deviations from continuing after board health has already degraded.
+`BuildShapeActionPlanningAgent` keeps SURVIVAL heuristic rank 1 as the risk baseline and uses the heuristic top five as a survival-quality prior before creative scoring. This shortlist is not itself a safety proof: every non-baseline candidate must still pass the active `ObjectiveSafetyBudget` relative to SURVIVAL top-1. LOW and NORMAL states may choose a safety-eligible shortlisted candidate that reduces visual error; ties prefer fewer occupied forbidden cells and then better survival rank. DANGER is a hard creative stop: the planner returns SURVIVAL top-1 unchanged even if another candidate would improve the shape. A full-reachable-envelope experiment was benchmarked and rejected because it increased the average reachable set from about 5 considered candidates to about 23 total reachable outcomes while adding almost no extra safety-eligible freedom, produced no clean completion improvement, and regressed survival. The top-five boundary is therefore retained as an evidence-backed quality prior rather than treated as an arbitrary search limit.
 
 Because the target is fixed while the settled board persists across pieces, the board still carries multi-turn progress without a second mutable objective-state store. This remains a greedy one-turn creative planner; deeper progress retention/look-ahead is a separate future change.
 
@@ -118,15 +118,15 @@ ActionStateSearch + full survival ranking
     ↓
 SURVIVAL top-1 baseline
     ↓
+top-5 survival-quality prior
+    ↓
 ObjectiveRiskController
     ├─ DANGER -> SURVIVAL top-1
     └─ LOW/NORMAL
           ↓
-all reachable candidates
-          ↓
 ObjectiveSafetyBudget vs SURVIVAL top-1
           ↓
-all safety-eligible candidates
+safety-eligible shortlist
           ↓
 ShapeProgress(resultingBoard)
           ↓
@@ -173,7 +173,7 @@ A remote decision owns the snapshot only until the next live-state mutation. Bef
 
 For Jev evaluation, `JevDecisionObservation` exposes successful valid Choice confidence, token usage, shortlist size, the one-based selected heuristic rank, and immediate selected-minus-heuristic-top metric deltas without changing the strategy contracts. For `jev-action`, `ActionPlanProvenance` additionally classifies the already-ranked shortlist against legacy `BoardSimulator` outcomes using the same post-lock/post-row-clear board equivalence as the reachability benchmark. The benchmark reports action-only candidate count/rate and whether Jev selected an action-only outcome. Provenance is computed only after ranking, is not sent to the provider, and never participates in gameplay decisions. The benchmark aggregates these values and emits per-decision telemetry so confidence, heuristic deviation and actual use of expanded action reachability can be evaluated independently.
 
-`build-shape` emits Tetris-aware target telemetry: reachable-candidate count, safety-eligible count, selected survival rank, required matches, forbidden/support occupancy, visual-error delta, required-cell coverage, exact clean completion, danger suppression, risk profile and safety filtering. This makes the creative search envelope measurable separately from the risk envelope. `compare-shape` runs the deterministic SURVIVAL baseline and BUILD_SHAPE on identical seeds.
+`build-shape` emits Tetris-aware target telemetry: full reachable-candidate count, actual creative shortlist count, safety-eligible count, selected survival rank, required matches, forbidden/support occupancy, visual-error delta, required-cell coverage, exact clean completion, danger suppression, risk profile and safety filtering. This keeps reachability breadth, survival-quality prior and risk eligibility separately measurable. `compare-shape` runs the deterministic SURVIVAL baseline and BUILD_SHAPE on identical seeds.
 
 `tuck-hunter` emits separate objective telemetry: whether the selected move directly executes an action-only outcome, how many top-five candidates pass or fail the safety budget, the controller's risk level/profile plus baseline headroom/holes, the selected candidate's metric deltas versus SURVIVAL top-1, and the rank/count of the selected preview opportunity. `compare-adaptive` compares the SURVIVAL baseline with the adaptive runtime controller on identical seeds. `calibrate-objective` still runs the SURVIVAL baseline plus all four fixed `ObjectiveRiskProfile` values on the same seed range.
 
@@ -188,7 +188,7 @@ The headless benchmark intentionally does not emulate JavaFX gravity deadlines. 
 - Asynchronous results must pass the current-generation and current-piece checks before they can mutate live game state.
 - JavaFX animation/audio/input classes must not enter the `ai` package.
 - Action-native planners should derive paths from `ActionStateSearch` (or an equivalent rules-backed reachability source) rather than inventing movement legality.
-- High-level objectives may change preference among deterministic reachable plans but must not replace movement legality, collision or row clearing. An objective may use a bounded heuristic shortlist or the full reachable ranking, but heuristic rank is never proof of safety; non-baseline choices still require an explicit safety boundary relative to SURVIVAL top-1.
+- High-level objectives may change preference among deterministic reachable plans but must not replace movement legality, collision or row clearing. Heuristic rank is never proof of safety; non-baseline choices still require an explicit safety boundary relative to SURVIVAL top-1. BUILD_SHAPE additionally retains heuristic top-5 as an evidence-backed survival-quality prior because the full-reachable experiment regressed long-term survival without improving clean shape completion.
 - Creative objectives must score immutable resulting-board facts after production row-clear semantics; they must not maintain a second simulated board or infer settled-piece color from occupancy-only state. Physical support that is intentionally excluded from the visible silhouette must be represented explicitly rather than silently treated as visual success or failure.
 - A non-survival objective must pass an explicit `ObjectiveSafetyBudget` relative to the current SURVIVAL top choice and must fall back to that SURVIVAL choice when its objective-specific opportunity is unavailable or exceeds the budget. BUILD_SHAPE additionally disables creative deviation entirely while the Risk Controller reports DANGER.
 - Adaptive runtime risk selection must be derived from the SURVIVAL baseline state, not from an objective candidate; this avoids changing the risk budget as a side effect of the candidate being evaluated.
