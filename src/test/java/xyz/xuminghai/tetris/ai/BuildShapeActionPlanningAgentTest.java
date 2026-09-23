@@ -30,20 +30,28 @@ class BuildShapeActionPlanningAgentTest {
         BuildShapeDecisionObservation observation = observed.get();
         assertNotNull(observation);
 
-        List<ActionPlanCandidates.PlannedCandidate> shortlist =
-                ActionPlanCandidates.ranked(snapshot).stream()
-                        .limit(BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES)
-                        .toList();
-        ActionPlanCandidates.PlannedCandidate selectedCandidate = shortlist.stream()
+        List<ActionPlanCandidates.PlannedCandidate> ranked =
+                ActionPlanCandidates.ranked(snapshot);
+        assertTrue(ranked.size() > 5);
+        assertEquals(ranked.size(), observation.candidateCount());
+
+        ActionPlanCandidates.PlannedCandidate selectedCandidate = ranked.stream()
                 .filter(candidate -> candidate.plan().equals(selected))
                 .findFirst()
                 .orElseThrow();
 
         ObjectiveRiskController.Decision riskDecision =
-                ObjectiveRiskController.adaptive().decide(shortlist.getFirst().placement());
-        ObjectiveSafetyBudget.Assessment safety = riskDecision.profile().budget()
-                .assess(shortlist.getFirst().placement(), selectedCandidate.placement());
+                ObjectiveRiskController.adaptive().decide(ranked.getFirst().placement());
+        ObjectiveSafetyBudget safetyBudget = riskDecision.profile().budget();
+        ObjectiveSafetyBudget.Assessment safety =
+                safetyBudget.assess(ranked.getFirst().placement(), selectedCandidate.placement());
+        long expectedEligible = ranked.stream()
+                .filter(candidate -> safetyBudget
+                        .assess(ranked.getFirst().placement(), candidate.placement())
+                        .allowed())
+                .count();
 
+        assertEquals(expectedEligible, observation.safetyEligibleCandidates());
         assertTrue(safety.allowed());
         assertEquals(riskDecision.level(), observation.riskLevel());
         assertEquals(riskDecision.profile(), observation.riskProfile());
@@ -61,15 +69,13 @@ class BuildShapeActionPlanningAgentTest {
     void dangerStateReturnsExactSurvivalTopChoice() {
         GameSnapshot snapshot = dangerSnapshot();
         AtomicReference<BuildShapeDecisionObservation> observed = new AtomicReference<>();
-        List<ActionPlanCandidates.PlannedCandidate> shortlist =
-                ActionPlanCandidates.ranked(snapshot).stream()
-                        .limit(BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES)
-                        .toList();
+        List<ActionPlanCandidates.PlannedCandidate> ranked =
+                ActionPlanCandidates.ranked(snapshot);
 
         AiPlan selected =
                 new BuildShapeActionPlanningAgent(ShapeTarget.HEART, observed::set).plan(snapshot);
 
-        assertEquals(shortlist.getFirst().plan(), selected);
+        assertEquals(ranked.getFirst().plan(), selected);
         BuildShapeDecisionObservation observation = observed.get();
         assertNotNull(observation);
         assertEquals(ObjectiveRiskController.RiskLevel.DANGER, observation.riskLevel());
