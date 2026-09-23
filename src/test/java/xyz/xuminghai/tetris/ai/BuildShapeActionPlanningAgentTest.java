@@ -13,14 +13,15 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BuildShapeActionPlanningAgentTest {
 
     @Test
-    void selectedPlanStaysInsideRiskBudgetAndDoesNotRegressShapePreference() {
-        GameSnapshot snapshot = snapshot();
+    void selectedPlanStaysInsideRiskBudgetAndDoesNotRegressVisualProgress() {
+        GameSnapshot snapshot = emptySnapshot();
         AtomicReference<BuildShapeDecisionObservation> observed = new AtomicReference<>();
 
         AiPlan selected =
@@ -46,13 +47,35 @@ class BuildShapeActionPlanningAgentTest {
         assertTrue(safety.allowed());
         assertEquals(riskDecision.level(), observation.riskLevel());
         assertEquals(riskDecision.profile(), observation.riskProfile());
+        assertFalse(observation.creativeSuppressedByDanger());
         assertTrue(observation.selectedProgress().netScore()
                 >= observation.baselineProgress().netScore());
         if (observation.selectedProgress().netScore()
                 == observation.baselineProgress().netScore()) {
-            assertTrue(observation.selectedProgress().matchedCells()
-                    >= observation.baselineProgress().matchedCells());
+            assertTrue(observation.selectedProgress().forbiddenOccupiedCells()
+                    <= observation.baselineProgress().forbiddenOccupiedCells());
         }
+    }
+
+    @Test
+    void dangerStateReturnsExactSurvivalTopChoice() {
+        GameSnapshot snapshot = dangerSnapshot();
+        AtomicReference<BuildShapeDecisionObservation> observed = new AtomicReference<>();
+        List<ActionPlanCandidates.PlannedCandidate> shortlist =
+                ActionPlanCandidates.ranked(snapshot).stream()
+                        .limit(BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES)
+                        .toList();
+
+        AiPlan selected =
+                new BuildShapeActionPlanningAgent(ShapeTarget.HEART, observed::set).plan(snapshot);
+
+        assertEquals(shortlist.getFirst().plan(), selected);
+        BuildShapeDecisionObservation observation = observed.get();
+        assertNotNull(observation);
+        assertEquals(ObjectiveRiskController.RiskLevel.DANGER, observation.riskLevel());
+        assertTrue(observation.creativeSuppressedByDanger());
+        assertEquals(1, observation.selectedRank());
+        assertEquals(observation.baselineProgress(), observation.selectedProgress());
     }
 
     @Test
@@ -78,11 +101,23 @@ class BuildShapeActionPlanningAgentTest {
                 new BuildShapeActionPlanningAgent().plan(snapshot));
     }
 
-    private static GameSnapshot snapshot() {
+    private static GameSnapshot emptySnapshot() {
+        return snapshot(new boolean[20][10]);
+    }
+
+    private static GameSnapshot dangerSnapshot() {
+        boolean[][] board = new boolean[20][10];
+        // A settled cell at row 5 creates max column height 15 / headroom 5 on a 20-row board,
+        // which is the controller's explicit DANGER boundary without blocking the spawn area.
+        board[5][0] = true;
+        return snapshot(board);
+    }
+
+    private static GameSnapshot snapshot(boolean[][] board) {
         return new GameSnapshot(
                 20,
                 10,
-                new boolean[20][10],
+                board,
                 TetrominoType.T,
                 List.of(
                         new BoardPosition(0, 4),
