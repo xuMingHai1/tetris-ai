@@ -56,16 +56,12 @@ public final class ObjectiveRiskController {
         int holes = survivalBaseline.holes();
 
         RiskLevel level = classify(rows, cols, headroom, holes);
-        ObjectiveRiskProfile profile = fixedProfile.orElseGet(() -> switch (level) {
-            case LOW -> ObjectiveRiskProfile.BALANCED;
-            case NORMAL -> ObjectiveRiskProfile.CONSERVATIVE;
-            case DANGER -> ObjectiveRiskProfile.STRICT;
-        });
+        ObjectiveRiskProfile profile = fixedProfile.orElseGet(() -> adaptiveProfile(level));
 
         return new Decision(level, profile, headroom, maxColumnHeight, holes);
     }
 
-    private static RiskLevel classify(int rows, int cols, int headroom, int holes) {
+    static RiskLevel classify(int rows, int cols, int headroom, int holes) {
         int dangerHeadroom = Math.max(4, rows / 4);
         int dangerHoles = Math.max(4, cols / 2);
 
@@ -79,6 +75,15 @@ public final class ObjectiveRiskController {
         }
 
         return RiskLevel.NORMAL;
+    }
+
+    static ObjectiveRiskProfile adaptiveProfile(RiskLevel level) {
+        Objects.requireNonNull(level, "level");
+        return switch (level) {
+            case LOW -> ObjectiveRiskProfile.BALANCED;
+            case NORMAL -> ObjectiveRiskProfile.CONSERVATIVE;
+            case DANGER -> ObjectiveRiskProfile.STRICT;
+        };
     }
 
     private static int maxColumnHeight(boolean[][] board) {
