@@ -46,6 +46,15 @@ class ShapeWitnessConstraintAuditTest {
         assertTrue(audit.steps().stream().allMatch(step ->
                 step.survivalRank() >= 1
                         && step.survivalRank() <= step.reachableCandidates()));
+        assertTrue(audit.steps().stream().allMatch(step ->
+                step.witnessHoles().totalHoles()
+                        == step.witnessHoles().requiredHoles()
+                                + step.witnessHoles().forbiddenHoles()
+                                + step.witnessHoles().supportAllowedHoles()
+                                + step.witnessHoles().outsideTargetHoles()));
+        assertTrue(audit.finalWitnessHoles().forbiddenHoles() > 0);
+        assertTrue(audit.finalWitnessHoles().totalHoles()
+                >= audit.finalWitnessHoles().forbiddenHoles());
     }
 
     @Test
