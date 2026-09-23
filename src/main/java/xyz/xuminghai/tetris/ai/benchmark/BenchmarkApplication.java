@@ -16,6 +16,7 @@ import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskProfile;
+import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterActionPlanningAgent;
@@ -490,6 +491,28 @@ public final class BenchmarkApplication {
                     (double) buildShapeTelemetry.netScoreDeltaSum / buildShapeTelemetry.samples;
             double averageVisualErrorDelta =
                     (double) buildShapeTelemetry.visualErrorDeltaSum / buildShapeTelemetry.samples;
+            double averageBestVisualErrorPerGame = buildShapeTelemetry.games.stream()
+                    .mapToInt(game -> game.bestVisualErrorCells)
+                    .average()
+                    .orElse(0.0);
+            long gamesErrorLe8 = buildShapeTelemetry.games.stream()
+                    .filter(game -> game.bestVisualErrorCells <= 8)
+                    .count();
+            long gamesErrorLe4 = buildShapeTelemetry.games.stream()
+                    .filter(game -> game.bestVisualErrorCells <= 4)
+                    .count();
+            long gamesError0 = buildShapeTelemetry.games.stream()
+                    .filter(game -> game.bestVisualErrorCells == 0)
+                    .count();
+            int maxRequiredWithZeroForbidden = buildShapeTelemetry.games.stream()
+                    .mapToInt(game -> game.maxRequiredWithZeroForbidden)
+                    .max()
+                    .orElse(0);
+            int minForbiddenAtFullRequired = buildShapeTelemetry.games.stream()
+                    .mapToInt(game -> game.minForbiddenAtFullRequired)
+                    .filter(value -> value != Integer.MAX_VALUE)
+                    .min()
+                    .orElse(-1);
 
             System.out.printf(
                     Locale.ROOT,
@@ -503,9 +526,12 @@ public final class BenchmarkApplication {
                             + "avg_support_occupied_cells=%.3f avg_visual_error_cells=%.3f "
                             + "min_visual_error_cells=%d avg_required_completion_rate=%.4f "
                             + "max_required_completion_rate=%.4f clean_completions=%d "
-                            + "clean_completion_rate=%.4f avg_net_score_delta=%.4f "
-                            + "avg_visual_error_delta=%.4f safety_rejected_candidates=%d "
-                            + "risk_low=%d risk_normal=%d risk_danger=%d "
+                            + "clean_completion_rate=%.4f avg_best_visual_error_per_game=%.3f "
+                            + "games_error_le_8=%d games_error_le_4=%d games_error_0=%d "
+                            + "max_required_with_zero_forbidden=%d "
+                            + "min_forbidden_at_full_required=%d "
+                            + "avg_net_score_delta=%.4f avg_visual_error_delta=%.4f "
+                            + "safety_rejected_candidates=%d risk_low=%d risk_normal=%d risk_danger=%d "
                             + "profile_strict=%d profile_conservative=%d profile_balanced=%d "
                             + "profile_risky=%d%n",
                     configuration.resultAgent(),
@@ -532,6 +558,12 @@ public final class BenchmarkApplication {
                     buildShapeTelemetry.maxRequiredCompletionRate,
                     buildShapeTelemetry.cleanCompletions,
                     (double) buildShapeTelemetry.cleanCompletions / buildShapeTelemetry.samples,
+                    averageBestVisualErrorPerGame,
+                    gamesErrorLe8,
+                    gamesErrorLe4,
+                    gamesError0,
+                    maxRequiredWithZeroForbidden,
+                    minForbiddenAtFullRequired,
                     averageNetDelta,
                     averageVisualErrorDelta,
                     buildShapeTelemetry.safetyRejectedCandidates,
@@ -542,6 +574,25 @@ public final class BenchmarkApplication {
                     buildShapeTelemetry.profileConservative,
                     buildShapeTelemetry.profileBalanced,
                     buildShapeTelemetry.profileRisky);
+
+            System.out.println(
+                    "build_shape_game,strategy,target,seed,best_visual_error_cells,"
+                            + "max_required_with_zero_forbidden,min_forbidden_at_full_required,"
+                            + "clean_completion");
+            for (BuildShapeGameTelemetry game : buildShapeTelemetry.games) {
+                System.out.printf(
+                        Locale.ROOT,
+                        "build_shape_game,%s,%s,%d,%d,%d,%d,%s%n",
+                        configuration.resultAgent(),
+                        ShapeTarget.HEART.configValue(),
+                        game.seed,
+                        game.bestVisualErrorCells,
+                        game.maxRequiredWithZeroForbidden,
+                        game.minForbiddenAtFullRequired == Integer.MAX_VALUE
+                                ? -1
+                                : game.minForbiddenAtFullRequired,
+                        game.cleanCompletion);
+            }
 
             System.out.println(
                     "build_shape_decision,strategy,target,seed,decision,risk_level,risk_profile,"
@@ -782,6 +833,8 @@ public final class BenchmarkApplication {
     private static final class BuildShapeTelemetry {
 
         private final List<BuildShapeTrace> traces = new ArrayList<>();
+        private final List<BuildShapeGameTelemetry> games = new ArrayList<>();
+        private BuildShapeGameTelemetry currentGame;
         private long currentSeed;
         private int currentDecision;
         private long samples;
@@ -814,6 +867,8 @@ public final class BenchmarkApplication {
         void startGame(long seed) {
             currentSeed = seed;
             currentDecision = 0;
+            currentGame = new BuildShapeGameTelemetry(seed);
+            games.add(currentGame);
         }
 
         void record(BuildShapeDecisionObservation observation) {
@@ -834,6 +889,7 @@ public final class BenchmarkApplication {
                     observation.selectedProgress().forbiddenOccupiedCells();
             selectedSupportOccupiedCells += observation.selectedProgress().supportOccupiedCells();
             selectedVisualErrorCells += observation.selectedProgress().visualErrorCells();
+            currentGame.record(observation.selectedProgress());
             netScoreDeltaSum += observation.netScoreDelta();
             visualErrorDeltaSum += observation.visualErrorDelta();
             safetyRejectedCandidates += observation.safetyRejectedCandidates();
@@ -863,6 +919,34 @@ public final class BenchmarkApplication {
                 case RISKY -> profileRisky++;
             }
             traces.add(new BuildShapeTrace(currentSeed, currentDecision, observation));
+        }
+    }
+
+    private static final class BuildShapeGameTelemetry {
+
+        private final long seed;
+        private int bestVisualErrorCells = ShapeTarget.HEART.requiredCells();
+        private int maxRequiredWithZeroForbidden;
+        private int minForbiddenAtFullRequired = Integer.MAX_VALUE;
+        private boolean cleanCompletion;
+
+        private BuildShapeGameTelemetry(long seed) {
+            this.seed = seed;
+        }
+
+        private void record(ShapeProgress progress) {
+            bestVisualErrorCells = Math.min(bestVisualErrorCells, progress.visualErrorCells());
+            if (progress.forbiddenOccupiedCells() == 0) {
+                maxRequiredWithZeroForbidden = Math.max(
+                        maxRequiredWithZeroForbidden,
+                        progress.matchedRequiredCells());
+            }
+            if (progress.matchedRequiredCells() == progress.requiredCells()) {
+                minForbiddenAtFullRequired = Math.min(
+                        minForbiddenAtFullRequired,
+                        progress.forbiddenOccupiedCells());
+            }
+            cleanCompletion |= progress.cleanCompletion();
         }
     }
 
