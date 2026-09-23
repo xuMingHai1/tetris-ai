@@ -130,7 +130,7 @@ TETRIS_AI_OBJECTIVE=tuck-hunter \
 ./mvnw javafx:run
 ```
 
-本地 BUILD_SHAPE v3（底部居中的 Tetris-aware `HEART`）：
+本地 BUILD_SHAPE（底部居中的 Tetris-aware `HEART`）：
 
 ```bash
 TETRIS_AI_AGENT=action \
@@ -138,7 +138,7 @@ TETRIS_AI_OBJECTIVE=build-shape \
 ./mvnw javafx:run
 ```
 
-`BUILD_SHAPE v3` 仍不读取或推断颜色，target 继续区分三种 occupancy 语义：`#` 是必须占用的视觉格，`.` 是必须保持为空的视觉背景，`+` 是允许占用的物理支撑区。内置 HEART 把 6 行视觉轮廓放在两行 support zone 上方，因此支撑块不会被误算成视觉错误。只有 Required 全部命中且 Forbidden 全部为空才算 clean completion。SURVIVAL heuristic rank 1 仍是唯一风险 baseline，但 LOW / NORMAL 下 BUILD_SHAPE 不再只看 heuristic top-5，而是让全部 action-native reachable candidates 经过同一个 `ObjectiveSafetyBudget` 后竞争 shape progress；Risk Controller 进入 `DANGER` 时仍暂停创作并直接返回 SURVIVAL top-1。
+`BUILD_SHAPE` 仍不读取或推断颜色，target 继续区分三种 occupancy 语义：`#` 是必须占用的视觉格，`.` 是必须保持为空的视觉背景，`+` 是允许占用的物理支撑区。内置 HEART 把 6 行视觉轮廓放在两行 support zone 上方，因此支撑块不会被误算成视觉错误。只有 Required 全部命中且 Forbidden 全部为空才算 clean completion。SURVIVAL heuristic rank 1 是风险 baseline，heuristic top-5 作为 creative planning 的 survival-quality prior；LOW / NORMAL 下只有这组候选再经过 `ObjectiveSafetyBudget` 后竞争 shape progress。Risk Controller 进入 `DANGER` 时仍暂停创作并直接返回 SURVIVAL top-1。benchmark 同时记录全量 reachable 数量与实际 creative shortlist 数量，避免把搜索能力和 creative quality prior 混为一谈。
 
 Windows CMD：
 
