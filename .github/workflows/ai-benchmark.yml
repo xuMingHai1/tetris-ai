@@ -16,6 +16,7 @@ on:
           - tuck-hunter
           - adaptive-tuck-hunter
           - build-shape
+          - build-shape-preview
           - action-provenance
           - jev-action
           - compare
@@ -23,6 +24,7 @@ on:
           - compare-objective
           - compare-adaptive
           - compare-shape
+          - compare-shape-preview
           - calibrate-objective
           - reachability
       games:
@@ -215,10 +217,24 @@ jobs:
             javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
 
       - name: Run BUILD_SHAPE benchmark
-        if: ${{ inputs.agent == 'build-shape' || inputs.agent == 'compare-shape' }}
+        if: ${{ inputs.agent == 'build-shape' || inputs.agent == 'compare-shape' || inputs.agent == 'compare-shape-preview' }}
         shell: bash
         env:
           TETRIS_BENCHMARK_AGENT: build-shape
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+            javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
+
+      - name: Run BUILD_SHAPE preview-lookahead benchmark
+        if: ${{ inputs.agent == 'build-shape-preview' || inputs.agent == 'compare-shape-preview' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_AGENT: build-shape-preview
           TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
           TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
           TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
@@ -305,7 +321,7 @@ jobs:
               }
               next
             }
-            /^(heuristic|lookahead|jev|action|tuck-hunter-[a-z]+|build-shape-[a-z]+|action-provenance|jev-action|reachability),/ {
+            /^(heuristic|lookahead|jev|action|tuck-hunter-[a-z]+|build-shape-[a-z-]+|action-provenance|jev-action|reachability),/ {
               print
             }
           ' target/benchmark/raw.log > target/benchmark/results.csv
