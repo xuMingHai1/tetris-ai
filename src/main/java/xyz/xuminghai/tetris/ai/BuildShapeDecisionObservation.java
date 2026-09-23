@@ -18,6 +18,7 @@ public record BuildShapeDecisionObservation(
         ObjectiveRiskProfile riskProfile,
         int baselineHeadroom,
         int baselineHoles,
+        boolean creativeSuppressedByDanger,
         int selectedRank,
         ShapeProgress baselineProgress,
         ShapeProgress selectedProgress,
@@ -47,8 +48,16 @@ public record BuildShapeDecisionObservation(
         if (selectedRank <= 0 || selectedRank > candidateCount) {
             throw new IllegalArgumentException("selectedRank must be within candidateCount");
         }
-        if (baselineProgress.targetCells() != selectedProgress.targetCells()) {
+        if (baselineProgress.requiredCells() != selectedProgress.requiredCells()
+                || baselineProgress.forbiddenCells() != selectedProgress.forbiddenCells()) {
             throw new IllegalArgumentException("shape progress must use the same target");
+        }
+        if (creativeSuppressedByDanger
+                && (riskLevel != ObjectiveRiskController.RiskLevel.DANGER
+                        || selectedRank != 1
+                        || !baselineProgress.equals(selectedProgress))) {
+            throw new IllegalArgumentException(
+                    "danger suppression must return the exact SURVIVAL shape progress");
         }
         if (selectedRank == 1
                 && (selectedClearedLinesDelta != 0
@@ -68,15 +77,20 @@ public record BuildShapeDecisionObservation(
         return selectedRank > 1;
     }
 
+    public int visualErrorDelta() {
+        return selectedProgress.visualErrorCells() - baselineProgress.visualErrorCells();
+    }
+
     public int netScoreDelta() {
         return selectedProgress.netScore() - baselineProgress.netScore();
     }
 
-    public int matchedCellsDelta() {
-        return selectedProgress.matchedCells() - baselineProgress.matchedCells();
+    public int matchedRequiredDelta() {
+        return selectedProgress.matchedRequiredCells() - baselineProgress.matchedRequiredCells();
     }
 
-    public int intrusionCellsDelta() {
-        return selectedProgress.intrusionCells() - baselineProgress.intrusionCells();
+    public int forbiddenOccupiedDelta() {
+        return selectedProgress.forbiddenOccupiedCells()
+                - baselineProgress.forbiddenOccupiedCells();
     }
 }
