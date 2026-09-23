@@ -73,6 +73,7 @@ class BuildShapeDecisionObservationTest {
                 IllegalArgumentException.class,
                 () -> new BuildShapeDecisionObservation(
                         ShapeTarget.HEART,
+                        20,
                         5,
                         2,
                         ObjectiveRiskController.RiskLevel.DANGER,
@@ -95,6 +96,7 @@ class BuildShapeDecisionObservationTest {
                 IllegalArgumentException.class,
                 () -> new BuildShapeDecisionObservation(
                         ShapeTarget.HEART,
+                        20,
                         5,
                         3,
                         ObjectiveRiskController.RiskLevel.NORMAL,
