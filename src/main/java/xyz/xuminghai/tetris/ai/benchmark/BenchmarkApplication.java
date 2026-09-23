@@ -192,6 +192,49 @@ public final class BenchmarkApplication {
         };
     }
 
+    static String formatBuildShapeDecisionLine(
+            String strategy,
+            long seed,
+            int decision,
+            BuildShapeDecisionObservation observation) {
+        return String.format(
+                Locale.ROOT,
+                "build_shape_decision,%s,%s,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,"
+                        + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%s,%d,%d,%d,%d",
+                strategy,
+                observation.target().configValue(),
+                seed,
+                decision,
+                observation.riskLevel().name().toLowerCase(Locale.ROOT),
+                observation.riskProfile().configValue(),
+                observation.creativeSuppressedByDanger(),
+                observation.baselineHeadroom(),
+                observation.baselineHoles(),
+                observation.reachableCandidateCount(),
+                observation.candidateCount(),
+                observation.safetyEligibleCandidates(),
+                observation.safetyRejectedCandidates(),
+                observation.selectedRank(),
+                observation.baselineProgress().matchedRequiredCells(),
+                observation.baselineProgress().forbiddenOccupiedCells(),
+                observation.baselineProgress().supportOccupiedCells(),
+                observation.baselineProgress().visualErrorCells(),
+                observation.selectedProgress().matchedRequiredCells(),
+                observation.selectedProgress().forbiddenOccupiedCells(),
+                observation.selectedProgress().supportOccupiedCells(),
+                observation.selectedProgress().visualErrorCells(),
+                observation.netScoreDelta(),
+                observation.visualErrorDelta(),
+                observation.matchedRequiredDelta(),
+                observation.forbiddenOccupiedDelta(),
+                observation.selectedProgress().requiredCompletionRate(),
+                observation.selectedProgress().cleanCompletion(),
+                observation.selectedClearedLinesDelta(),
+                observation.selectedAggregateHeightDelta(),
+                observation.selectedHolesDelta(),
+                observation.selectedBumpinessDelta());
+    }
+
     private static String requireApiKey() {
         String apiKey = System.getenv(TYPESAFE_API_KEY_ENV);
         if (apiKey == null || apiKey.isBlank()) {
@@ -515,43 +558,11 @@ public final class BenchmarkApplication {
                             + "selected_cleared_lines_delta,selected_height_delta,"
                             + "selected_holes_delta,selected_bumpiness_delta");
             for (BuildShapeTrace trace : buildShapeTelemetry.traces) {
-                BuildShapeDecisionObservation observation = trace.observation();
-                System.out.printf(
-                        Locale.ROOT,
-                        "build_shape_decision,%s,%s,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,"
-                                + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%s,%d,%d,%d,%d%n",
+                System.out.println(formatBuildShapeDecisionLine(
                         configuration.resultAgent(),
-                        observation.target().configValue(),
                         trace.seed(),
                         trace.decision(),
-                        observation.riskLevel().name().toLowerCase(Locale.ROOT),
-                        observation.riskProfile().configValue(),
-                        observation.creativeSuppressedByDanger(),
-                        observation.baselineHeadroom(),
-                        observation.baselineHoles(),
-                        observation.reachableCandidateCount(),
-                        observation.candidateCount(),
-                        observation.safetyEligibleCandidates(),
-                        observation.safetyRejectedCandidates(),
-                        observation.selectedRank(),
-                        observation.baselineProgress().matchedRequiredCells(),
-                        observation.baselineProgress().forbiddenOccupiedCells(),
-                        observation.baselineProgress().supportOccupiedCells(),
-                        observation.baselineProgress().visualErrorCells(),
-                        observation.selectedProgress().matchedRequiredCells(),
-                        observation.selectedProgress().forbiddenOccupiedCells(),
-                        observation.selectedProgress().supportOccupiedCells(),
-                        observation.selectedProgress().visualErrorCells(),
-                        observation.netScoreDelta(),
-                        observation.visualErrorDelta(),
-                        observation.matchedRequiredDelta(),
-                        observation.forbiddenOccupiedDelta(),
-                        observation.selectedProgress().requiredCompletionRate(),
-                        observation.selectedProgress().cleanCompletion(),
-                        observation.selectedClearedLinesDelta(),
-                        observation.selectedAggregateHeightDelta(),
-                        observation.selectedHolesDelta(),
-                        observation.selectedBumpinessDelta());
+                        trace.observation()));
             }
         }
 
