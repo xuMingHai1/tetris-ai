@@ -6,38 +6,65 @@
 package xyz.xuminghai.tetris.ai;
 
 /**
- * Objective progress for one shape target against a resulting board.
+ * Visual progress for one Tetris-aware creative target.
  *
- * <p>{@code matchedCells} counts occupied target cells. {@code intrusionCells} counts occupied
- * cells inside the target bounding box where the target expects empty space. Cells outside the
- * target bounding box are deliberately ignored by shape scoring and remain governed by the
- * survival heuristic and objective safety budget.</p>
+ * <p>Required cells define the visible silhouette. Forbidden cells are visible background that
+ * should stay empty. Support cells may be occupied without affecting visual correctness so the
+ * silhouette can be physically supported by normal Tetris gravity.</p>
  */
 public record ShapeProgress(
-        int targetCells,
-        int matchedCells,
-        int intrusionCells) {
+        int requiredCells,
+        int matchedRequiredCells,
+        int forbiddenCells,
+        int forbiddenOccupiedCells,
+        int supportOccupiedCells) {
 
     public ShapeProgress {
-        if (targetCells <= 0) {
-            throw new IllegalArgumentException("targetCells must be positive");
+        if (requiredCells <= 0) {
+            throw new IllegalArgumentException("requiredCells must be positive");
         }
-        if (matchedCells < 0 || matchedCells > targetCells) {
-            throw new IllegalArgumentException("matchedCells must be within targetCells");
+        if (matchedRequiredCells < 0 || matchedRequiredCells > requiredCells) {
+            throw new IllegalArgumentException(
+                    "matchedRequiredCells must be within requiredCells");
         }
-        if (intrusionCells < 0) {
-            throw new IllegalArgumentException("intrusionCells must not be negative");
+        if (forbiddenCells < 0) {
+            throw new IllegalArgumentException("forbiddenCells must not be negative");
+        }
+        if (forbiddenOccupiedCells < 0 || forbiddenOccupiedCells > forbiddenCells) {
+            throw new IllegalArgumentException(
+                    "forbiddenOccupiedCells must be within forbiddenCells");
+        }
+        if (supportOccupiedCells < 0) {
+            throw new IllegalArgumentException("supportOccupiedCells must not be negative");
         }
     }
 
     /**
-     * Simple silhouette score: target occupancy gained minus wrong occupancy inside the mask.
+     * Missing required cells plus occupied forbidden cells.
      */
-    public int netScore() {
-        return matchedCells - intrusionCells;
+    public int visualErrorCells() {
+        return requiredCells - matchedRequiredCells + forbiddenOccupiedCells;
     }
 
-    public double completionRate() {
-        return (double) matchedCells / targetCells;
+    /**
+     * Higher is better. This is equivalent to required cells minus visual errors.
+     */
+    public int netScore() {
+        return matchedRequiredCells - forbiddenOccupiedCells;
+    }
+
+    /**
+     * Required-cell coverage only. A value of 1.0 is not a clean completion when forbidden cells
+     * are occupied.
+     */
+    public double requiredCompletionRate() {
+        return (double) matchedRequiredCells / requiredCells;
+    }
+
+    /**
+     * True only when the visible silhouette is exact.
+     */
+    public boolean cleanCompletion() {
+        return matchedRequiredCells == requiredCells && forbiddenOccupiedCells == 0;
     }
 }
