@@ -14,15 +14,16 @@ import java.util.function.Consumer;
  * Occupancy-only creative planner that incrementally moves the resulting board toward a
  * Tetris-aware target silhouette while remaining inside the state-aware objective safety budget.
  *
- * <p>V2 uses the survival heuristic top five as a bounded search envelope. The SURVIVAL top-1 board
- * drives {@link ObjectiveRiskController}; only candidates allowed by that profile may compete on
- * shape progress. Required visual cells are rewarded, forbidden visual cells are penalized and
- * support cells are neutral. DANGER disables creative deviation entirely and returns SURVIVAL
- * top-1. If no eligible candidate improves visual progress, SURVIVAL is returned unchanged.</p>
+ * <p>V3 keeps the SURVIVAL heuristic top-1 as the risk baseline but evaluates the full
+ * action-native reachable ranking as the creative search envelope. Every non-baseline candidate
+ * must still pass {@link ObjectiveSafetyBudget} relative to that same SURVIVAL top-1 board before
+ * it may compete on shape progress. Required visual cells are rewarded, forbidden visual cells are
+ * penalized and support cells are neutral. DANGER disables creative deviation entirely and returns
+ * SURVIVAL top-1. If no eligible candidate improves visual progress, SURVIVAL is returned
+ * unchanged.</p>
  */
 public final class BuildShapeActionPlanningAgent implements AiPlanningAgent {
 
-    static final int MAX_CURRENT_CANDIDATES = 5;
     private static final Consumer<BuildShapeDecisionObservation> NOOP_OBSERVER = ignored -> {
     };
 
@@ -63,18 +64,16 @@ public final class BuildShapeActionPlanningAgent implements AiPlanningAgent {
             return AiPlan.fromPlacement(AiMove.NONE);
         }
 
-        List<ActionPlanCandidates.PlannedCandidate> shortlist =
-                ranked.subList(0, Math.min(MAX_CURRENT_CANDIDATES, ranked.size()));
-        PlacementCandidate survivalBaseline = shortlist.getFirst().placement();
+        PlacementCandidate survivalBaseline = ranked.getFirst().placement();
         ObjectiveRiskController.Decision riskDecision =
                 riskController.decide(survivalBaseline);
         ObjectiveSafetyBudget safetyBudget = riskDecision.profile().budget();
         ShapeProgress baselineProgress =
                 target.progress(survivalBaseline.resultingBoard());
 
-        List<ObjectiveCandidate> evaluated = new ArrayList<>(shortlist.size());
-        for (int index = 0; index < shortlist.size(); index++) {
-            ActionPlanCandidates.PlannedCandidate candidate = shortlist.get(index);
+        List<ObjectiveCandidate> evaluated = new ArrayList<>(ranked.size());
+        for (int index = 0; index < ranked.size(); index++) {
+            ActionPlanCandidates.PlannedCandidate candidate = ranked.get(index);
             evaluated.add(new ObjectiveCandidate(
                     index + 1,
                     candidate,
@@ -98,7 +97,7 @@ public final class BuildShapeActionPlanningAgent implements AiPlanningAgent {
 
         observer.accept(new BuildShapeDecisionObservation(
                 target,
-                shortlist.size(),
+                ranked.size(),
                 safetyEligibleCandidates,
                 riskDecision.level(),
                 riskDecision.profile(),
