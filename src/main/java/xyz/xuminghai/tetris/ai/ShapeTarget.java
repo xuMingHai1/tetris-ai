@@ -132,6 +132,8 @@ public enum ShapeTarget {
                     case REQUIRED -> matchedRequired++;
                     case FORBIDDEN -> forbiddenOccupied++;
                     case SUPPORT_ALLOWED -> supportOccupied++;
+                    case OUTSIDE_TARGET -> throw new IllegalStateException(
+                            "target mask must not contain OUTSIDE_TARGET");
                 }
             }
         }
