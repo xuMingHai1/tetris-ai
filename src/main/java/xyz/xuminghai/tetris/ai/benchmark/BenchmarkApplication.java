@@ -412,35 +412,63 @@ public final class BenchmarkApplication {
         if (buildShapeTelemetry.samples > 0) {
             double averageSelectedRank =
                     (double) buildShapeTelemetry.selectedRankSum / buildShapeTelemetry.samples;
-            double averageMatched =
-                    (double) buildShapeTelemetry.selectedMatchedCells / buildShapeTelemetry.samples;
-            double averageIntrusions =
-                    (double) buildShapeTelemetry.selectedIntrusionCells / buildShapeTelemetry.samples;
-            double averageCompletion =
-                    buildShapeTelemetry.selectedCompletionRateSum / buildShapeTelemetry.samples;
+            double averageMatchedRequired =
+                    (double) buildShapeTelemetry.selectedMatchedRequiredCells
+                            / buildShapeTelemetry.samples;
+            double averageForbiddenOccupied =
+                    (double) buildShapeTelemetry.selectedForbiddenOccupiedCells
+                            / buildShapeTelemetry.samples;
+            double averageSupportOccupied =
+                    (double) buildShapeTelemetry.selectedSupportOccupiedCells
+                            / buildShapeTelemetry.samples;
+            double averageVisualErrors =
+                    (double) buildShapeTelemetry.selectedVisualErrorCells
+                            / buildShapeTelemetry.samples;
+            double averageRequiredCompletion =
+                    buildShapeTelemetry.selectedRequiredCompletionRateSum
+                            / buildShapeTelemetry.samples;
             double averageNetDelta =
                     (double) buildShapeTelemetry.netScoreDeltaSum / buildShapeTelemetry.samples;
+            double averageVisualErrorDelta =
+                    (double) buildShapeTelemetry.visualErrorDeltaSum / buildShapeTelemetry.samples;
 
             System.out.printf(
                     Locale.ROOT,
-                    "# build_shape target=%s target_cells=%d samples=%d objective_applied=%d objective_applied_rate=%.4f "
-                            + "avg_selected_rank=%.2f avg_matched_cells=%.3f max_matched_cells=%d "
-                            + "avg_intrusion_cells=%.3f avg_completion_rate=%.4f max_completion_rate=%.4f "
-                            + "avg_net_score_delta=%.4f safety_rejected_candidates=%d "
+                    "# build_shape target=%s required_cells=%d forbidden_cells=%d samples=%d "
+                            + "objective_applied=%d objective_applied_rate=%.4f "
+                            + "creative_suppressed_danger=%d creative_suppressed_danger_rate=%.4f "
+                            + "avg_selected_rank=%.2f avg_matched_required_cells=%.3f "
+                            + "max_matched_required_cells=%d avg_forbidden_occupied_cells=%.3f "
+                            + "avg_support_occupied_cells=%.3f avg_visual_error_cells=%.3f "
+                            + "min_visual_error_cells=%d avg_required_completion_rate=%.4f "
+                            + "max_required_completion_rate=%.4f clean_completions=%d "
+                            + "clean_completion_rate=%.4f avg_net_score_delta=%.4f "
+                            + "avg_visual_error_delta=%.4f safety_rejected_candidates=%d "
                             + "risk_low=%d risk_normal=%d risk_danger=%d "
-                            + "profile_strict=%d profile_conservative=%d profile_balanced=%d profile_risky=%d%n",
+                            + "profile_strict=%d profile_conservative=%d profile_balanced=%d "
+                            + "profile_risky=%d%n",
                     ShapeTarget.HEART.configValue(),
-                    ShapeTarget.HEART.targetCells(),
+                    ShapeTarget.HEART.requiredCells(),
+                    ShapeTarget.HEART.forbiddenCells(),
                     buildShapeTelemetry.samples,
                     buildShapeTelemetry.objectiveApplied,
                     (double) buildShapeTelemetry.objectiveApplied / buildShapeTelemetry.samples,
+                    buildShapeTelemetry.creativeSuppressedDanger,
+                    (double) buildShapeTelemetry.creativeSuppressedDanger
+                            / buildShapeTelemetry.samples,
                     averageSelectedRank,
-                    averageMatched,
-                    buildShapeTelemetry.maxMatchedCells,
-                    averageIntrusions,
-                    averageCompletion,
-                    buildShapeTelemetry.maxCompletionRate,
+                    averageMatchedRequired,
+                    buildShapeTelemetry.maxMatchedRequiredCells,
+                    averageForbiddenOccupied,
+                    averageSupportOccupied,
+                    averageVisualErrors,
+                    buildShapeTelemetry.minVisualErrorCells,
+                    averageRequiredCompletion,
+                    buildShapeTelemetry.maxRequiredCompletionRate,
+                    buildShapeTelemetry.cleanCompletions,
+                    (double) buildShapeTelemetry.cleanCompletions / buildShapeTelemetry.samples,
                     averageNetDelta,
+                    averageVisualErrorDelta,
                     buildShapeTelemetry.safetyRejectedCandidates,
                     buildShapeTelemetry.riskLow,
                     buildShapeTelemetry.riskNormal,
@@ -452,36 +480,49 @@ public final class BenchmarkApplication {
 
             System.out.println(
                     "build_shape_decision,target,seed,decision,risk_level,risk_profile,"
-                            + "baseline_headroom,baseline_holes,candidate_count,safety_eligible_candidates,"
-                            + "safety_rejected_candidates,selected_rank,baseline_matched_cells,"
-                            + "baseline_intrusion_cells,selected_matched_cells,selected_intrusion_cells,"
-                            + "net_score_delta,matched_cells_delta,intrusion_cells_delta,completion_rate,"
-                            + "selected_cleared_lines_delta,selected_height_delta,selected_holes_delta,"
-                            + "selected_bumpiness_delta");
+                            + "creative_suppressed_by_danger,baseline_headroom,baseline_holes,"
+                            + "candidate_count,safety_eligible_candidates,safety_rejected_candidates,"
+                            + "selected_rank,baseline_matched_required_cells,"
+                            + "baseline_forbidden_occupied_cells,baseline_support_occupied_cells,"
+                            + "baseline_visual_error_cells,selected_matched_required_cells,"
+                            + "selected_forbidden_occupied_cells,selected_support_occupied_cells,"
+                            + "selected_visual_error_cells,net_score_delta,visual_error_delta,"
+                            + "matched_required_delta,forbidden_occupied_delta,"
+                            + "required_completion_rate,clean_completion,"
+                            + "selected_cleared_lines_delta,selected_height_delta,"
+                            + "selected_holes_delta,selected_bumpiness_delta");
             for (BuildShapeTrace trace : buildShapeTelemetry.traces) {
                 BuildShapeDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "build_shape_decision,%s,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%d,%d,%d,%d%n",
+                        "build_shape_decision,%s,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,"
+                                + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%s,%d,%d,%d,%d%n",
                         observation.target().configValue(),
                         trace.seed(),
                         trace.decision(),
                         observation.riskLevel().name().toLowerCase(Locale.ROOT),
                         observation.riskProfile().configValue(),
+                        observation.creativeSuppressedByDanger(),
                         observation.baselineHeadroom(),
                         observation.baselineHoles(),
                         observation.candidateCount(),
                         observation.safetyEligibleCandidates(),
                         observation.safetyRejectedCandidates(),
                         observation.selectedRank(),
-                        observation.baselineProgress().matchedCells(),
-                        observation.baselineProgress().intrusionCells(),
-                        observation.selectedProgress().matchedCells(),
-                        observation.selectedProgress().intrusionCells(),
+                        observation.baselineProgress().matchedRequiredCells(),
+                        observation.baselineProgress().forbiddenOccupiedCells(),
+                        observation.baselineProgress().supportOccupiedCells(),
+                        observation.baselineProgress().visualErrorCells(),
+                        observation.selectedProgress().matchedRequiredCells(),
+                        observation.selectedProgress().forbiddenOccupiedCells(),
+                        observation.selectedProgress().supportOccupiedCells(),
+                        observation.selectedProgress().visualErrorCells(),
                         observation.netScoreDelta(),
-                        observation.matchedCellsDelta(),
-                        observation.intrusionCellsDelta(),
-                        observation.selectedProgress().completionRate(),
+                        observation.visualErrorDelta(),
+                        observation.matchedRequiredDelta(),
+                        observation.forbiddenOccupiedDelta(),
+                        observation.selectedProgress().requiredCompletionRate(),
+                        observation.selectedProgress().cleanCompletion(),
                         observation.selectedClearedLinesDelta(),
                         observation.selectedAggregateHeightDelta(),
                         observation.selectedHolesDelta(),
@@ -709,14 +750,20 @@ public final class BenchmarkApplication {
         private int currentDecision;
         private long samples;
         private long objectiveApplied;
+        private long creativeSuppressedDanger;
         private long selectedRankSum;
-        private long selectedMatchedCells;
-        private long selectedIntrusionCells;
+        private long selectedMatchedRequiredCells;
+        private long selectedForbiddenOccupiedCells;
+        private long selectedSupportOccupiedCells;
+        private long selectedVisualErrorCells;
         private long netScoreDeltaSum;
+        private long visualErrorDeltaSum;
         private long safetyRejectedCandidates;
-        private int maxMatchedCells;
-        private double selectedCompletionRateSum;
-        private double maxCompletionRate;
+        private long cleanCompletions;
+        private int maxMatchedRequiredCells;
+        private int minVisualErrorCells = Integer.MAX_VALUE;
+        private double selectedRequiredCompletionRateSum;
+        private double maxRequiredCompletionRate;
         private long riskLow;
         private long riskNormal;
         private long riskDanger;
@@ -736,14 +783,32 @@ public final class BenchmarkApplication {
             if (observation.objectiveApplied()) {
                 objectiveApplied++;
             }
+            if (observation.creativeSuppressedByDanger()) {
+                creativeSuppressedDanger++;
+            }
             selectedRankSum += observation.selectedRank();
-            selectedMatchedCells += observation.selectedProgress().matchedCells();
-            selectedIntrusionCells += observation.selectedProgress().intrusionCells();
+            selectedMatchedRequiredCells += observation.selectedProgress().matchedRequiredCells();
+            selectedForbiddenOccupiedCells +=
+                    observation.selectedProgress().forbiddenOccupiedCells();
+            selectedSupportOccupiedCells += observation.selectedProgress().supportOccupiedCells();
+            selectedVisualErrorCells += observation.selectedProgress().visualErrorCells();
             netScoreDeltaSum += observation.netScoreDelta();
+            visualErrorDeltaSum += observation.visualErrorDelta();
             safetyRejectedCandidates += observation.safetyRejectedCandidates();
-            maxMatchedCells = Math.max(maxMatchedCells, observation.selectedProgress().matchedCells());
-            selectedCompletionRateSum += observation.selectedProgress().completionRate();
-            maxCompletionRate = Math.max(maxCompletionRate, observation.selectedProgress().completionRate());
+            maxMatchedRequiredCells = Math.max(
+                    maxMatchedRequiredCells,
+                    observation.selectedProgress().matchedRequiredCells());
+            minVisualErrorCells = Math.min(
+                    minVisualErrorCells,
+                    observation.selectedProgress().visualErrorCells());
+            selectedRequiredCompletionRateSum +=
+                    observation.selectedProgress().requiredCompletionRate();
+            maxRequiredCompletionRate = Math.max(
+                    maxRequiredCompletionRate,
+                    observation.selectedProgress().requiredCompletionRate());
+            if (observation.selectedProgress().cleanCompletion()) {
+                cleanCompletions++;
+            }
             switch (observation.riskLevel()) {
                 case LOW -> riskLow++;
                 case NORMAL -> riskNormal++;
