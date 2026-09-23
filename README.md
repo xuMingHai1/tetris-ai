@@ -114,7 +114,7 @@ scripts\package-app.cmd msi
 
 项目也支持 TypeSafe AI 的 Jev。`jev` 保留原有 placement-oriented 模式：`BoardSimulator` 生成合法 `PlacementCandidate`，本地 heuristic 只保留前 5 个安全候选，再由 Jev 做二次选择。`jev-action` 则使用 `ActionStateSearch` 先生成真实可达的 `AiPlan`，同样只把 heuristic 排名前 5 的安全候选交给 Jev，因此模型可以利用 `SOFT_DROP`、横移和双向旋转的组合路径，但仍不负责碰撞、旋转、下落或消行规则。两种 Jev 模式都会接收 deterministic next-piece outlook。远程结果只在方块仍保持原 snapshot 坐标时生效；如果下一次自动下落先发生，游戏会在状态变化前废弃远程结果并立即使用本地 heuristic fallback。手动输入会取消该方块尚未完成的远程决策。
 
-远程 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。`TETRIS_AI_AGENT` 当前支持 `heuristic`（默认）、`action`、`jev` 和 `jev-action`。其中 `action` 是完全本地的 deterministic action-native baseline。`action` 还支持独立的高层目标 `TETRIS_AI_OBJECTIVE`：`survival`（默认）完全保留现有行为；`tuck-hunter` 用于寻找/创造 action-only 机会；`build-shape` 则在同一 deterministic reachability + Risk Controller 边界内，持续让 resulting board 接近内置 occupancy target。健康状态使用 `BALANCED (holes +0 / height +8 / bumpiness +8)`，普通状态使用 `CONSERVATIVE (0 / +4 / +4)`，高堆叠或 holes 较多时降为 `STRICT (0 / +0 / +2)`；`RISKY (holes +1)` 仍只用于 benchmark calibration，不会被 runtime controller 选择。当前非 survival objective 只支持 `TETRIS_AI_AGENT=action`；其它 agent 会明确拒绝该配置。
+远程 Jev 必须显式启用，并通过环境变量提供 API key；默认不会发生远程调用。`TETRIS_AI_AGENT` 当前支持 `heuristic`（默认）、`action`、`jev` 和 `jev-action`。其中 `action` 是完全本地的 deterministic action-native baseline。`action` 还支持独立的高层目标 `TETRIS_AI_OBJECTIVE`：`survival`（默认）完全保留现有行为；`tuck-hunter` 用于寻找/创造 action-only 机会；`build-shape` 则在同一 deterministic reachability + Risk Controller 边界内，持续让 resulting board 接近内置 Tetris-aware target。健康状态使用 `BALANCED (holes +0 / height +8 / bumpiness +8)`，普通状态使用 `CONSERVATIVE (0 / +4 / +4)`，高堆叠或 holes 较多时降为 `STRICT (0 / +0 / +2)`；`RISKY (holes +1)` 仍只用于 benchmark calibration，不会被 runtime controller 选择。当前非 survival objective 只支持 `TETRIS_AI_AGENT=action`；其它 agent 会明确拒绝该配置。
 
 Linux / macOS：
 
@@ -130,7 +130,7 @@ TETRIS_AI_OBJECTIVE=tuck-hunter \
 ./mvnw javafx:run
 ```
 
-本地 BUILD_SHAPE v1（底部居中的 occupancy-only `HEART`）：
+本地 BUILD_SHAPE v2（底部居中的 Tetris-aware `HEART`）：
 
 ```bash
 TETRIS_AI_AGENT=action \
@@ -138,7 +138,7 @@ TETRIS_AI_OBJECTIVE=build-shape \
 ./mvnw javafx:run
 ```
 
-`BUILD_SHAPE v1` 不读取或推断颜色。它只比较目标 bounding box 内的 occupied / empty silhouette：命中 target cell 会增加进度，错误占用会形成 intrusion；目标区域之外仍完全由现有 survival heuristic 与 Risk Controller 管理。
+`BUILD_SHAPE v2` 仍不读取或推断颜色，但 target 已区分三种 occupancy 语义：`#` 是必须占用的视觉格，`.` 是必须保持为空的视觉背景，`+` 是允许占用的物理支撑区。内置 HEART 把 6 行视觉轮廓放在两行 support zone 上方，因此支撑块不会被误算成视觉错误。只有 Required 全部命中且 Forbidden 全部为空才算 clean completion。目标 canvas 之外仍由现有 survival heuristic 管理；Risk Controller 进入 `DANGER` 时 BUILD_SHAPE 会暂停创作并直接返回 SURVIVAL top-1。
 
 Windows CMD：
 
