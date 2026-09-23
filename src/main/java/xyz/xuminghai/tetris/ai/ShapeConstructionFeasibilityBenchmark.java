@@ -85,10 +85,11 @@ public final class ShapeConstructionFeasibilityBenchmark {
                 null,
                 null);
 
-        SearchStats stats = new SearchStats(initialProgress);
+        SearchStats stats = new SearchStats(initial);
         List<SearchState> frontier = List.of(initial);
 
         for (int depth = 0; depth < pieceSequence.size() && !frontier.isEmpty(); depth++) {
+            stats.searchedPieces = depth + 1;
             TetrominoType pieceType = pieceSequence.get(depth);
             Map<String, SearchState> unique = new HashMap<>();
 
@@ -144,7 +145,7 @@ public final class ShapeConstructionFeasibilityBenchmark {
 
         return stats.result(
                 false,
-                Math.min(pieceSequence.size(), stats.depthReached),
+                stats.searchedPieces,
                 beamWidth,
                 stats.bestState);
     }
@@ -258,31 +259,22 @@ public final class ShapeConstructionFeasibilityBenchmark {
         private long generatedPlacements;
         private long uniqueStates;
         private int maxFrontierSize = 1;
-        private int depthReached;
+        private int searchedPieces;
         private int bestVisualErrorCells;
         private int maxRequiredWithZeroForbidden;
         private int minForbiddenAtFullRequired = Integer.MAX_VALUE;
         private SearchState bestState;
 
-        private SearchStats(ShapeProgress initialProgress) {
-            bestVisualErrorCells = initialProgress.visualErrorCells();
+        private SearchStats(SearchState initialState) {
+            bestVisualErrorCells = initialState.progress().visualErrorCells();
             maxRequiredWithZeroForbidden =
-                    initialProgress.forbiddenOccupiedCells() == 0
-                            ? initialProgress.matchedRequiredCells()
+                    initialState.progress().forbiddenOccupiedCells() == 0
+                            ? initialState.progress().matchedRequiredCells()
                             : 0;
-            bestState = new SearchState(
-                    new boolean[1][1],
-                    initialProgress,
-                    0,
-                    0,
-                    0,
-                    null,
-                    null,
-                    null);
+            bestState = initialState;
         }
 
         private void observe(SearchState state) {
-            depthReached = Math.max(depthReached, witnessDepth(state));
             if (CONSTRUCTION_ORDER.compare(state, bestState) < 0) {
                 bestState = state;
             }
@@ -326,14 +318,5 @@ public final class ShapeConstructionFeasibilityBenchmark {
                     cleanCompletionFound ? witness(resultState) : List.of());
         }
 
-        private static int witnessDepth(SearchState state) {
-            int depth = 0;
-            for (SearchState current = state;
-                    current != null && current.plan() != null;
-                    current = current.parent()) {
-                depth++;
-            }
-            return depth;
-        }
     }
 }
