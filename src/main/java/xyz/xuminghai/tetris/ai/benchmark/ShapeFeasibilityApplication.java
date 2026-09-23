@@ -136,56 +136,7 @@ public final class ShapeFeasibilityApplication {
             long seed,
             ShapeWitnessConstraintAudit.Result audit) {
         for (ShapeWitnessConstraintAudit.Step step : audit.steps()) {
-            System.out.printf(
-                    Locale.ROOT,
-                    "shape_witness_audit,%d,%d,%s,%d,%d,%s,%s,%s,%s,%d,%d,%s,"
-                            + "%d,%d,%d,%d,%s,%s,%s,"
-                            + "%d,%d,%d,%d,%d,%d,%d,%d,%d,"
-                            + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,"
-                            + "%d,%s,%s,%s,%s%n",
-                    seed,
-                    step.step(),
-                    step.pieceType().name(),
-                    step.survivalRank(),
-                    step.reachableCandidates(),
-                    step.actionOnly(),
-                    step.inTopFive(),
-                    step.riskLevel().name().toLowerCase(Locale.ROOT),
-                    step.riskProfile().configValue(),
-                    step.baselineHeadroom(),
-                    step.baselineHoles(),
-                    step.safety().allowed(),
-                    step.safety().clearedLinesDelta(),
-                    step.safety().aggregateHeightDelta(),
-                    step.safety().holesDelta(),
-                    step.safety().bumpinessDelta(),
-                    step.dangerSuppressed(),
-                    step.runtimeSelectedWitnessOutcome(),
-                    step.blocker().name().toLowerCase(Locale.ROOT),
-                    step.beforeProgress().matchedRequiredCells(),
-                    step.beforeProgress().forbiddenOccupiedCells(),
-                    step.beforeProgress().visualErrorCells(),
-                    step.survivalProgress().matchedRequiredCells(),
-                    step.survivalProgress().forbiddenOccupiedCells(),
-                    step.survivalProgress().visualErrorCells(),
-                    step.witnessProgress().matchedRequiredCells(),
-                    step.witnessProgress().forbiddenOccupiedCells(),
-                    step.witnessProgress().visualErrorCells(),
-                    step.survivalHoles().totalHoles(),
-                    step.survivalHoles().requiredHoles(),
-                    step.survivalHoles().forbiddenHoles(),
-                    step.survivalHoles().supportAllowedHoles(),
-                    step.survivalHoles().outsideTargetHoles(),
-                    step.witnessHoles().totalHoles(),
-                    step.witnessHoles().requiredHoles(),
-                    step.witnessHoles().forbiddenHoles(),
-                    step.witnessHoles().supportAllowedHoles(),
-                    step.witnessHoles().outsideTargetHoles(),
-                    step.forbiddenExcludedHolesDelta(),
-                    step.forbiddenExcludedSafetyAllowedCurrentProfile(),
-                    step.forbiddenExcludedRiskLevel().name().toLowerCase(Locale.ROOT),
-                    step.forbiddenExcludedRiskProfile().configValue(),
-                    step.forbiddenExcludedSafetyAllowedAdjustedProfile());
+            System.out.println(formatWitnessAuditLine(seed, step));
         }
 
         System.out.printf(
@@ -219,6 +170,57 @@ public final class ShapeFeasibilityApplication {
                 audit.finalWitnessHoles().outsideTargetHoles(),
                 audit.firstBlockedStep(),
                 audit.firstBlocker().name().toLowerCase(Locale.ROOT));
+    }
+
+    static String formatWitnessAuditLine(
+            long seed,
+            ShapeWitnessConstraintAudit.Step step) {
+        return String.join(
+                ",",
+                "shape_witness_audit",
+                Long.toString(seed),
+                Integer.toString(step.step()),
+                step.pieceType().name(),
+                Integer.toString(step.survivalRank()),
+                Integer.toString(step.reachableCandidates()),
+                Boolean.toString(step.actionOnly()),
+                Boolean.toString(step.inTopFive()),
+                step.riskLevel().name().toLowerCase(Locale.ROOT),
+                step.riskProfile().configValue(),
+                Integer.toString(step.baselineHeadroom()),
+                Integer.toString(step.baselineHoles()),
+                Boolean.toString(step.safety().allowed()),
+                Integer.toString(step.safety().clearedLinesDelta()),
+                Integer.toString(step.safety().aggregateHeightDelta()),
+                Integer.toString(step.safety().holesDelta()),
+                Integer.toString(step.safety().bumpinessDelta()),
+                Boolean.toString(step.dangerSuppressed()),
+                Boolean.toString(step.runtimeSelectedWitnessOutcome()),
+                step.blocker().name().toLowerCase(Locale.ROOT),
+                Integer.toString(step.beforeProgress().matchedRequiredCells()),
+                Integer.toString(step.beforeProgress().forbiddenOccupiedCells()),
+                Integer.toString(step.beforeProgress().visualErrorCells()),
+                Integer.toString(step.survivalProgress().matchedRequiredCells()),
+                Integer.toString(step.survivalProgress().forbiddenOccupiedCells()),
+                Integer.toString(step.survivalProgress().visualErrorCells()),
+                Integer.toString(step.witnessProgress().matchedRequiredCells()),
+                Integer.toString(step.witnessProgress().forbiddenOccupiedCells()),
+                Integer.toString(step.witnessProgress().visualErrorCells()),
+                Integer.toString(step.survivalHoles().totalHoles()),
+                Integer.toString(step.survivalHoles().requiredHoles()),
+                Integer.toString(step.survivalHoles().forbiddenHoles()),
+                Integer.toString(step.survivalHoles().supportAllowedHoles()),
+                Integer.toString(step.survivalHoles().outsideTargetHoles()),
+                Integer.toString(step.witnessHoles().totalHoles()),
+                Integer.toString(step.witnessHoles().requiredHoles()),
+                Integer.toString(step.witnessHoles().forbiddenHoles()),
+                Integer.toString(step.witnessHoles().supportAllowedHoles()),
+                Integer.toString(step.witnessHoles().outsideTargetHoles()),
+                Integer.toString(step.forbiddenExcludedHolesDelta()),
+                Boolean.toString(step.forbiddenExcludedSafetyAllowedCurrentProfile()),
+                step.forbiddenExcludedRiskLevel().name().toLowerCase(Locale.ROOT),
+                step.forbiddenExcludedRiskProfile().configValue(),
+                Boolean.toString(step.forbiddenExcludedSafetyAllowedAdjustedProfile()));
     }
 
     private static void printWitnessAuditSummary(List<WitnessAuditResult> audits) {
