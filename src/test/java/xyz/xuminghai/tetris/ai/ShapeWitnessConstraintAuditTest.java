@@ -1,0 +1,70 @@
+/*
+ * Copyright (C) 2024-2026 xuMingHai
+ *
+ * This file is part of Tetris and is distributed under the GNU GPL v3.
+ */
+package xyz.xuminghai.tetris.ai;
+
+import org.junit.jupiter.api.Test;
+import xyz.xuminghai.tetris.core.BagPieceGenerator;
+import xyz.xuminghai.tetris.core.TetrominoType;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class ShapeWitnessConstraintAuditTest {
+
+    @Test
+    void auditsKnownCleanHeartWitnessAgainstRuntimeBoundaries() {
+        List<TetrominoType> pieces = pieceSequence(1008L, 10);
+        ShapeConstructionFeasibilityBenchmark.Result feasibility =
+                ShapeConstructionFeasibilityBenchmark.search(
+                        ShapeTarget.HEART,
+                        pieces,
+                        20,
+                        10,
+                        128);
+
+        assertTrue(feasibility.cleanCompletionFound());
+
+        ShapeWitnessConstraintAudit.Result audit =
+                ShapeWitnessConstraintAudit.audit(
+                        ShapeTarget.HEART,
+                        feasibility.witness(),
+                        20,
+                        10);
+
+        assertEquals(feasibility.piecesToCompletion(), audit.steps().size());
+        assertTrue(audit.finalProgress().cleanCompletion());
+        assertNotEquals(ShapeWitnessConstraintAudit.Blocker.NONE, audit.firstBlocker());
+        assertTrue(audit.firstBlockedStep() > 0);
+        assertTrue(audit.steps().stream().allMatch(step ->
+                step.survivalRank() >= 1
+                        && step.survivalRank() <= step.reachableCandidates()));
+    }
+
+    @Test
+    void rejectsEmptyWitness() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> ShapeWitnessConstraintAudit.audit(
+                        ShapeTarget.HEART,
+                        List.of(),
+                        20,
+                        10));
+    }
+
+    private static List<TetrominoType> pieceSequence(long seed, int count) {
+        BagPieceGenerator generator = new BagPieceGenerator(seed);
+        List<TetrominoType> pieces = new ArrayList<>(count);
+        for (int index = 0; index < count; index++) {
+            pieces.add(TetrominoType.from(generator.next()));
+        }
+        return List.copyOf(pieces);
+    }
+}
