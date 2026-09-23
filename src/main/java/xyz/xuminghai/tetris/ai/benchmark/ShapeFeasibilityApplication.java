@@ -8,6 +8,7 @@ package xyz.xuminghai.tetris.ai.benchmark;
 import xyz.xuminghai.tetris.ai.ShapeConstructionFeasibilityBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
+import xyz.xuminghai.tetris.ai.ShapeWitnessConstraintAudit;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
@@ -40,6 +41,7 @@ public final class ShapeFeasibilityApplication {
     public static void main(String[] args) {
         Configuration configuration = Configuration.fromEnvironment();
         List<SeedResult> results = new ArrayList<>(configuration.games());
+        List<WitnessAuditResult> audits = new ArrayList<>();
 
         System.out.println(
                 "shape_feasibility,seed,search_depth,beam_width,clean_completion,"
@@ -48,6 +50,17 @@ public final class ShapeFeasibilityApplication {
                         + "best_matched_required_cells,best_forbidden_occupied_cells,"
                         + "best_support_occupied_cells,expanded_states,generated_placements,"
                         + "unique_states,max_frontier_size");
+
+        System.out.println(
+                "shape_witness_audit,seed,step,piece,survival_rank,reachable_candidates,"
+                        + "action_only,in_top5,risk_level,risk_profile,baseline_headroom,"
+                        + "baseline_holes,safety_allowed,cleared_lines_delta,height_delta,"
+                        + "holes_delta,bumpiness_delta,danger_suppressed,"
+                        + "runtime_selected_witness_outcome,blocker,before_matched_required,"
+                        + "before_forbidden_occupied,before_visual_error,"
+                        + "survival_matched_required,survival_forbidden_occupied,"
+                        + "survival_visual_error,witness_matched_required,"
+                        + "witness_forbidden_occupied,witness_visual_error");
 
         for (int game = 0; game < configuration.games(); game++) {
             long seed = configuration.seed() + game;
@@ -95,10 +108,139 @@ public final class ShapeFeasibilityApplication {
                             step.pieceType().name(),
                             actions(step));
                 }
+
+                ShapeWitnessConstraintAudit.Result audit =
+                        ShapeWitnessConstraintAudit.audit(
+                                ShapeTarget.HEART,
+                                result.witness(),
+                                HeadlessGameRunner.DEFAULT_ROWS,
+                                HeadlessGameRunner.DEFAULT_COLS);
+                audits.add(new WitnessAuditResult(seed, audit));
+                printWitnessAudit(seed, audit);
             }
         }
 
         printSummary(configuration, results);
+        printWitnessAuditSummary(audits);
+    }
+
+    private static void printWitnessAudit(
+            long seed,
+            ShapeWitnessConstraintAudit.Result audit) {
+        for (ShapeWitnessConstraintAudit.Step step : audit.steps()) {
+            System.out.printf(
+                    Locale.ROOT,
+                    "shape_witness_audit,%d,%d,%s,%d,%d,%s,%s,%s,%s,%d,%d,%s,"
+                            + "%d,%d,%d,%d,%s,%s,%s,"
+                            + "%d,%d,%d,%d,%d,%d,%d,%d,%d%n",
+                    seed,
+                    step.step(),
+                    step.pieceType().name(),
+                    step.survivalRank(),
+                    step.reachableCandidates(),
+                    step.actionOnly(),
+                    step.inTopFive(),
+                    step.riskLevel().name().toLowerCase(Locale.ROOT),
+                    step.riskProfile().configValue(),
+                    step.baselineHeadroom(),
+                    step.baselineHoles(),
+                    step.safety().allowed(),
+                    step.safety().clearedLinesDelta(),
+                    step.safety().aggregateHeightDelta(),
+                    step.safety().holesDelta(),
+                    step.safety().bumpinessDelta(),
+                    step.dangerSuppressed(),
+                    step.runtimeSelectedWitnessOutcome(),
+                    step.blocker().name().toLowerCase(Locale.ROOT),
+                    step.beforeProgress().matchedRequiredCells(),
+                    step.beforeProgress().forbiddenOccupiedCells(),
+                    step.beforeProgress().visualErrorCells(),
+                    step.survivalProgress().matchedRequiredCells(),
+                    step.survivalProgress().forbiddenOccupiedCells(),
+                    step.survivalProgress().visualErrorCells(),
+                    step.witnessProgress().matchedRequiredCells(),
+                    step.witnessProgress().forbiddenOccupiedCells(),
+                    step.witnessProgress().visualErrorCells());
+        }
+
+        System.out.printf(
+                Locale.ROOT,
+                "# shape_witness_audit seed=%d steps=%d action_only_steps=%d "
+                        + "outside_top5_steps=%d danger_suppressed_steps=%d "
+                        + "safety_rejected_steps=%d runtime_selected_witness_steps=%d "
+                        + "avg_survival_rank=%.2f max_survival_rank=%d first_blocked_step=%d "
+                        + "first_blocker=%s%n",
+                seed,
+                audit.steps().size(),
+                audit.actionOnlySteps(),
+                audit.outsideTopFiveSteps(),
+                audit.dangerSuppressedSteps(),
+                audit.safetyRejectedSteps(),
+                audit.runtimeSelectedWitnessSteps(),
+                audit.averageSurvivalRank(),
+                audit.maxSurvivalRank(),
+                audit.firstBlockedStep(),
+                audit.firstBlocker().name().toLowerCase(Locale.ROOT));
+    }
+
+    private static void printWitnessAuditSummary(List<WitnessAuditResult> audits) {
+        if (audits.isEmpty()) {
+            return;
+        }
+
+        long steps = audits.stream()
+                .mapToLong(audit -> audit.audit().steps().size())
+                .sum();
+        long actionOnly = audits.stream()
+                .mapToLong(audit -> audit.audit().actionOnlySteps())
+                .sum();
+        long outsideTopFive = audits.stream()
+                .mapToLong(audit -> audit.audit().outsideTopFiveSteps())
+                .sum();
+        long dangerSuppressed = audits.stream()
+                .mapToLong(audit -> audit.audit().dangerSuppressedSteps())
+                .sum();
+        long safetyRejected = audits.stream()
+                .mapToLong(audit -> audit.audit().safetyRejectedSteps())
+                .sum();
+        long runtimeSelected = audits.stream()
+                .mapToLong(audit -> audit.audit().runtimeSelectedWitnessSteps())
+                .sum();
+        long topFiveBlockers = blockerCount(audits, ShapeWitnessConstraintAudit.Blocker.TOP_FIVE);
+        long dangerBlockers =
+                blockerCount(audits, ShapeWitnessConstraintAudit.Blocker.DANGER_SUPPRESSION);
+        long safetyBlockers =
+                blockerCount(audits, ShapeWitnessConstraintAudit.Blocker.SAFETY_BUDGET);
+        long greedyBlockers =
+                blockerCount(audits, ShapeWitnessConstraintAudit.Blocker.GREEDY_SELECTION);
+
+        System.out.printf(
+                Locale.ROOT,
+                "# shape_witness_audit_total witnesses=%d steps=%d action_only_steps=%d "
+                        + "outside_top5_steps=%d danger_suppressed_steps=%d "
+                        + "safety_rejected_steps=%d runtime_selected_witness_steps=%d "
+                        + "top5_blockers=%d danger_blockers=%d safety_blockers=%d "
+                        + "greedy_blockers=%d%n",
+                audits.size(),
+                steps,
+                actionOnly,
+                outsideTopFive,
+                dangerSuppressed,
+                safetyRejected,
+                runtimeSelected,
+                topFiveBlockers,
+                dangerBlockers,
+                safetyBlockers,
+                greedyBlockers);
+    }
+
+    private static long blockerCount(
+            List<WitnessAuditResult> audits,
+            ShapeWitnessConstraintAudit.Blocker blocker) {
+        return audits.stream()
+                .flatMap(audit -> audit.audit().steps().stream())
+                .filter(step -> step.blocker() == blocker)
+                .count();
     }
 
     private static void printSummary(
@@ -183,6 +325,11 @@ public final class ShapeFeasibilityApplication {
             long seed,
             ShapeConstructionFeasibilityBenchmark.Result result,
             long elapsedNanos) {
+    }
+
+    private record WitnessAuditResult(
+            long seed,
+            ShapeWitnessConstraintAudit.Result audit) {
     }
 
     private record Configuration(int games, int maxPieces, long seed, int beamWidth) {
