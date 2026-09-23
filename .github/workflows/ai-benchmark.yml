@@ -17,6 +17,7 @@ on:
           - adaptive-tuck-hunter
           - build-shape
           - build-shape-preview
+          - shape-feasibility
           - action-provenance
           - jev-action
           - compare
@@ -36,6 +37,16 @@ on:
         description: Maximum pieces per game
         required: true
         default: '500'
+        type: string
+      feasibility_depth:
+        description: Piece-sequence depth for shape-feasibility search
+        required: true
+        default: '24'
+        type: string
+      feasibility_beam_width:
+        description: Unique board states retained per depth for shape-feasibility search
+        required: true
+        default: '128'
         type: string
       seed:
         description: Seed for the first game; later games increment by one
@@ -101,6 +112,24 @@ jobs:
           fi
           if [[ ! "$SEED" =~ ^-?[0-9]+$ ]]; then
             echo "::error::seed must be an integer"
+            exit 1
+          fi
+
+      - name: Validate shape feasibility inputs
+        if: ${{ inputs.agent == 'shape-feasibility' }}
+        shell: bash
+        env:
+          FEASIBILITY_DEPTH: ${{ inputs.feasibility_depth }}
+          FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$FEASIBILITY_DEPTH" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::feasibility_depth must be a positive integer"
+            exit 1
+          fi
+          if [[ ! "$FEASIBILITY_BEAM_WIDTH" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::feasibility_beam_width must be a positive integer"
             exit 1
           fi
 
@@ -244,6 +273,20 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
             javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
 
+      - name: Run shape construction feasibility benchmark
+        if: ${{ inputs.agent == 'shape-feasibility' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.feasibility_depth }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+          TETRIS_BENCHMARK_FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.ShapeFeasibilityApplication \
+            javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run objective risk calibration
         if: ${{ inputs.agent == 'calibrate-objective' }}
         shell: bash
@@ -308,6 +351,8 @@ jobs:
           GAMES: ${{ inputs.games }}
           MAX_PIECES: ${{ inputs.max_pieces }}
           SEED: ${{ inputs.seed }}
+          FEASIBILITY_DEPTH: ${{ inputs.feasibility_depth }}
+          FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
         run: |
           set -euo pipefail
 
@@ -330,6 +375,9 @@ jobs:
           grep '^action_provenance,' target/benchmark/raw.log > target/benchmark/action-provenance.csv || true
           grep '^tuck_hunter_decision,' target/benchmark/raw.log > target/benchmark/tuck-hunter-decisions.csv || true
           grep '^build_shape_decision,' target/benchmark/raw.log > target/benchmark/build-shape-decisions.csv || true
+          grep '^build_shape_game,' target/benchmark/raw.log > target/benchmark/build-shape-games.csv || true
+          grep '^shape_feasibility,' target/benchmark/raw.log > target/benchmark/shape-feasibility.csv || true
+          grep '^shape_feasibility_witness,' target/benchmark/raw.log > target/benchmark/shape-feasibility-witness.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -337,6 +385,8 @@ jobs:
             echo "risk_profile=${RISK_PROFILE}"
             echo "games=${GAMES}"
             echo "max_pieces=${MAX_PIECES}"
+            echo "feasibility_depth=${FEASIBILITY_DEPTH}"
+            echo "feasibility_beam_width=${FEASIBILITY_BEAM_WIDTH}"
             echo "seed=${SEED}"
           } > target/benchmark/metadata.txt
 
@@ -350,7 +400,7 @@ jobs:
             cat target/benchmark/summary.txt
             echo '~~~'
             echo
-            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE decision telemetry when applicable, summary, metadata, and the raw Maven/application log."
+            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data when applicable, summary, metadata, and the raw Maven/application log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
@@ -364,6 +414,9 @@ jobs:
             target/benchmark/action-provenance.csv
             target/benchmark/tuck-hunter-decisions.csv
             target/benchmark/build-shape-decisions.csv
+            target/benchmark/build-shape-games.csv
+            target/benchmark/shape-feasibility.csv
+            target/benchmark/shape-feasibility-witness.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
