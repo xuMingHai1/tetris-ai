@@ -138,7 +138,7 @@ TETRIS_AI_OBJECTIVE=build-shape \
 ./mvnw javafx:run
 ```
 
-`BUILD_SHAPE` 仍不读取或推断颜色，target 继续区分三种 occupancy 语义：`#` 是必须占用的视觉格，`.` 是必须保持为空的视觉背景，`+` 是允许占用的物理支撑区。内置 HEART 把 6 行视觉轮廓放在两行 support zone 上方，因此支撑块不会被误算成视觉错误。只有 Required 全部命中且 Forbidden 全部为空才算 clean completion。SURVIVAL heuristic rank 1 是风险 baseline，heuristic top-5 作为 creative planning 的 survival-quality prior；LOW / NORMAL 下只有这组候选再经过 `ObjectiveSafetyBudget` 后竞争 shape progress。Risk Controller 进入 `DANGER` 时仍暂停创作并直接返回 SURVIVAL top-1。生产 `build-shape` 保持单步 greedy shape progress。一步 `build-shape-preview` 已作为 benchmark hypothesis 验证：20×500、seed 1000 的对比中平均 visual error 仅从 20.386 降到 20.002，但到达 500 pieces 的局数从 19/20 降到 18/20，clean completion 仍为 0，因此不提升为 runtime 默认。下一阶段通过独立的 bounded construction-feasibility search 验证 HEART 在真实 action-native reachability / row-clear 规则下是否能产生 clean completion witness；找到 witness 是可构造的正证，搜索预算内未找到则不能解释为“不可能”。
+`BUILD_SHAPE` 仍不读取或推断颜色，target 继续区分三种 occupancy 语义：`#` 是必须占用的视觉格，`.` 是必须保持为空的视觉背景，`+` 是允许占用的物理支撑区。内置 HEART 把 6 行视觉轮廓放在两行 support zone 上方，因此支撑块不会被误算成视觉错误。只有 Required 全部命中且 Forbidden 全部为空才算 clean completion。SURVIVAL heuristic rank 1 是风险 baseline，heuristic top-5 作为 creative planning 的 survival-quality prior；LOW / NORMAL 下只有这组候选再经过 `ObjectiveSafetyBudget` 后竞争 shape progress。Risk Controller 进入 `DANGER` 时仍暂停创作并直接返回 SURVIVAL top-1。生产 `build-shape` 保持单步 greedy shape progress。一步 `build-shape-preview` 已作为 benchmark hypothesis 验证：20×500、seed 1000 的对比中平均 visual error 仅从 20.386 降到 20.002，但到达 500 pieces 的局数从 19/20 降到 18/20，clean completion 仍为 0，因此不提升为 runtime 默认。随后 `shape-feasibility` 在 20 个 seeded 7-bag 样本上证明 HEART 在真实 action-native reachability / row-clear 规则下可构造：seed 1001 用 12 块、seed 1008 用 10 块达到 `32/32 REQUIRED + 0 FORBIDDEN`，其余样本的最佳 visual error 也都不超过 3。当前研究重点因此从“HEART 是否可构造”转为“当前 runtime policy 的哪一层阻断了已知成功路径”。找到 clean witness 后 benchmark 会额外执行 `ShapeWitnessConstraintAudit`，逐步检查 survival rank/top-5、DANGER suppression、Safety Budget、action-only provenance 以及 greedy runtime 是否选择同一 resulting board。
 
 Windows CMD：
 
@@ -183,7 +183,7 @@ TETRIS_BENCHMARK_FEASIBILITY_BEAM_WIDTH=128 \
 ./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.ShapeFeasibilityApplication javafx:run
 ```
 
-该模式若找到 clean completion，会输出逐 piece 的 `AiPlan` witness；未找到只表示当前 depth / beam 预算没有找到构造路径。
+该模式若找到 clean completion，会输出逐 piece 的 `AiPlan` witness，并立即对该 witness 运行 runtime constraint audit；未找到只表示当前 depth / beam 预算没有找到构造路径。audit 会把每一步的 `survival_rank / action_only / in_top5 / risk_level / safety_allowed / runtime_selected_witness_outcome / blocker` 输出到 `shape-witness-audit.csv`。
 
 例如使用相同 seed 跑 10 局本地 heuristic：
 
@@ -207,7 +207,7 @@ TYPESAFE_API_KEY=<your-key> \
 
 输出包含每局 `pieces / lines / primary failures / fallback count / average and max decision latency`，以及局面健康度 `aggregate height / holes / bumpiness` 的 final / average / max。两种 Jev 模式都会汇总 confidence、token、candidate count、selected heuristic rank、top-1 agreement，以及相对本地 shortlist 第一名的 immediate metric delta。`jev-action` 还会在 shortlist 已经确定之后，按与 reachability benchmark 相同的 post-lock/post-row-clear outcome 口径标记哪些候选是旧 rotate-then-shift placement 路径无法达到的 action-only outcome，并统计候选占比与实际选择率；这个 provenance 只进入 telemetry，不发送给 Jev，也不参与排序。BUILD_SHAPE 除逐 decision telemetry 外，还输出逐局 `best_visual_error / max_required_with_zero_forbidden / min_forbidden_at_full_required / clean_completion`，aggregate summary 会统计 `games_error_le_8 / <=4 / ==0`，避免跨所有 decision 的平均 visual error 掩盖最佳构造状态。手动 workflow 会把这些数据分别保存为 artifact CSV。benchmark latency 是完整 agent 调用耗时，不模拟桌面游戏的实时 gravity deadline。
 
-也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认 gameplay 参数为 `20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天。`compare` 使用同一组 seed 运行 `heuristic / lookahead / jev`；`compare-action` 运行 `action / jev-action`；`compare-objective` 完全本地运行 `action / tuck-hunter`；`compare-adaptive` 比较 `action / adaptive-tuck-hunter`；`compare-shape` 比较 `action / build-shape-heart`；`compare-shape-preview` 保留为已验证的 greedy-vs-preview 复现实验。`shape-feasibility` 是独立的 bounded construction search，使用 `games + seed` 作为 7-bag 样本，使用单独的 `feasibility_depth`（默认 24）和 `feasibility_beam_width`（默认 128），不会误用 gameplay 的 500-piece 默认值；结果包含 `shape-feasibility.csv`，若找到 clean completion 还会包含 `shape-feasibility-witness.csv`。`calibrate-objective` 用于固定风险档校准，`action-provenance` 用于 action-only 分布扫描；这些本地模式都不调用 Jev。
+也可以从 GitHub Actions 手动运行 **AI Benchmark** workflow。默认 gameplay 参数为 `20 games / 500 max pieces / seed 1000`，结果会以 artifact 保存 30 天。`compare` 使用同一组 seed 运行 `heuristic / lookahead / jev`；`compare-action` 运行 `action / jev-action`；`compare-objective` 完全本地运行 `action / tuck-hunter`；`compare-adaptive` 比较 `action / adaptive-tuck-hunter`；`compare-shape` 比较 `action / build-shape-heart`；`compare-shape-preview` 保留为已验证的 greedy-vs-preview 复现实验。`shape-feasibility` 是独立的 bounded construction search，使用 `games + seed` 作为 7-bag 样本，使用单独的 `feasibility_depth`（默认 24）和 `feasibility_beam_width`（默认 128），不会误用 gameplay 的 500-piece 默认值；结果包含 `shape-feasibility.csv`，若找到 clean completion 还会包含 `shape-feasibility-witness.csv` 和 `shape-witness-audit.csv`。`calibrate-objective` 用于固定风险档校准，`action-provenance` 用于 action-only 分布扫描；这些本地模式都不调用 Jev。
 
 Jev workflow 不会自动执行。选择 `jev`、`jev-action`、`compare` 或 `compare-action` 时必须同时：
 
