@@ -138,7 +138,7 @@ TETRIS_AI_OBJECTIVE=build-shape \
 ./mvnw javafx:run
 ```
 
-`BUILD_SHAPE` 仍不读取或推断颜色，target 继续区分三种 occupancy 语义：`#` 是必须占用的视觉格，`.` 是必须保持为空的视觉背景，`+` 是允许占用的物理支撑区。内置 HEART 把 6 行视觉轮廓放在两行 support zone 上方，因此支撑块不会被误算成视觉错误。只有 Required 全部命中且 Forbidden 全部为空才算 clean completion。SURVIVAL heuristic rank 1 是风险 baseline，heuristic top-5 作为 creative planning 的 survival-quality prior；LOW / NORMAL 下只有这组候选再经过 `ObjectiveSafetyBudget` 后竞争 shape progress。Risk Controller 进入 `DANGER` 时仍暂停创作并直接返回 SURVIVAL top-1。生产 `build-shape` 保持单步 greedy shape progress。一步 `build-shape-preview` 已作为 benchmark hypothesis 验证：20×500、seed 1000 的对比中平均 visual error 仅从 20.386 降到 20.002，但到达 500 pieces 的局数从 19/20 降到 18/20，clean completion 仍为 0，因此不提升为 runtime 默认。随后 `shape-feasibility` 在 20 个 seeded 7-bag 样本上证明 HEART 在真实 action-native reachability / row-clear 规则下可构造：seed 1001 用 12 块、seed 1008 用 10 块达到 `32/32 REQUIRED + 0 FORBIDDEN`，其余样本的最佳 visual error 也都不超过 3。当前研究重点因此从“HEART 是否可构造”转为“当前 runtime policy 的哪一层阻断了已知成功路径”。找到 clean witness 后 benchmark 会额外执行 `ShapeWitnessConstraintAudit`，逐步检查 survival rank/top-5、DANGER suppression、Safety Budget、action-only provenance 以及 greedy runtime 是否选择同一 resulting board。
+`BUILD_SHAPE` 仍不读取或推断颜色，target 继续区分三种 occupancy 语义：`#` 是必须占用的视觉格，`.` 是必须保持为空的视觉背景，`+` 是允许占用的物理支撑区。内置 HEART 把 6 行视觉轮廓放在两行 support zone 上方，因此支撑块不会被误算成视觉错误。只有 Required 全部命中且 Forbidden 全部为空才算 clean completion。SURVIVAL heuristic rank 1 是风险 baseline，heuristic top-5 作为 creative planning 的 survival-quality prior；LOW / NORMAL 下只有这组候选再经过 `ObjectiveSafetyBudget` 后竞争 shape progress。Risk Controller 进入 `DANGER` 时仍暂停创作并直接返回 SURVIVAL top-1。生产 `build-shape` 保持单步 greedy shape progress。一步 `build-shape-preview` 已作为 benchmark hypothesis 验证：20×500、seed 1000 的对比中平均 visual error 仅从 20.386 降到 20.002，但到达 500 pieces 的局数从 19/20 降到 18/20，clean completion 仍为 0，因此不提升为 runtime 默认。随后 `shape-feasibility` 在 20 个 seeded 7-bag 样本上证明 HEART 在真实 action-native reachability / row-clear 规则下可构造：seed 1001 用 12 块、seed 1008 用 10 块达到 `32/32 REQUIRED + 0 FORBIDDEN`，其余样本的最佳 visual error 也都不超过 3。AI Benchmark #30 对这两个 clean witness 共 22 步做 runtime constraint audit：19/22 在 survival top-5 外、17/22 落入 DANGER、22/22 被当前 Safety Budget 拒绝，而 runtime 没有一步选择 witness outcome。当前研究重点因此不是继续增加 lookahead，而是解释 survival safety facts 与 shape construction 的冲突。benchmark 现在会把每个 raw survival hole 按 HEART 语义拆成 `REQUIRED / FORBIDDEN / SUPPORT_ALLOWED / OUTSIDE_TARGET`；hole 坐标和 production `PlacementCandidate.holes` 共用同一个 occupancy metrics 扫描。诊断只做一个明确 counterfactual：暂时不计必须保持为空的 `FORBIDDEN` holes，然后分别观察当前 risk profile 下的 Safety Budget，以及重新计算 Risk Level/Profile 后的 Safety Budget。它不会自动把 support 或 target 外空洞当成安全，也不会改变 runtime。
 
 Windows CMD：
 
@@ -183,7 +183,7 @@ TETRIS_BENCHMARK_FEASIBILITY_BEAM_WIDTH=128 \
 ./mvnw -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.ShapeFeasibilityApplication javafx:run
 ```
 
-该模式若找到 clean completion，会输出逐 piece 的 `AiPlan` witness，并立即对该 witness 运行 runtime constraint audit；未找到只表示当前 depth / beam 预算没有找到构造路径。audit 会把每一步的 `survival_rank / action_only / in_top5 / risk_level / safety_allowed / runtime_selected_witness_outcome / blocker` 输出到 `shape-witness-audit.csv`。
+该模式若找到 clean completion，会输出逐 piece 的 `AiPlan` witness，并立即对该 witness 运行 runtime constraint audit；未找到只表示当前 depth / beam 预算没有找到构造路径。audit 会把每一步的 `survival_rank / action_only / in_top5 / risk_level / safety_allowed / runtime_selected_witness_outcome / blocker` 以及 survival/witness 的四类 hole breakdown 输出到 `shape-witness-audit.csv`。其中 `forbidden_excluded_*` 字段只是验证“目标负空间是否被 raw hole 误罚”的 counterfactual，不是新的安全策略。
 
 例如使用相同 seed 跑 10 局本地 heuristic：
 
