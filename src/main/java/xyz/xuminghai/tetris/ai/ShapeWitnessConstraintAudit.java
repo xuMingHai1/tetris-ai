@@ -164,7 +164,7 @@ public final class ShapeWitnessConstraintAudit {
         return summarize(List.copyOf(steps), finalProgress);
     }
 
-    private static HoleBreakdown classifyHoles(ShapeTarget target, boolean[][] board) {
+    static HoleBreakdown classifyHoles(ShapeTarget target, boolean[][] board) {
         BoardOccupancyMetrics.Analysis metrics =
                 BoardOccupancyMetrics.analyzeWithHoleCells(board);
         int required = 0;
