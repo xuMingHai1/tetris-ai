@@ -519,7 +519,7 @@ public final class BenchmarkApplication {
                 System.out.printf(
                         Locale.ROOT,
                         "build_shape_decision,%s,%s,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,"
-                                + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%s,%d,%d,%d,%d%n",
+                                + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%s,%d,%d,%d,%d%n",
                         configuration.resultAgent(),
                         observation.target().configValue(),
                         trace.seed(),
