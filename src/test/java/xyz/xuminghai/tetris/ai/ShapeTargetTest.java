@@ -109,6 +109,25 @@ class ShapeTargetTest {
     }
 
     @Test
+    void mapsBoardCoordinatesToTheSameBottomCenteredTargetRoles() {
+        assertEquals(
+                ShapeTarget.CellRole.FORBIDDEN,
+                ShapeTarget.HEART.roleAtBoardCell(20, 10, 12, 1));
+        assertEquals(
+                ShapeTarget.CellRole.REQUIRED,
+                ShapeTarget.HEART.roleAtBoardCell(20, 10, 12, 2));
+        assertEquals(
+                ShapeTarget.CellRole.SUPPORT_ALLOWED,
+                ShapeTarget.HEART.roleAtBoardCell(20, 10, 18, 1));
+        assertEquals(
+                ShapeTarget.CellRole.OUTSIDE_TARGET,
+                ShapeTarget.HEART.roleAtBoardCell(20, 10, 11, 1));
+        assertEquals(
+                ShapeTarget.CellRole.OUTSIDE_TARGET,
+                ShapeTarget.HEART.roleAtBoardCell(20, 10, 12, 0));
+    }
+
+    @Test
     void rejectsBoardSmallerThanTargetCanvas() {
         assertThrows(
                 IllegalArgumentException.class,

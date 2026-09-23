@@ -127,34 +127,14 @@ public final class BoardSimulator {
     }
 
     private static PlacementCandidate describe(AiMove move, boolean[][] board, int clearedLines) {
-        int rows = board.length;
-        int cols = board[0].length;
-        int[] heights = new int[cols];
-        int aggregateHeight = 0;
-        int holes = 0;
-
-        for (int col = 0; col < cols; col++) {
-            boolean blockSeen = false;
-            for (int row = 0; row < rows; row++) {
-                if (board[row][col]) {
-                    if (!blockSeen) {
-                        heights[col] = rows - row;
-                        aggregateHeight += heights[col];
-                        blockSeen = true;
-                    }
-                }
-                else if (blockSeen) {
-                    holes++;
-                }
-            }
-        }
-
-        int bumpiness = 0;
-        for (int col = 0; col < cols - 1; col++) {
-            bumpiness += Math.abs(heights[col] - heights[col + 1]);
-        }
-
-        return new PlacementCandidate(move, board, clearedLines, aggregateHeight, holes, bumpiness);
+        BoardOccupancyMetrics.Analysis metrics = BoardOccupancyMetrics.analyze(board);
+        return new PlacementCandidate(
+                move,
+                board,
+                clearedLines,
+                metrics.aggregateHeight(),
+                metrics.holes(),
+                metrics.bumpiness());
     }
 
     private static List<BoardPosition> rotatedCells(

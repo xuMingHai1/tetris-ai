@@ -60,7 +60,15 @@ public final class ShapeFeasibilityApplication {
                         + "before_forbidden_occupied,before_visual_error,"
                         + "survival_matched_required,survival_forbidden_occupied,"
                         + "survival_visual_error,witness_matched_required,"
-                        + "witness_forbidden_occupied,witness_visual_error");
+                        + "witness_forbidden_occupied,witness_visual_error,"
+                        + "survival_raw_holes,survival_required_holes,"
+                        + "survival_forbidden_holes,survival_support_holes,"
+                        + "survival_outside_holes,witness_raw_holes,witness_required_holes,"
+                        + "witness_forbidden_holes,witness_support_holes,witness_outside_holes,"
+                        + "forbidden_excluded_holes_delta,"
+                        + "forbidden_excluded_safety_allowed_current_profile,"
+                        + "forbidden_excluded_risk_level,forbidden_excluded_risk_profile,"
+                        + "forbidden_excluded_safety_allowed_adjusted_profile");
 
         for (int game = 0; game < configuration.games(); game++) {
             long seed = configuration.seed() + game;
@@ -128,39 +136,7 @@ public final class ShapeFeasibilityApplication {
             long seed,
             ShapeWitnessConstraintAudit.Result audit) {
         for (ShapeWitnessConstraintAudit.Step step : audit.steps()) {
-            System.out.printf(
-                    Locale.ROOT,
-                    "shape_witness_audit,%d,%d,%s,%d,%d,%s,%s,%s,%s,%d,%d,%s,"
-                            + "%d,%d,%d,%d,%s,%s,%s,"
-                            + "%d,%d,%d,%d,%d,%d,%d,%d,%d%n",
-                    seed,
-                    step.step(),
-                    step.pieceType().name(),
-                    step.survivalRank(),
-                    step.reachableCandidates(),
-                    step.actionOnly(),
-                    step.inTopFive(),
-                    step.riskLevel().name().toLowerCase(Locale.ROOT),
-                    step.riskProfile().configValue(),
-                    step.baselineHeadroom(),
-                    step.baselineHoles(),
-                    step.safety().allowed(),
-                    step.safety().clearedLinesDelta(),
-                    step.safety().aggregateHeightDelta(),
-                    step.safety().holesDelta(),
-                    step.safety().bumpinessDelta(),
-                    step.dangerSuppressed(),
-                    step.runtimeSelectedWitnessOutcome(),
-                    step.blocker().name().toLowerCase(Locale.ROOT),
-                    step.beforeProgress().matchedRequiredCells(),
-                    step.beforeProgress().forbiddenOccupiedCells(),
-                    step.beforeProgress().visualErrorCells(),
-                    step.survivalProgress().matchedRequiredCells(),
-                    step.survivalProgress().forbiddenOccupiedCells(),
-                    step.survivalProgress().visualErrorCells(),
-                    step.witnessProgress().matchedRequiredCells(),
-                    step.witnessProgress().forbiddenOccupiedCells(),
-                    step.witnessProgress().visualErrorCells());
+            System.out.println(formatWitnessAuditLine(seed, step));
         }
 
         System.out.printf(
@@ -168,8 +144,13 @@ public final class ShapeFeasibilityApplication {
                 "# shape_witness_audit seed=%d steps=%d action_only_steps=%d "
                         + "outside_top5_steps=%d danger_suppressed_steps=%d "
                         + "safety_rejected_steps=%d runtime_selected_witness_steps=%d "
-                        + "avg_survival_rank=%.2f max_survival_rank=%d first_blocked_step=%d "
-                        + "first_blocker=%s%n",
+                        + "forbidden_excluded_allowed_current_profile_steps=%d "
+                        + "forbidden_excluded_allowed_adjusted_profile_steps=%d "
+                        + "forbidden_excluded_danger_steps=%d "
+                        + "avg_survival_rank=%.2f max_survival_rank=%d "
+                        + "final_raw_holes=%d final_required_holes=%d "
+                        + "final_forbidden_holes=%d final_support_holes=%d "
+                        + "final_outside_holes=%d first_blocked_step=%d first_blocker=%s%n",
                 seed,
                 audit.steps().size(),
                 audit.actionOnlySteps(),
@@ -177,10 +158,69 @@ public final class ShapeFeasibilityApplication {
                 audit.dangerSuppressedSteps(),
                 audit.safetyRejectedSteps(),
                 audit.runtimeSelectedWitnessSteps(),
+                audit.forbiddenExcludedAllowedCurrentProfileSteps(),
+                audit.forbiddenExcludedAllowedAdjustedProfileSteps(),
+                audit.forbiddenExcludedDangerSteps(),
                 audit.averageSurvivalRank(),
                 audit.maxSurvivalRank(),
+                audit.finalWitnessHoles().totalHoles(),
+                audit.finalWitnessHoles().requiredHoles(),
+                audit.finalWitnessHoles().forbiddenHoles(),
+                audit.finalWitnessHoles().supportAllowedHoles(),
+                audit.finalWitnessHoles().outsideTargetHoles(),
                 audit.firstBlockedStep(),
                 audit.firstBlocker().name().toLowerCase(Locale.ROOT));
+    }
+
+    static String formatWitnessAuditLine(
+            long seed,
+            ShapeWitnessConstraintAudit.Step step) {
+        return String.join(
+                ",",
+                "shape_witness_audit",
+                Long.toString(seed),
+                Integer.toString(step.step()),
+                step.pieceType().name(),
+                Integer.toString(step.survivalRank()),
+                Integer.toString(step.reachableCandidates()),
+                Boolean.toString(step.actionOnly()),
+                Boolean.toString(step.inTopFive()),
+                step.riskLevel().name().toLowerCase(Locale.ROOT),
+                step.riskProfile().configValue(),
+                Integer.toString(step.baselineHeadroom()),
+                Integer.toString(step.baselineHoles()),
+                Boolean.toString(step.safety().allowed()),
+                Integer.toString(step.safety().clearedLinesDelta()),
+                Integer.toString(step.safety().aggregateHeightDelta()),
+                Integer.toString(step.safety().holesDelta()),
+                Integer.toString(step.safety().bumpinessDelta()),
+                Boolean.toString(step.dangerSuppressed()),
+                Boolean.toString(step.runtimeSelectedWitnessOutcome()),
+                step.blocker().name().toLowerCase(Locale.ROOT),
+                Integer.toString(step.beforeProgress().matchedRequiredCells()),
+                Integer.toString(step.beforeProgress().forbiddenOccupiedCells()),
+                Integer.toString(step.beforeProgress().visualErrorCells()),
+                Integer.toString(step.survivalProgress().matchedRequiredCells()),
+                Integer.toString(step.survivalProgress().forbiddenOccupiedCells()),
+                Integer.toString(step.survivalProgress().visualErrorCells()),
+                Integer.toString(step.witnessProgress().matchedRequiredCells()),
+                Integer.toString(step.witnessProgress().forbiddenOccupiedCells()),
+                Integer.toString(step.witnessProgress().visualErrorCells()),
+                Integer.toString(step.survivalHoles().totalHoles()),
+                Integer.toString(step.survivalHoles().requiredHoles()),
+                Integer.toString(step.survivalHoles().forbiddenHoles()),
+                Integer.toString(step.survivalHoles().supportAllowedHoles()),
+                Integer.toString(step.survivalHoles().outsideTargetHoles()),
+                Integer.toString(step.witnessHoles().totalHoles()),
+                Integer.toString(step.witnessHoles().requiredHoles()),
+                Integer.toString(step.witnessHoles().forbiddenHoles()),
+                Integer.toString(step.witnessHoles().supportAllowedHoles()),
+                Integer.toString(step.witnessHoles().outsideTargetHoles()),
+                Integer.toString(step.forbiddenExcludedHolesDelta()),
+                Boolean.toString(step.forbiddenExcludedSafetyAllowedCurrentProfile()),
+                step.forbiddenExcludedRiskLevel().name().toLowerCase(Locale.ROOT),
+                step.forbiddenExcludedRiskProfile().configValue(),
+                Boolean.toString(step.forbiddenExcludedSafetyAllowedAdjustedProfile()));
     }
 
     private static void printWitnessAuditSummary(List<WitnessAuditResult> audits) {
@@ -206,6 +246,22 @@ public final class ShapeFeasibilityApplication {
         long runtimeSelected = audits.stream()
                 .mapToLong(audit -> audit.audit().runtimeSelectedWitnessSteps())
                 .sum();
+        long forbiddenExcludedAllowedCurrentProfile = audits.stream()
+                .mapToLong(audit ->
+                        audit.audit().forbiddenExcludedAllowedCurrentProfileSteps())
+                .sum();
+        long forbiddenExcludedAllowedAdjustedProfile = audits.stream()
+                .mapToLong(audit ->
+                        audit.audit().forbiddenExcludedAllowedAdjustedProfileSteps())
+                .sum();
+        long forbiddenExcludedDanger = audits.stream()
+                .mapToLong(audit -> audit.audit().forbiddenExcludedDangerSteps())
+                .sum();
+        long rawHoleObservations = holeObservationSum(audits, HoleMetric.TOTAL);
+        long requiredHoleObservations = holeObservationSum(audits, HoleMetric.REQUIRED);
+        long forbiddenHoleObservations = holeObservationSum(audits, HoleMetric.FORBIDDEN);
+        long supportHoleObservations = holeObservationSum(audits, HoleMetric.SUPPORT);
+        long outsideHoleObservations = holeObservationSum(audits, HoleMetric.OUTSIDE);
         long topFiveBlockers = blockerCount(audits, ShapeWitnessConstraintAudit.Blocker.TOP_FIVE);
         long dangerBlockers =
                 blockerCount(audits, ShapeWitnessConstraintAudit.Blocker.DANGER_SUPPRESSION);
@@ -219,6 +275,14 @@ public final class ShapeFeasibilityApplication {
                 "# shape_witness_audit_total witnesses=%d steps=%d action_only_steps=%d "
                         + "outside_top5_steps=%d danger_suppressed_steps=%d "
                         + "safety_rejected_steps=%d runtime_selected_witness_steps=%d "
+                        + "forbidden_excluded_allowed_current_profile_steps=%d "
+                        + "forbidden_excluded_allowed_adjusted_profile_steps=%d "
+                        + "forbidden_excluded_danger_steps=%d "
+                        + "witness_raw_hole_observations=%d "
+                        + "witness_required_hole_observations=%d "
+                        + "witness_forbidden_hole_observations=%d "
+                        + "witness_support_hole_observations=%d "
+                        + "witness_outside_hole_observations=%d "
                         + "top5_blockers=%d danger_blockers=%d safety_blockers=%d "
                         + "greedy_blockers=%d%n",
                 audits.size(),
@@ -228,6 +292,14 @@ public final class ShapeFeasibilityApplication {
                 dangerSuppressed,
                 safetyRejected,
                 runtimeSelected,
+                forbiddenExcludedAllowedCurrentProfile,
+                forbiddenExcludedAllowedAdjustedProfile,
+                forbiddenExcludedDanger,
+                rawHoleObservations,
+                requiredHoleObservations,
+                forbiddenHoleObservations,
+                supportHoleObservations,
+                outsideHoleObservations,
                 topFiveBlockers,
                 dangerBlockers,
                 safetyBlockers,
@@ -241,6 +313,16 @@ public final class ShapeFeasibilityApplication {
                 .flatMap(audit -> audit.audit().steps().stream())
                 .filter(step -> step.blocker() == blocker)
                 .count();
+    }
+
+    private static long holeObservationSum(
+            List<WitnessAuditResult> audits,
+            HoleMetric metric) {
+        return audits.stream()
+                .flatMap(audit -> audit.audit().steps().stream())
+                .map(ShapeWitnessConstraintAudit.Step::witnessHoles)
+                .mapToLong(metric::value)
+                .sum();
     }
 
     private static void printSummary(
@@ -330,6 +412,41 @@ public final class ShapeFeasibilityApplication {
     private record WitnessAuditResult(
             long seed,
             ShapeWitnessConstraintAudit.Result audit) {
+    }
+
+    private enum HoleMetric {
+        TOTAL {
+            @Override
+            int value(ShapeWitnessConstraintAudit.HoleBreakdown holes) {
+                return holes.totalHoles();
+            }
+        },
+        REQUIRED {
+            @Override
+            int value(ShapeWitnessConstraintAudit.HoleBreakdown holes) {
+                return holes.requiredHoles();
+            }
+        },
+        FORBIDDEN {
+            @Override
+            int value(ShapeWitnessConstraintAudit.HoleBreakdown holes) {
+                return holes.forbiddenHoles();
+            }
+        },
+        SUPPORT {
+            @Override
+            int value(ShapeWitnessConstraintAudit.HoleBreakdown holes) {
+                return holes.supportAllowedHoles();
+            }
+        },
+        OUTSIDE {
+            @Override
+            int value(ShapeWitnessConstraintAudit.HoleBreakdown holes) {
+                return holes.outsideTargetHoles();
+            }
+        };
+
+        abstract int value(ShapeWitnessConstraintAudit.HoleBreakdown holes);
     }
 
     private record Configuration(int games, int maxPieces, long seed, int beamWidth) {

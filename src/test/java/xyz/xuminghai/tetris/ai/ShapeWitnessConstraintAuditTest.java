@@ -46,6 +46,49 @@ class ShapeWitnessConstraintAuditTest {
         assertTrue(audit.steps().stream().allMatch(step ->
                 step.survivalRank() >= 1
                         && step.survivalRank() <= step.reachableCandidates()));
+        assertTrue(audit.steps().stream().allMatch(step ->
+                step.witnessHoles().totalHoles()
+                        == step.witnessHoles().requiredHoles()
+                                + step.witnessHoles().forbiddenHoles()
+                                + step.witnessHoles().supportAllowedHoles()
+                                + step.witnessHoles().outsideTargetHoles()));
+        assertTrue(audit.finalWitnessHoles().forbiddenHoles() > 0);
+        assertTrue(audit.finalWitnessHoles().totalHoles()
+                >= audit.finalWitnessHoles().forbiddenHoles());
+    }
+
+    @Test
+    void classifiesCleanHeartNegativeSpaceWithoutTreatingRequiredCellsAsHoles() {
+        boolean[][] board = new boolean[20][10];
+        String[] heart = {
+                ".##..##.",
+                "########",
+                "########",
+                ".######.",
+                "..####..",
+                "...##..."
+        };
+        int rowOffset = 12;
+        int colOffset = 1;
+        for (int row = 0; row < heart.length; row++) {
+            for (int col = 0; col < heart[row].length(); col++) {
+                if (heart[row].charAt(col) == '#') {
+                    board[rowOffset + row][colOffset + col] = true;
+                }
+            }
+        }
+        board[18][4] = true;
+        board[19][4] = true;
+
+        ShapeWitnessConstraintAudit.HoleBreakdown holes =
+                ShapeWitnessConstraintAudit.classifyHoles(ShapeTarget.HEART, board);
+
+        assertEquals(26, holes.totalHoles());
+        assertEquals(0, holes.requiredHoles());
+        assertEquals(12, holes.forbiddenHoles());
+        assertEquals(14, holes.supportAllowedHoles());
+        assertEquals(0, holes.outsideTargetHoles());
+        assertEquals(14, holes.nonForbiddenHoles());
     }
 
     @Test
