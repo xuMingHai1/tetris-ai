@@ -75,6 +75,63 @@ class BuildShapeActionPlanningAgentTest {
     }
 
     @Test
+    void previewLookaheadStaysInsideCurrentQualityAndSafetyBoundaries() {
+        GameSnapshot snapshot = emptySnapshot();
+        AtomicReference<BuildShapeDecisionObservation> observed = new AtomicReference<>();
+
+        AiPlan selected = BuildShapeActionPlanningAgent.previewLookahead(
+                ShapeTarget.HEART,
+                observed::set).plan(snapshot);
+
+        BuildShapeDecisionObservation observation = observed.get();
+        assertNotNull(observation);
+
+        List<ActionPlanCandidates.PlannedCandidate> ranked =
+                ActionPlanCandidates.ranked(snapshot);
+        List<ActionPlanCandidates.PlannedCandidate> shortlist =
+                ranked.subList(
+                        0,
+                        Math.min(
+                                BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES,
+                                ranked.size()));
+        ActionPlanCandidates.PlannedCandidate selectedCandidate = shortlist.stream()
+                .filter(candidate -> candidate.plan().equals(selected))
+                .findFirst()
+                .orElseThrow();
+
+        ObjectiveRiskController.Decision riskDecision =
+                ObjectiveRiskController.adaptive().decide(shortlist.getFirst().placement());
+        ObjectiveSafetyBudget.Assessment safety = riskDecision.profile().budget()
+                .assess(shortlist.getFirst().placement(), selectedCandidate.placement());
+
+        assertTrue(safety.allowed());
+        assertTrue(observation.selectedRank() <= BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES);
+        assertEquals(selectedCandidate.plan(), selected);
+    }
+
+    @Test
+    void previewLookaheadMatchesGreedyPlannerWhenPreviewPieceIsUnknown() {
+        GameSnapshot snapshot = new GameSnapshot(
+                20,
+                10,
+                new boolean[20][10],
+                TetrominoType.T,
+                List.of(
+                        new BoardPosition(0, 4),
+                        new BoardPosition(1, 3),
+                        new BoardPosition(1, 4),
+                        new BoardPosition(1, 5)));
+
+        AiPlan greedy = new BuildShapeActionPlanningAgent().plan(snapshot);
+        AiPlan preview = BuildShapeActionPlanningAgent.previewLookahead(
+                ShapeTarget.HEART,
+                ignored -> {
+                }).plan(snapshot);
+
+        assertEquals(greedy, preview);
+    }
+
+    @Test
     void dangerStateReturnsExactSurvivalTopChoice() {
         GameSnapshot snapshot = dangerSnapshot();
         AtomicReference<BuildShapeDecisionObservation> observed = new AtomicReference<>();
