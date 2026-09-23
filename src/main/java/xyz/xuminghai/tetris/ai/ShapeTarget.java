@@ -68,6 +68,38 @@ public enum ShapeTarget {
     }
 
     /**
+     * Maps one board coordinate back to the target role using the same bottom-centered anchor as
+     * {@link #progress(boolean[][])}.
+     *
+     * <p>This package-local view exists for diagnostics that need to explain occupancy facts by
+     * target semantics without duplicating the target mask or its anchoring rules.</p>
+     */
+    CellRole roleAtBoardCell(
+            int boardRows,
+            int boardCols,
+            int boardRow,
+            int boardCol) {
+        if (boardRows < height() || boardCols < width()) {
+            throw new IllegalArgumentException("board is smaller than shape target");
+        }
+        if (boardRow < 0 || boardRow >= boardRows || boardCol < 0 || boardCol >= boardCols) {
+            throw new IllegalArgumentException("board coordinate is outside board dimensions");
+        }
+
+        int rowOffset = boardRows - height();
+        int colOffset = (boardCols - width()) / 2;
+        int targetRow = boardRow - rowOffset;
+        int targetCol = boardCol - colOffset;
+        if (targetRow < 0
+                || targetRow >= height()
+                || targetCol < 0
+                || targetCol >= width()) {
+            return CellRole.OUTSIDE_TARGET;
+        }
+        return mask[targetRow][targetCol];
+    }
+
+    /**
      * Evaluates the target against one post-lock/post-row-clear board.
      */
     public ShapeProgress progress(boolean[][] board) {
@@ -162,9 +194,10 @@ public enum ShapeTarget {
         return count;
     }
 
-    private enum CellRole {
+    enum CellRole {
         REQUIRED,
         FORBIDDEN,
-        SUPPORT_ALLOWED
+        SUPPORT_ALLOWED,
+        OUTSIDE_TARGET
     }
 }
