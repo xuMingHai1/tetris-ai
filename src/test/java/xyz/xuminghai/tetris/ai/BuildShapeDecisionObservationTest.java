@@ -42,6 +42,29 @@ class BuildShapeDecisionObservationTest {
     }
 
     @Test
+    void rejectsCreativeCandidateCountBeyondQualityShortlist() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new BuildShapeDecisionObservation(
+                        ShapeTarget.HEART,
+                        20,
+                        6,
+                        3,
+                        ObjectiveRiskController.RiskLevel.LOW,
+                        ObjectiveRiskProfile.BALANCED,
+                        12,
+                        0,
+                        false,
+                        4,
+                        new ShapeProgress(32, 10, 16, 3, 4),
+                        new ShapeProgress(32, 12, 16, 2, 5),
+                        0,
+                        2,
+                        0,
+                        1));
+    }
+
+    @Test
     void acceptsExactSurvivalFallbackWhenDangerSuppressesCreativity() {
         ShapeProgress progress = new ShapeProgress(32, 20, 16, 4, 6);
 
