@@ -8,7 +8,7 @@ package xyz.xuminghai.tetris.ai;
 import java.util.Objects;
 
 /**
- * Observational facts from one BUILD_SHAPE decision.
+ * Observational facts from one BUILD_SHAPE decision over the full reachable candidate ranking.
  */
 public record BuildShapeDecisionObservation(
         ShapeTarget target,
@@ -33,10 +33,9 @@ public record BuildShapeDecisionObservation(
         Objects.requireNonNull(riskProfile, "riskProfile");
         Objects.requireNonNull(baselineProgress, "baselineProgress");
         Objects.requireNonNull(selectedProgress, "selectedProgress");
-        if (candidateCount <= 0
-                || candidateCount > BuildShapeActionPlanningAgent.MAX_CURRENT_CANDIDATES) {
+        if (candidateCount <= 0) {
             throw new IllegalArgumentException(
-                    "candidateCount must be within the BUILD_SHAPE search envelope");
+                    "candidateCount must be positive");
         }
         if (safetyEligibleCandidates <= 0 || safetyEligibleCandidates > candidateCount) {
             throw new IllegalArgumentException(

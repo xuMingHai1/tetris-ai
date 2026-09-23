@@ -17,14 +17,14 @@ class BuildShapeDecisionObservationTest {
     void exposesTetrisAwareProgressDeltas() {
         BuildShapeDecisionObservation observation = new BuildShapeDecisionObservation(
                 ShapeTarget.HEART,
-                5,
-                3,
+                20,
+                7,
                 ObjectiveRiskController.RiskLevel.LOW,
                 ObjectiveRiskProfile.BALANCED,
                 12,
                 0,
                 false,
-                2,
+                8,
                 new ShapeProgress(32, 10, 16, 3, 4),
                 new ShapeProgress(32, 12, 16, 2, 5),
                 0,
@@ -37,7 +37,7 @@ class BuildShapeDecisionObservationTest {
         assertEquals(-3, observation.visualErrorDelta());
         assertEquals(2, observation.matchedRequiredDelta());
         assertEquals(-1, observation.forbiddenOccupiedDelta());
-        assertEquals(2, observation.safetyRejectedCandidates());
+        assertEquals(13, observation.safetyRejectedCandidates());
     }
 
     @Test

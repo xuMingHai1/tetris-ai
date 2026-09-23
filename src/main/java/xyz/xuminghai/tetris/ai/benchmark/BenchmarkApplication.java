@@ -410,6 +410,11 @@ public final class BenchmarkApplication {
         }
 
         if (buildShapeTelemetry.samples > 0) {
+            double averageReachableCandidates =
+                    (double) buildShapeTelemetry.candidateCountSum / buildShapeTelemetry.samples;
+            double averageSafetyEligibleCandidates =
+                    (double) buildShapeTelemetry.safetyEligibleCandidates
+                            / buildShapeTelemetry.samples;
             double averageSelectedRank =
                     (double) buildShapeTelemetry.selectedRankSum / buildShapeTelemetry.samples;
             double averageMatchedRequired =
@@ -437,6 +442,7 @@ public final class BenchmarkApplication {
                     "# build_shape target=%s required_cells=%d forbidden_cells=%d samples=%d "
                             + "objective_applied=%d objective_applied_rate=%.4f "
                             + "creative_suppressed_danger=%d creative_suppressed_danger_rate=%.4f "
+                            + "avg_reachable_candidates=%.2f avg_safety_eligible_candidates=%.2f "
                             + "avg_selected_rank=%.2f avg_matched_required_cells=%.3f "
                             + "max_matched_required_cells=%d avg_forbidden_occupied_cells=%.3f "
                             + "avg_support_occupied_cells=%.3f avg_visual_error_cells=%.3f "
@@ -456,6 +462,8 @@ public final class BenchmarkApplication {
                     buildShapeTelemetry.creativeSuppressedDanger,
                     (double) buildShapeTelemetry.creativeSuppressedDanger
                             / buildShapeTelemetry.samples,
+                    averageReachableCandidates,
+                    averageSafetyEligibleCandidates,
                     averageSelectedRank,
                     averageMatchedRequired,
                     buildShapeTelemetry.maxMatchedRequiredCells,
@@ -751,6 +759,8 @@ public final class BenchmarkApplication {
         private long samples;
         private long objectiveApplied;
         private long creativeSuppressedDanger;
+        private long candidateCountSum;
+        private long safetyEligibleCandidates;
         private long selectedRankSum;
         private long selectedMatchedRequiredCells;
         private long selectedForbiddenOccupiedCells;
@@ -786,6 +796,8 @@ public final class BenchmarkApplication {
             if (observation.creativeSuppressedByDanger()) {
                 creativeSuppressedDanger++;
             }
+            candidateCountSum += observation.candidateCount();
+            safetyEligibleCandidates += observation.safetyEligibleCandidates();
             selectedRankSum += observation.selectedRank();
             selectedMatchedRequiredCells += observation.selectedProgress().matchedRequiredCells();
             selectedForbiddenOccupiedCells +=
