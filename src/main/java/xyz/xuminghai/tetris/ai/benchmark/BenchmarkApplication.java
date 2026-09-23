@@ -16,6 +16,7 @@ import xyz.xuminghai.tetris.ai.JevDecisionObservation;
 import xyz.xuminghai.tetris.ai.JevTetrisAgent;
 import xyz.xuminghai.tetris.ai.NextPieceHeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskProfile;
+import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 import xyz.xuminghai.tetris.ai.TuckHunterActionPlanningAgent;
@@ -924,7 +925,7 @@ public final class BenchmarkApplication {
     private static final class BuildShapeGameTelemetry {
 
         private final long seed;
-        private int bestVisualErrorCells = Integer.MAX_VALUE;
+        private int bestVisualErrorCells = ShapeTarget.HEART.requiredCells();
         private int maxRequiredWithZeroForbidden;
         private int minForbiddenAtFullRequired = Integer.MAX_VALUE;
         private boolean cleanCompletion;
@@ -933,7 +934,7 @@ public final class BenchmarkApplication {
             this.seed = seed;
         }
 
-        private void record(xyz.xuminghai.tetris.ai.ShapeProgress progress) {
+        private void record(ShapeProgress progress) {
             bestVisualErrorCells = Math.min(bestVisualErrorCells, progress.visualErrorCells());
             if (progress.forbiddenOccupiedCells() == 0) {
                 maxRequiredWithZeroForbidden = Math.max(
