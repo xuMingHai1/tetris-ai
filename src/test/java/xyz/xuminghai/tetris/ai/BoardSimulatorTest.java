@@ -55,6 +55,21 @@ class BoardSimulatorTest {
     }
 
     @Test
+    void sharedOccupancyMetricsExposeTheSameHoleDefinitionWithCoordinates() {
+        boolean[][] board = new boolean[20][10];
+        board[17][4] = true;
+        board[19][4] = true;
+
+        BoardOccupancyMetrics.Analysis metrics =
+                BoardOccupancyMetrics.analyzeWithHoleCells(board);
+
+        assertEquals(3, metrics.aggregateHeight());
+        assertEquals(1, metrics.holes());
+        assertEquals(6, metrics.bumpiness());
+        assertEquals(List.of(new BoardPosition(18, 4)), metrics.holeCells());
+    }
+
+    @Test
     void previewPieceCandidatesUseTheLivePostSpawnGravityBoundary() {
         boolean[][] board = new boolean[20][10];
         Tetris expectedPiece = TetrisFactory.create(TetrominoType.T);
