@@ -107,9 +107,9 @@ class BuildShapeActionPlanningAgentTest {
 
     private static GameSnapshot dangerSnapshot() {
         boolean[][] board = new boolean[20][10];
-        for (int col = 0; col < 5; col++) {
-            board[18][col] = true;
-        }
+        // A settled cell at row 5 creates max column height 15 / headroom 5 on a 20-row board,
+        // which is the controller's explicit DANGER boundary without blocking the spawn area.
+        board[5][0] = true;
         return snapshot(board);
     }
 
