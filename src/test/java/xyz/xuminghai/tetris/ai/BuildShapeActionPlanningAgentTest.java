@@ -132,6 +132,26 @@ class BuildShapeActionPlanningAgentTest {
     }
 
     @Test
+    void previewLookaheadDangerStateReturnsExactSurvivalTopChoice() {
+        GameSnapshot snapshot = dangerSnapshot();
+        AtomicReference<BuildShapeDecisionObservation> observed = new AtomicReference<>();
+        List<ActionPlanCandidates.PlannedCandidate> ranked =
+                ActionPlanCandidates.ranked(snapshot);
+
+        AiPlan selected = BuildShapeActionPlanningAgent.previewLookahead(
+                ShapeTarget.HEART,
+                observed::set).plan(snapshot);
+
+        assertEquals(ranked.getFirst().plan(), selected);
+        BuildShapeDecisionObservation observation = observed.get();
+        assertNotNull(observation);
+        assertEquals(ObjectiveRiskController.RiskLevel.DANGER, observation.riskLevel());
+        assertTrue(observation.creativeSuppressedByDanger());
+        assertEquals(1, observation.selectedRank());
+        assertEquals(observation.baselineProgress(), observation.selectedProgress());
+    }
+
+    @Test
     void dangerStateReturnsExactSurvivalTopChoice() {
         GameSnapshot snapshot = dangerSnapshot();
         AtomicReference<BuildShapeDecisionObservation> observed = new AtomicReference<>();
