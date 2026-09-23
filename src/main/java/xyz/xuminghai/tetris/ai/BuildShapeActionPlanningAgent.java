@@ -11,14 +11,14 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * Occupancy-only creative planner that incrementally moves the resulting board toward a target
- * silhouette while remaining inside the state-aware objective safety budget.
+ * Occupancy-only creative planner that incrementally moves the resulting board toward a
+ * Tetris-aware target silhouette while remaining inside the state-aware objective safety budget.
  *
- * <p>V1 uses the survival heuristic top five as a bounded search envelope. The SURVIVAL top-1 board
+ * <p>V2 uses the survival heuristic top five as a bounded search envelope. The SURVIVAL top-1 board
  * drives {@link ObjectiveRiskController}; only candidates allowed by that profile may compete on
- * shape progress. Shape preference is deterministic: higher {@link ShapeProgress#netScore()}, then
- * more matched target cells, then fewer intrusions, then better survival rank. If no eligible
- * candidate improves on SURVIVAL, the SURVIVAL plan is returned unchanged.</p>
+ * shape progress. Required visual cells are rewarded, forbidden visual cells are penalized and
+ * support cells are neutral. DANGER disables creative deviation entirely and returns SURVIVAL
+ * top-1. If no eligible candidate improves visual progress, SURVIVAL is returned unchanged.</p>
  */
 public final class BuildShapeActionPlanningAgent implements AiPlanningAgent {
 
@@ -85,9 +85,14 @@ public final class BuildShapeActionPlanningAgent implements AiPlanningAgent {
         int safetyEligibleCandidates =
                 (int) evaluated.stream().filter(ObjectiveCandidate::safetyEligible).count();
         ObjectiveCandidate selected = evaluated.getFirst();
-        for (ObjectiveCandidate candidate : evaluated) {
-            if (candidate.safetyEligible() && betterShape(candidate, selected)) {
-                selected = candidate;
+        boolean creativeSuppressed =
+                riskDecision.level() == ObjectiveRiskController.RiskLevel.DANGER;
+
+        if (!creativeSuppressed) {
+            for (ObjectiveCandidate candidate : evaluated) {
+                if (candidate.safetyEligible() && betterShape(candidate, selected)) {
+                    selected = candidate;
+                }
             }
         }
 
@@ -99,6 +104,7 @@ public final class BuildShapeActionPlanningAgent implements AiPlanningAgent {
                 riskDecision.profile(),
                 riskDecision.headroom(),
                 riskDecision.holes(),
+                creativeSuppressed,
                 selected.currentRank(),
                 baselineProgress,
                 selected.progress(),
@@ -120,15 +126,8 @@ public final class BuildShapeActionPlanningAgent implements AiPlanningAgent {
         }
 
         comparison = Integer.compare(
-                candidate.progress().matchedCells(),
-                incumbent.progress().matchedCells());
-        if (comparison != 0) {
-            return comparison > 0;
-        }
-
-        comparison = Integer.compare(
-                incumbent.progress().intrusionCells(),
-                candidate.progress().intrusionCells());
+                incumbent.progress().forbiddenOccupiedCells(),
+                candidate.progress().forbiddenOccupiedCells());
         if (comparison != 0) {
             return comparison > 0;
         }
