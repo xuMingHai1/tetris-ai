@@ -160,6 +160,14 @@ public final class BenchmarkApplication {
                 yield (runner, seed, pieceLimit) ->
                         runner.runPlanning(seed, pieceLimit, primary);
             }
+            case "build-shape-preview" -> {
+                AiPlanningAgent primary =
+                        BuildShapeActionPlanningAgent.previewLookahead(
+                                ShapeTarget.HEART,
+                                buildShapeTelemetry::record);
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
             case "action-provenance" -> {
                 AiPlanningAgent primary = snapshot -> {
                     ActionProvenanceBenchmark.Observation observation =
@@ -180,7 +188,7 @@ public final class BenchmarkApplication {
             }
             default -> throw new IllegalArgumentException(
                     "Unsupported " + AGENT_ENV + " value: " + agent
-                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, adaptive-tuck-hunter, build-shape, action-provenance or jev-action.");
+                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, adaptive-tuck-hunter, build-shape, build-shape-preview, action-provenance or jev-action.");
         };
     }
 
@@ -442,7 +450,7 @@ public final class BenchmarkApplication {
 
             System.out.printf(
                     Locale.ROOT,
-                    "# build_shape target=%s required_cells=%d forbidden_cells=%d samples=%d "
+                    "# build_shape strategy=%s target=%s required_cells=%d forbidden_cells=%d samples=%d "
                             + "objective_applied=%d objective_applied_rate=%.4f "
                             + "creative_suppressed_danger=%d creative_suppressed_danger_rate=%.4f "
                             + "avg_reachable_candidates=%.2f avg_creative_candidates=%.2f "
@@ -457,6 +465,7 @@ public final class BenchmarkApplication {
                             + "risk_low=%d risk_normal=%d risk_danger=%d "
                             + "profile_strict=%d profile_conservative=%d profile_balanced=%d "
                             + "profile_risky=%d%n",
+                    configuration.resultAgent(),
                     ShapeTarget.HEART.configValue(),
                     ShapeTarget.HEART.requiredCells(),
                     ShapeTarget.HEART.forbiddenCells(),
@@ -492,7 +501,7 @@ public final class BenchmarkApplication {
                     buildShapeTelemetry.profileRisky);
 
             System.out.println(
-                    "build_shape_decision,target,seed,decision,risk_level,risk_profile,"
+                    "build_shape_decision,strategy,target,seed,decision,risk_level,risk_profile,"
                             + "creative_suppressed_by_danger,baseline_headroom,baseline_holes,"
                             + "reachable_candidate_count,candidate_count,safety_eligible_candidates,"
                             + "safety_rejected_candidates,"
@@ -509,8 +518,9 @@ public final class BenchmarkApplication {
                 BuildShapeDecisionObservation observation = trace.observation();
                 System.out.printf(
                         Locale.ROOT,
-                        "build_shape_decision,%s,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,"
+                        "build_shape_decision,%s,%s,%d,%d,%s,%s,%s,%d,%d,%d,%d,%d,%d,%d,"
                                 + "%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.4f,%s,%d,%d,%d,%d%n",
+                        configuration.resultAgent(),
                         observation.target().configValue(),
                         trace.seed(),
                         trace.decision(),
@@ -904,6 +914,9 @@ public final class BenchmarkApplication {
             }
             if ("build-shape".equals(agent)) {
                 return "build-shape-" + ShapeTarget.HEART.configValue();
+            }
+            if ("build-shape-preview".equals(agent)) {
+                return "build-shape-preview-" + ShapeTarget.HEART.configValue();
             }
             return agent;
         }
