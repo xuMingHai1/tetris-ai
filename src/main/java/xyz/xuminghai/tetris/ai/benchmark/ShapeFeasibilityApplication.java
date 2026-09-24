@@ -5,6 +5,7 @@
  */
 package xyz.xuminghai.tetris.ai.benchmark;
 
+import xyz.xuminghai.tetris.ai.ConstructionSafetyEnvelopeBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeConstructionFeasibilityBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
@@ -42,6 +43,7 @@ public final class ShapeFeasibilityApplication {
         Configuration configuration = Configuration.fromEnvironment();
         List<SeedResult> results = new ArrayList<>(configuration.games());
         List<WitnessAuditResult> audits = new ArrayList<>();
+        List<EnvelopeResult> envelopes = new ArrayList<>();
 
         System.out.println(
                 "shape_feasibility,seed,search_depth,beam_width,clean_completion,"
@@ -69,6 +71,14 @@ public final class ShapeFeasibilityApplication {
                         + "forbidden_excluded_safety_allowed_current_profile,"
                         + "forbidden_excluded_risk_level,forbidden_excluded_risk_profile,"
                         + "forbidden_excluded_safety_allowed_adjusted_profile");
+
+        System.out.println(
+                "construction_safety_envelope,seed,step,piece,action_count,survival_rank,"
+                        + "reachable_outcomes,next_piece,next_reachable_outcomes,cleared_lines,"
+                        + "headroom,max_column_height,aggregate_height,raw_holes,"
+                        + "non_forbidden_holes,required_holes,forbidden_holes,support_holes,"
+                        + "outside_holes,bumpiness,matched_required,forbidden_occupied,"
+                        + "visual_error,clean_completion");
 
         for (int game = 0; game < configuration.games(); game++) {
             long seed = configuration.seed() + game;
@@ -125,11 +135,181 @@ public final class ShapeFeasibilityApplication {
                                 HeadlessGameRunner.DEFAULT_COLS);
                 audits.add(new WitnessAuditResult(seed, audit));
                 printWitnessAudit(seed, audit);
+
+                ConstructionSafetyEnvelopeBenchmark.Result envelope =
+                        ConstructionSafetyEnvelopeBenchmark.analyze(
+                                ShapeTarget.HEART,
+                                result.witness(),
+                                HeadlessGameRunner.DEFAULT_ROWS,
+                                HeadlessGameRunner.DEFAULT_COLS);
+                envelopes.add(new EnvelopeResult(seed, envelope));
+                printConstructionSafetyEnvelope(seed, envelope);
             }
         }
 
         printSummary(configuration, results);
         printWitnessAuditSummary(audits);
+        printConstructionSafetyEnvelopeSummary(envelopes);
+    }
+
+    private static void printConstructionSafetyEnvelope(
+            long seed,
+            ConstructionSafetyEnvelopeBenchmark.Result envelope) {
+        for (ConstructionSafetyEnvelopeBenchmark.Step step : envelope.steps()) {
+            System.out.println(formatConstructionSafetyEnvelopeLine(seed, step));
+        }
+
+        System.out.printf(
+                Locale.ROOT,
+                "# construction_safety_envelope seed=%d steps=%d min_headroom=%d "
+                        + "max_column_height=%d max_aggregate_height=%d max_raw_holes=%d "
+                        + "max_non_forbidden_holes=%d max_required_holes=%d "
+                        + "max_forbidden_holes=%d max_support_holes=%d max_outside_holes=%d "
+                        + "max_bumpiness=%d min_reachable_outcomes=%d "
+                        + "min_next_reachable_outcomes=%d avg_reachable_outcomes=%.2f "
+                        + "max_survival_rank=%d avg_survival_rank=%.2f%n",
+                seed,
+                envelope.steps().size(),
+                envelope.minHeadroom(),
+                envelope.maxColumnHeight(),
+                envelope.maxAggregateHeight(),
+                envelope.maxRawHoles(),
+                envelope.maxNonForbiddenHoles(),
+                envelope.maxRequiredHoles(),
+                envelope.maxForbiddenHoles(),
+                envelope.maxSupportHoles(),
+                envelope.maxOutsideHoles(),
+                envelope.maxBumpiness(),
+                envelope.minReachableOutcomes(),
+                envelope.minNextReachableOutcomes(),
+                envelope.averageReachableOutcomes(),
+                envelope.maxSurvivalRank(),
+                envelope.averageSurvivalRank());
+    }
+
+    static String formatConstructionSafetyEnvelopeLine(
+            long seed,
+            ConstructionSafetyEnvelopeBenchmark.Step step) {
+        return String.join(
+                ",",
+                "construction_safety_envelope",
+                Long.toString(seed),
+                Integer.toString(step.step()),
+                step.pieceType().name(),
+                Integer.toString(step.actionCount()),
+                Integer.toString(step.survivalRank()),
+                Integer.toString(step.reachableOutcomes()),
+                step.nextPieceType().map(Enum::name).orElse(""),
+                Integer.toString(step.nextReachableOutcomes()),
+                Integer.toString(step.clearedLines()),
+                Integer.toString(step.headroom()),
+                Integer.toString(step.maxColumnHeight()),
+                Integer.toString(step.aggregateHeight()),
+                Integer.toString(step.holes().totalHoles()),
+                Integer.toString(step.holes().nonForbiddenHoles()),
+                Integer.toString(step.holes().requiredHoles()),
+                Integer.toString(step.holes().forbiddenHoles()),
+                Integer.toString(step.holes().supportAllowedHoles()),
+                Integer.toString(step.holes().outsideTargetHoles()),
+                Integer.toString(step.bumpiness()),
+                Integer.toString(step.progress().matchedRequiredCells()),
+                Integer.toString(step.progress().forbiddenOccupiedCells()),
+                Integer.toString(step.progress().visualErrorCells()),
+                Boolean.toString(step.progress().cleanCompletion()));
+    }
+
+    private static void printConstructionSafetyEnvelopeSummary(
+            List<EnvelopeResult> envelopes) {
+        if (envelopes.isEmpty()) {
+            return;
+        }
+
+        List<ConstructionSafetyEnvelopeBenchmark.Step> steps = envelopes.stream()
+                .flatMap(envelope -> envelope.envelope().steps().stream())
+                .toList();
+        int minHeadroom = steps.stream()
+                .mapToInt(ConstructionSafetyEnvelopeBenchmark.Step::headroom)
+                .min()
+                .orElseThrow();
+        int maxColumnHeight = steps.stream()
+                .mapToInt(ConstructionSafetyEnvelopeBenchmark.Step::maxColumnHeight)
+                .max()
+                .orElseThrow();
+        int maxAggregateHeight = steps.stream()
+                .mapToInt(ConstructionSafetyEnvelopeBenchmark.Step::aggregateHeight)
+                .max()
+                .orElseThrow();
+        int maxRawHoles = steps.stream()
+                .mapToInt(step -> step.holes().totalHoles())
+                .max()
+                .orElseThrow();
+        int maxNonForbiddenHoles = steps.stream()
+                .mapToInt(step -> step.holes().nonForbiddenHoles())
+                .max()
+                .orElseThrow();
+        int maxRequiredHoles = steps.stream()
+                .mapToInt(step -> step.holes().requiredHoles())
+                .max()
+                .orElseThrow();
+        int maxForbiddenHoles = steps.stream()
+                .mapToInt(step -> step.holes().forbiddenHoles())
+                .max()
+                .orElseThrow();
+        int maxSupportHoles = steps.stream()
+                .mapToInt(step -> step.holes().supportAllowedHoles())
+                .max()
+                .orElseThrow();
+        int maxOutsideHoles = steps.stream()
+                .mapToInt(step -> step.holes().outsideTargetHoles())
+                .max()
+                .orElseThrow();
+        int maxBumpiness = steps.stream()
+                .mapToInt(ConstructionSafetyEnvelopeBenchmark.Step::bumpiness)
+                .max()
+                .orElseThrow();
+        int minReachableOutcomes = steps.stream()
+                .mapToInt(ConstructionSafetyEnvelopeBenchmark.Step::reachableOutcomes)
+                .min()
+                .orElseThrow();
+        int minNextReachableOutcomes = steps.stream()
+                .mapToInt(ConstructionSafetyEnvelopeBenchmark.Step::nextReachableOutcomes)
+                .filter(value -> value >= 0)
+                .min()
+                .orElse(-1);
+        double averageReachableOutcomes = steps.stream()
+                .mapToInt(ConstructionSafetyEnvelopeBenchmark.Step::reachableOutcomes)
+                .average()
+                .orElse(0.0);
+        int maxSurvivalRank = steps.stream()
+                .mapToInt(ConstructionSafetyEnvelopeBenchmark.Step::survivalRank)
+                .max()
+                .orElseThrow();
+
+        System.out.printf(
+                Locale.ROOT,
+                "# construction_safety_envelope_total witnesses=%d steps=%d min_headroom=%d "
+                        + "max_column_height=%d max_aggregate_height=%d max_raw_holes=%d "
+                        + "max_non_forbidden_holes=%d max_required_holes=%d "
+                        + "max_forbidden_holes=%d max_support_holes=%d max_outside_holes=%d "
+                        + "max_bumpiness=%d min_reachable_outcomes=%d "
+                        + "min_next_reachable_outcomes=%d avg_reachable_outcomes=%.2f "
+                        + "max_survival_rank=%d%n",
+                envelopes.size(),
+                steps.size(),
+                minHeadroom,
+                maxColumnHeight,
+                maxAggregateHeight,
+                maxRawHoles,
+                maxNonForbiddenHoles,
+                maxRequiredHoles,
+                maxForbiddenHoles,
+                maxSupportHoles,
+                maxOutsideHoles,
+                maxBumpiness,
+                minReachableOutcomes,
+                minNextReachableOutcomes,
+                averageReachableOutcomes,
+                maxSurvivalRank);
     }
 
     private static void printWitnessAudit(
@@ -412,6 +592,11 @@ public final class ShapeFeasibilityApplication {
     private record WitnessAuditResult(
             long seed,
             ShapeWitnessConstraintAudit.Result audit) {
+    }
+
+    private record EnvelopeResult(
+            long seed,
+            ConstructionSafetyEnvelopeBenchmark.Result envelope) {
     }
 
     private enum HoleMetric {
