@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Test;
 import xyz.xuminghai.tetris.ai.BuildShapeContinuationBenchmark;
 import xyz.xuminghai.tetris.ai.PlacementCandidate;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
-import xyz.xuminghai.tetris.core.TetrominoType;
 
 import java.util.List;
 
