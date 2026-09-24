@@ -42,8 +42,8 @@ public final class ShapeFeasibilityApplication {
     private static final int DEFAULT_MAX_PIECES = 24;
     private static final long DEFAULT_SEED = 1L;
     private static final int DEFAULT_BEAM_WIDTH = 128;
-    private static final int DEFAULT_VIABILITY_SEARCH_DEPTH = 6;
-    private static final int DEFAULT_VIABILITY_BEAM_WIDTH = 64;
+    private static final int DEFAULT_VIABILITY_SEARCH_DEPTH = 4;
+    private static final int DEFAULT_VIABILITY_BEAM_WIDTH = 32;
     private static final int DEFAULT_VIABILITY_GREEDY_DEPTH = 24;
 
     private ShapeFeasibilityApplication() {
