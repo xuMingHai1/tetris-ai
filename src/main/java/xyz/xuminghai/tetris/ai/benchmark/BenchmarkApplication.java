@@ -8,7 +8,10 @@ package xyz.xuminghai.tetris.ai.benchmark;
 import xyz.xuminghai.tetris.ai.ActionProvenanceBenchmark;
 import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.BuildShapeActionPlanningAgent;
+import xyz.xuminghai.tetris.ai.BuildShapeConstructionGuardObservation;
+import xyz.xuminghai.tetris.ai.BuildShapeConstructionGuardPlanningAgent;
 import xyz.xuminghai.tetris.ai.BuildShapeDecisionObservation;
+import xyz.xuminghai.tetris.ai.ConstructionSafetyGuard;
 import xyz.xuminghai.tetris.ai.DeterministicActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.JevActionPlanningAgent;
@@ -54,6 +57,7 @@ public final class BenchmarkApplication {
         ActionProvenanceTelemetry provenanceTelemetry = new ActionProvenanceTelemetry();
         TuckHunterTelemetry tuckHunterTelemetry = new TuckHunterTelemetry();
         BuildShapeTelemetry buildShapeTelemetry = new BuildShapeTelemetry();
+        BuildShapeGuardTelemetry buildShapeGuardTelemetry = new BuildShapeGuardTelemetry();
         BenchmarkStrategy strategy =
                 createStrategy(
                         configuration.agent(),
@@ -61,7 +65,8 @@ public final class BenchmarkApplication {
                         telemetry,
                         provenanceTelemetry,
                         tuckHunterTelemetry,
-                        buildShapeTelemetry);
+                        buildShapeTelemetry,
+                        buildShapeGuardTelemetry);
         HeadlessGameRunner runner = new HeadlessGameRunner();
         List<GameBenchmarkResult> results = new ArrayList<>(configuration.games());
 
@@ -77,6 +82,7 @@ public final class BenchmarkApplication {
             provenanceTelemetry.startGame(seed);
             tuckHunterTelemetry.startGame(seed);
             buildShapeTelemetry.startGame(seed);
+            buildShapeGuardTelemetry.startGame(seed);
             GameBenchmarkResult result =
                     strategy.run(runner, seed, configuration.maxPieces());
             results.add(result);
@@ -111,7 +117,8 @@ public final class BenchmarkApplication {
                 telemetry,
                 provenanceTelemetry,
                 tuckHunterTelemetry,
-                buildShapeTelemetry);
+                buildShapeTelemetry,
+                buildShapeGuardTelemetry);
     }
 
     private static BenchmarkStrategy createStrategy(
@@ -120,7 +127,8 @@ public final class BenchmarkApplication {
             JevTelemetry telemetry,
             ActionProvenanceTelemetry provenanceTelemetry,
             TuckHunterTelemetry tuckHunterTelemetry,
-            BuildShapeTelemetry buildShapeTelemetry) {
+            BuildShapeTelemetry buildShapeTelemetry,
+            BuildShapeGuardTelemetry buildShapeGuardTelemetry) {
         return switch (agent) {
             case "heuristic" -> {
                 TetrisAgent primary = new HeuristicTetrisAgent();
@@ -169,6 +177,33 @@ public final class BenchmarkApplication {
                 yield (runner, seed, pieceLimit) ->
                         runner.runPlanning(seed, pieceLimit, primary);
             }
+            case "build-shape-guard-preserve" -> {
+                AiPlanningAgent primary =
+                        new BuildShapeConstructionGuardPlanningAgent(
+                                ShapeTarget.HEART,
+                                ConstructionSafetyGuard.Profile.PRESERVE_BASELINE,
+                                buildShapeGuardTelemetry::record);
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
+            case "build-shape-guard-half" -> {
+                AiPlanningAgent primary =
+                        new BuildShapeConstructionGuardPlanningAgent(
+                                ShapeTarget.HEART,
+                                ConstructionSafetyGuard.Profile.RETAIN_HALF,
+                                buildShapeGuardTelemetry::record);
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
+            case "build-shape-guard-any" -> {
+                AiPlanningAgent primary =
+                        new BuildShapeConstructionGuardPlanningAgent(
+                                ShapeTarget.HEART,
+                                ConstructionSafetyGuard.Profile.ANY_CONTINUATION,
+                                buildShapeGuardTelemetry::record);
+                yield (runner, seed, pieceLimit) ->
+                        runner.runPlanning(seed, pieceLimit, primary);
+            }
             case "action-provenance" -> {
                 AiPlanningAgent primary = snapshot -> {
                     ActionProvenanceBenchmark.Observation observation =
@@ -189,7 +224,7 @@ public final class BenchmarkApplication {
             }
             default -> throw new IllegalArgumentException(
                     "Unsupported " + AGENT_ENV + " value: " + agent
-                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, adaptive-tuck-hunter, build-shape, build-shape-preview, action-provenance or jev-action.");
+                            + ". Expected heuristic, lookahead, jev, action, tuck-hunter, adaptive-tuck-hunter, build-shape, build-shape-preview, build-shape-guard-preserve, build-shape-guard-half, build-shape-guard-any, action-provenance or jev-action.");
         };
     }
 
@@ -236,6 +271,40 @@ public final class BenchmarkApplication {
                 observation.selectedBumpinessDelta());
     }
 
+    static String formatBuildShapeGuardDecisionLine(
+            String strategy,
+            long seed,
+            int decision,
+            BuildShapeConstructionGuardObservation observation) {
+        return String.format(
+                Locale.ROOT,
+                "build_shape_guard_decision,%s,%s,%s,%d,%d,%d,%d,%d,%s,%d,%d,%d,%d,%d,"
+                        + "%d,%d,%d,%d,%d,%d,%d,%d,%d",
+                strategy,
+                observation.target().configValue(),
+                observation.profile().configValue(),
+                seed,
+                decision,
+                observation.reachableCandidateCount(),
+                observation.guardCheckedCandidates(),
+                observation.guardRejectedCandidates(),
+                observation.previewAvailable(),
+                observation.baselineNextReachableOutcomes(),
+                observation.selectedNextReachableOutcomes(),
+                observation.selectedRank(),
+                observation.baselineHeadroom(),
+                observation.selectedHeadroom(),
+                observation.baselineProgress().matchedRequiredCells(),
+                observation.baselineProgress().forbiddenOccupiedCells(),
+                observation.baselineProgress().visualErrorCells(),
+                observation.selectedProgress().matchedRequiredCells(),
+                observation.selectedProgress().forbiddenOccupiedCells(),
+                observation.selectedProgress().visualErrorCells(),
+                observation.netScoreDelta(),
+                observation.visualErrorDelta(),
+                observation.objectiveApplied() ? 1 : 0);
+    }
+
     private static String requireApiKey() {
         String apiKey = System.getenv(TYPESAFE_API_KEY_ENV);
         if (apiKey == null || apiKey.isBlank()) {
@@ -250,7 +319,8 @@ public final class BenchmarkApplication {
             JevTelemetry telemetry,
             ActionProvenanceTelemetry provenanceTelemetry,
             TuckHunterTelemetry tuckHunterTelemetry,
-            BuildShapeTelemetry buildShapeTelemetry) {
+            BuildShapeTelemetry buildShapeTelemetry,
+            BuildShapeGuardTelemetry buildShapeGuardTelemetry) {
         long pieces = results.stream().mapToLong(GameBenchmarkResult::piecesPlaced).sum();
         long lines = results.stream().mapToLong(GameBenchmarkResult::linesCleared).sum();
         long decisions = results.stream().mapToLong(GameBenchmarkResult::decisions).sum();
@@ -617,6 +687,123 @@ public final class BenchmarkApplication {
             }
         }
 
+        if (buildShapeGuardTelemetry.samples > 0) {
+            double averageReachable =
+                    (double) buildShapeGuardTelemetry.reachableCandidateCountSum
+                            / buildShapeGuardTelemetry.samples;
+            double averageChecked =
+                    (double) buildShapeGuardTelemetry.guardCheckedCandidates
+                            / buildShapeGuardTelemetry.samples;
+            double averageSelectedRank =
+                    (double) buildShapeGuardTelemetry.selectedRankSum
+                            / buildShapeGuardTelemetry.samples;
+            double averageBaselineNext =
+                    (double) buildShapeGuardTelemetry.baselineNextReachableSum
+                            / buildShapeGuardTelemetry.previewSamples;
+            double averageSelectedNext =
+                    (double) buildShapeGuardTelemetry.selectedNextReachableSum
+                            / buildShapeGuardTelemetry.previewSamples;
+            double averageBestVisualErrorPerGame = buildShapeGuardTelemetry.games.stream()
+                    .mapToInt(game -> game.bestVisualErrorCells)
+                    .average()
+                    .orElse(0.0);
+            long gamesErrorLe8 = buildShapeGuardTelemetry.games.stream()
+                    .filter(game -> game.bestVisualErrorCells <= 8)
+                    .count();
+            long gamesErrorLe4 = buildShapeGuardTelemetry.games.stream()
+                    .filter(game -> game.bestVisualErrorCells <= 4)
+                    .count();
+            long gamesError0 = buildShapeGuardTelemetry.games.stream()
+                    .filter(game -> game.bestVisualErrorCells == 0)
+                    .count();
+            int maxRequiredWithZeroForbidden = buildShapeGuardTelemetry.games.stream()
+                    .mapToInt(game -> game.maxRequiredWithZeroForbidden)
+                    .max()
+                    .orElse(0);
+            int minForbiddenAtFullRequired = buildShapeGuardTelemetry.games.stream()
+                    .mapToInt(game -> game.minForbiddenAtFullRequired)
+                    .filter(value -> value != Integer.MAX_VALUE)
+                    .min()
+                    .orElse(-1);
+
+            System.out.printf(
+                    Locale.ROOT,
+                    "# build_shape_guard strategy=%s target=%s profile=%s samples=%d "
+                            + "objective_applied=%d objective_applied_rate=%.4f "
+                            + "avg_reachable_candidates=%.2f avg_guard_checked=%.2f "
+                            + "guard_rejected=%d preview_missing=%d avg_selected_rank=%.2f "
+                            + "avg_baseline_next_reachable=%.2f avg_selected_next_reachable=%.2f "
+                            + "min_selected_headroom=%d min_visual_error_cells=%d "
+                            + "clean_completions=%d clean_completion_rate=%.4f "
+                            + "avg_best_visual_error_per_game=%.3f games_error_le_8=%d "
+                            + "games_error_le_4=%d games_error_0=%d "
+                            + "max_required_with_zero_forbidden=%d "
+                            + "min_forbidden_at_full_required=%d%n",
+                    configuration.resultAgent(),
+                    ShapeTarget.HEART.configValue(),
+                    buildShapeGuardTelemetry.profile.configValue(),
+                    buildShapeGuardTelemetry.samples,
+                    buildShapeGuardTelemetry.objectiveApplied,
+                    (double) buildShapeGuardTelemetry.objectiveApplied
+                            / buildShapeGuardTelemetry.samples,
+                    averageReachable,
+                    averageChecked,
+                    buildShapeGuardTelemetry.guardRejectedCandidates,
+                    buildShapeGuardTelemetry.previewMissing,
+                    averageSelectedRank,
+                    averageBaselineNext,
+                    averageSelectedNext,
+                    buildShapeGuardTelemetry.minSelectedHeadroom,
+                    buildShapeGuardTelemetry.minVisualErrorCells,
+                    buildShapeGuardTelemetry.cleanCompletions,
+                    (double) buildShapeGuardTelemetry.cleanCompletions
+                            / buildShapeGuardTelemetry.samples,
+                    averageBestVisualErrorPerGame,
+                    gamesErrorLe8,
+                    gamesErrorLe4,
+                    gamesError0,
+                    maxRequiredWithZeroForbidden,
+                    minForbiddenAtFullRequired);
+
+            System.out.println(
+                    "build_shape_guard_game,strategy,target,profile,seed,best_visual_error_cells,"
+                            + "max_required_with_zero_forbidden,min_forbidden_at_full_required,"
+                            + "clean_completion");
+            for (BuildShapeGameTelemetry game : buildShapeGuardTelemetry.games) {
+                System.out.printf(
+                        Locale.ROOT,
+                        "build_shape_guard_game,%s,%s,%s,%d,%d,%d,%d,%s%n",
+                        configuration.resultAgent(),
+                        ShapeTarget.HEART.configValue(),
+                        buildShapeGuardTelemetry.profile.configValue(),
+                        game.seed,
+                        game.bestVisualErrorCells,
+                        game.maxRequiredWithZeroForbidden,
+                        game.minForbiddenAtFullRequired == Integer.MAX_VALUE
+                                ? -1
+                                : game.minForbiddenAtFullRequired,
+                        game.cleanCompletion);
+            }
+
+            System.out.println(
+                    "build_shape_guard_decision,strategy,target,profile,seed,decision,"
+                            + "reachable_candidate_count,guard_checked_candidates,"
+                            + "guard_rejected_candidates,preview_available,"
+                            + "baseline_next_reachable_outcomes,selected_next_reachable_outcomes,"
+                            + "selected_rank,baseline_headroom,selected_headroom,"
+                            + "baseline_matched_required,baseline_forbidden_occupied,"
+                            + "baseline_visual_error,selected_matched_required,"
+                            + "selected_forbidden_occupied,selected_visual_error,"
+                            + "net_score_delta,visual_error_delta,objective_applied");
+            for (BuildShapeGuardTrace trace : buildShapeGuardTelemetry.traces) {
+                System.out.println(formatBuildShapeGuardDecisionLine(
+                        configuration.resultAgent(),
+                        trace.seed(),
+                        trace.decision(),
+                        trace.observation()));
+            }
+        }
+
         if (provenanceTelemetry.samples > 0) {
             double stateRate =
                     (double) provenanceTelemetry.statesWithActionOnly / provenanceTelemetry.samples;
@@ -922,6 +1109,77 @@ public final class BenchmarkApplication {
         }
     }
 
+    private static final class BuildShapeGuardTelemetry {
+
+        private final List<BuildShapeGuardTrace> traces = new ArrayList<>();
+        private final List<BuildShapeGameTelemetry> games = new ArrayList<>();
+        private BuildShapeGameTelemetry currentGame;
+        private ConstructionSafetyGuard.Profile profile;
+        private long currentSeed;
+        private int currentDecision;
+        private long samples;
+        private long previewSamples;
+        private long previewMissing;
+        private long objectiveApplied;
+        private long reachableCandidateCountSum;
+        private long guardCheckedCandidates;
+        private long guardRejectedCandidates;
+        private long selectedRankSum;
+        private long baselineNextReachableSum;
+        private long selectedNextReachableSum;
+        private long cleanCompletions;
+        private int minSelectedHeadroom = Integer.MAX_VALUE;
+        private int minVisualErrorCells = Integer.MAX_VALUE;
+
+        void startGame(long seed) {
+            currentSeed = seed;
+            currentDecision = 0;
+            currentGame = new BuildShapeGameTelemetry(seed);
+            games.add(currentGame);
+        }
+
+        void record(BuildShapeConstructionGuardObservation observation) {
+            samples++;
+            currentDecision++;
+            if (profile == null) {
+                profile = observation.profile();
+            }
+            else if (profile != observation.profile()) {
+                throw new IllegalStateException(
+                        "construction guard benchmark mixed profiles in one run");
+            }
+            if (observation.previewAvailable()) {
+                previewSamples++;
+                baselineNextReachableSum += observation.baselineNextReachableOutcomes();
+                selectedNextReachableSum += observation.selectedNextReachableOutcomes();
+            }
+            else {
+                previewMissing++;
+            }
+            if (observation.objectiveApplied()) {
+                objectiveApplied++;
+            }
+            reachableCandidateCountSum += observation.reachableCandidateCount();
+            guardCheckedCandidates += observation.guardCheckedCandidates();
+            guardRejectedCandidates += observation.guardRejectedCandidates();
+            selectedRankSum += observation.selectedRank();
+            minSelectedHeadroom = Math.min(
+                    minSelectedHeadroom,
+                    observation.selectedHeadroom());
+            minVisualErrorCells = Math.min(
+                    minVisualErrorCells,
+                    observation.selectedProgress().visualErrorCells());
+            currentGame.record(observation.selectedProgress());
+            if (observation.selectedProgress().cleanCompletion()) {
+                cleanCompletions++;
+            }
+            traces.add(new BuildShapeGuardTrace(
+                    currentSeed,
+                    currentDecision,
+                    observation));
+        }
+    }
+
     private static final class BuildShapeGameTelemetry {
 
         private final long seed;
@@ -977,6 +1235,12 @@ public final class BenchmarkApplication {
             BuildShapeDecisionObservation observation) {
     }
 
+    private record BuildShapeGuardTrace(
+            long seed,
+            int decision,
+            BuildShapeConstructionGuardObservation observation) {
+    }
+
     private record Configuration(
             String agent,
             int games,
@@ -1012,6 +1276,9 @@ public final class BenchmarkApplication {
             }
             if ("build-shape-preview".equals(agent)) {
                 return "build-shape-preview-" + ShapeTarget.HEART.configValue();
+            }
+            if (agent.startsWith("build-shape-guard-")) {
+                return agent + "-" + ShapeTarget.HEART.configValue();
             }
             return agent;
         }
