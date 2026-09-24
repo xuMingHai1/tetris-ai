@@ -1,6 +1,51 @@
 name: AI Benchmark
 
 on:
+  workflow_call:
+    inputs:
+      agent:
+        description: Agent to benchmark
+        required: true
+        type: string
+      games:
+        description: Number of deterministic games
+        required: false
+        default: '20'
+        type: string
+      max_pieces:
+        description: Maximum pieces per game
+        required: false
+        default: '500'
+        type: string
+      feasibility_depth:
+        description: Piece-sequence depth for shape-feasibility search
+        required: false
+        default: '24'
+        type: string
+      feasibility_beam_width:
+        description: Unique board states retained per depth for shape-feasibility search
+        required: false
+        default: '128'
+        type: string
+      seed:
+        description: Seed for the first game; later games increment by one
+        required: false
+        default: '1000'
+        type: string
+      risk_profile:
+        description: Fixed objective risk profile for tuck-hunter or compare-objective
+        required: false
+        default: conservative
+        type: string
+      confirm_jev_cost:
+        description: Confirm external TypeSafe API usage
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      TYPESAFE_API_KEY:
+        required: false
+
   workflow_dispatch:
     inputs:
       agent:

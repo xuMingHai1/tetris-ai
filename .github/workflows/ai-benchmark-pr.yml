@@ -1,0 +1,207 @@
+name: PR AI Benchmark
+
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ai-benchmark-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  select-benchmark:
+    name: Select Benchmark
+    if: >-
+      ${{
+        github.event.pull_request.head.repo.full_name == github.repository
+        && github.event.pull_request.base.ref == github.event.repository.default_branch
+      }}
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+    outputs:
+      benchmark: ${{ steps.select.outputs.benchmark }}
+      reason: ${{ steps.select.outputs.reason }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Select deterministic benchmark
+        id: select
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+
+          changed_files="$(git diff --name-only "$PR_BASE_SHA...$PR_HEAD_SHA")"
+
+          echo "Changed files:"
+          printf '%s\n' "$changed_files"
+
+          shape_changed=false
+          objective_changed=false
+          action_changed=false
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+
+            case "$file" in
+              .github/workflows/ai-benchmark.yml|.github/workflows/ai-benchmark-pr.yml)
+                # Exercise the most feature-rich deterministic path when benchmark
+                # infrastructure itself changes.
+                shape_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/BuildShape*.java|              src/main/java/xyz/xuminghai/tetris/ai/Shape*.java|              src/main/java/xyz/xuminghai/tetris/ai/ConstructionSafetyEnvelopeBenchmark.java|              src/main/java/xyz/xuminghai/tetris/ai/BoardOccupancyMetrics.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/ShapeFeasibilityApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/BuildShape*.java|              src/test/java/xyz/xuminghai/tetris/ai/Shape*.java|              src/test/java/xyz/xuminghai/tetris/ai/ConstructionSafetyEnvelopeBenchmarkTest.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/ShapeFeasibilityApplicationTest.java)
+                shape_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/ObjectiveRisk*.java|              src/main/java/xyz/xuminghai/tetris/ai/ObjectiveSafetyBudget.java|              src/main/java/xyz/xuminghai/tetris/ai/TuckHunter*.java|              src/main/java/xyz/xuminghai/tetris/ai/AiObjective.java|              src/test/java/xyz/xuminghai/tetris/ai/ObjectiveRisk*.java|              src/test/java/xyz/xuminghai/tetris/ai/ObjectiveSafetyBudgetTest.java|              src/test/java/xyz/xuminghai/tetris/ai/TuckHunter*.java)
+                objective_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/Action*.java|              src/main/java/xyz/xuminghai/tetris/ai/AiAction.java|              src/main/java/xyz/xuminghai/tetris/ai/AiPlan*.java|              src/main/java/xyz/xuminghai/tetris/ai/AiPlanningAgent*.java|              src/main/java/xyz/xuminghai/tetris/ai/DeterministicActionPlanningAgent.java|              src/main/java/xyz/xuminghai/tetris/ai/BoardSimulator.java|              src/main/java/xyz/xuminghai/tetris/ai/PlacementCandidate.java|              src/main/java/xyz/xuminghai/tetris/ai/GameSnapshot.java|              src/main/java/xyz/xuminghai/tetris/ai/HeuristicTetrisAgent.java|              src/main/java/xyz/xuminghai/tetris/ai/NextPiece*.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/BenchmarkApplication.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/BoardHealthSummary.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/GameBenchmarkResult.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/HeadlessGameRunner.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/ReachabilityBenchmarkApplication.java|              src/main/java/xyz/xuminghai/tetris/core/BoardRules.java|              src/main/java/xyz/xuminghai/tetris/core/Tetris*.java|              src/test/java/xyz/xuminghai/tetris/ai/Action*.java|              src/test/java/xyz/xuminghai/tetris/ai/AiPlan*.java|              src/test/java/xyz/xuminghai/tetris/ai/BoardSimulatorTest.java|              src/test/java/xyz/xuminghai/tetris/core/BoardRulesTest.java)
+                action_changed=true
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          benchmark=none
+          reason="no AI benchmark-sensitive files changed"
+
+          # One benchmark per PR revision keeps the self-hosted runner bounded.
+          # Prefer the most specialized path when categories overlap.
+          if [ "$shape_changed" = "true" ]; then
+            benchmark=shape-feasibility
+            reason="BUILD_SHAPE / shape benchmark semantics changed"
+          elif [ "$objective_changed" = "true" ]; then
+            benchmark=compare-adaptive
+            reason="objective risk or safety policy changed"
+          elif [ "$action_changed" = "true" ]; then
+            benchmark=action-provenance
+            reason="action-native reachability or shared board facts changed"
+          fi
+
+          echo "benchmark=$benchmark" >> "$GITHUB_OUTPUT"
+          echo "reason=$reason" >> "$GITHUB_OUTPUT"
+          echo "Selected benchmark: $benchmark ($reason)"
+
+  shape-feasibility:
+    name: Shape Feasibility
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'shape-feasibility' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: shape-feasibility
+      games: '20'
+      max_pieces: '500'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      seed: '1000'
+      risk_profile: conservative
+      confirm_jev_cost: false
+
+  adaptive-objective:
+    name: Adaptive Objective
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'compare-adaptive' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: compare-adaptive
+      games: '10'
+      max_pieces: '250'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      seed: '1000'
+      risk_profile: conservative
+      confirm_jev_cost: false
+
+  action-provenance:
+    name: Action Provenance
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'action-provenance' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: action-provenance
+      games: '10'
+      max_pieces: '250'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      seed: '1000'
+      risk_profile: conservative
+      confirm_jev_cost: false
+
+  benchmark-gate:
+    name: PR AI Benchmark Gate
+    if: >-
+      ${{
+        always()
+        && github.event.pull_request.head.repo.full_name == github.repository
+        && github.event.pull_request.base.ref == github.event.repository.default_branch
+      }}
+    needs:
+      - select-benchmark
+      - shape-feasibility
+      - adaptive-objective
+      - action-provenance
+    runs-on: [self-hosted, linux, x64]
+    timeout-minutes: 5
+
+    steps:
+      - name: Require selected benchmark
+        shell: bash
+        env:
+          SELECT_RESULT: ${{ needs.select-benchmark.result }}
+          SELECTED: ${{ needs.select-benchmark.outputs.benchmark }}
+          REASON: ${{ needs.select-benchmark.outputs.reason }}
+          SHAPE_RESULT: ${{ needs.shape-feasibility.result }}
+          OBJECTIVE_RESULT: ${{ needs.adaptive-objective.result }}
+          ACTION_RESULT: ${{ needs.action-provenance.result }}
+        run: |
+          set -euo pipefail
+
+          if [ "$SELECT_RESULT" != "success" ]; then
+            echo "::error::Benchmark selection failed with result: $SELECT_RESULT"
+            exit 1
+          fi
+
+          case "$SELECTED" in
+            none)
+              echo "No deterministic AI benchmark required: $REASON"
+              ;;
+            shape-feasibility)
+              [ "$SHAPE_RESULT" = "success" ] || {
+                echo "::error::shape-feasibility benchmark result: $SHAPE_RESULT"
+                exit 1
+              }
+              ;;
+            compare-adaptive)
+              [ "$OBJECTIVE_RESULT" = "success" ] || {
+                echo "::error::compare-adaptive benchmark result: $OBJECTIVE_RESULT"
+                exit 1
+              }
+              ;;
+            action-provenance)
+              [ "$ACTION_RESULT" = "success" ] || {
+                echo "::error::action-provenance benchmark result: $ACTION_RESULT"
+                exit 1
+              }
+              ;;
+            *)
+              echo "::error::Unknown selected benchmark: $SELECTED"
+              exit 1
+              ;;
+          esac
+
+          echo "PR AI benchmark gate passed: $SELECTED ($REASON)"
