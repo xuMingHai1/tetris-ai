@@ -193,7 +193,7 @@ jobs:
           fi
 
       - name: Validate shape feasibility inputs
-        if: ${{ inputs.agent == 'shape-feasibility' }}
+        if: ${{ inputs.agent == 'shape-feasibility' || inputs.agent == 'recovery-robustness' }}
         shell: bash
         env:
           FEASIBILITY_DEPTH: ${{ inputs.feasibility_depth }}
