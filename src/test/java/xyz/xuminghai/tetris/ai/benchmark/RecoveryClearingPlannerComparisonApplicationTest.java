@@ -55,7 +55,7 @@ class RecoveryClearingPlannerComparisonApplicationTest {
                 RecoveryClearingPlannerComparisonApplication.formatGame(comparison)
                         .split(",", -1);
 
-        assertEquals(25, columns.length);
+        assertEquals(24, columns.length);
         assertEquals("recovery_clearing_game", columns[0]);
         assertEquals("7001", columns[1]);
         assertEquals("620", columns[2]);
