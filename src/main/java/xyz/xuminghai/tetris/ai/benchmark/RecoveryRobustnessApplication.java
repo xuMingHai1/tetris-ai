@@ -68,6 +68,7 @@ public final class RecoveryRobustnessApplication {
         }
 
         printSummary(samples);
+        printSeparationSummary(samples);
         printFailureDistanceSummary(samples);
     }
 
@@ -248,6 +249,78 @@ public final class RecoveryRobustnessApplication {
                     minimumPostUnknownHeadroom,
                     maximumUnplayable);
         }
+    }
+
+    private static void printSeparationSummary(List<Sample> samples) {
+        List<Sample> positive = samples.stream()
+                .filter(sample -> sample.source() == Source.CLEAN_WITNESS)
+                .toList();
+        List<Sample> negative = samples.stream()
+                .filter(sample -> sample.source() == Source.FAILED_GUARD_TAIL)
+                .toList();
+        if (positive.isEmpty() || negative.isEmpty()) {
+            return;
+        }
+
+        int positiveMinRecoveryHeadroom = positive.stream()
+                .mapToInt(sample -> sample.probe().recoveryHeadroom())
+                .filter(value -> value >= 0)
+                .min()
+                .orElse(-1);
+        int negativeMaxRecoveryHeadroom = negative.stream()
+                .mapToInt(sample -> sample.probe().recoveryHeadroom())
+                .max()
+                .orElse(-1);
+        int positiveMinPostUnknownHeadroom = positive.stream()
+                .mapToInt(sample -> sample.probe().minPostUnknownHeadroom())
+                .filter(value -> value >= 0)
+                .min()
+                .orElse(-1);
+        int negativeMaxPostUnknownHeadroom = negative.stream()
+                .mapToInt(sample -> sample.probe().minPostUnknownHeadroom())
+                .max()
+                .orElse(-1);
+        int positiveMinUnknownReachable = positive.stream()
+                .mapToInt(sample -> sample.probe().minUnknownReachableOutcomes())
+                .min()
+                .orElse(-1);
+        int negativeMaxMinUnknownReachable = negative.stream()
+                .mapToInt(sample -> sample.probe().minUnknownReachableOutcomes())
+                .max()
+                .orElse(-1);
+        int positiveMaxRecoveryHoles = positive.stream()
+                .mapToInt(sample -> sample.probe().recoveryHoles())
+                .max()
+                .orElse(-1);
+        int negativeMinRecoveryHoles = negative.stream()
+                .mapToInt(sample -> sample.probe().recoveryHoles())
+                .filter(value -> value >= 0)
+                .min()
+                .orElse(-1);
+
+        System.out.printf(
+                Locale.ROOT,
+                "# recovery_robustness_separation positive_samples=%d negative_samples=%d "
+                        + "positive_min_recovery_headroom=%d negative_max_recovery_headroom=%d "
+                        + "recovery_headroom_gap=%d "
+                        + "positive_min_post_unknown_headroom=%d "
+                        + "negative_max_post_unknown_headroom=%d post_unknown_headroom_gap=%d "
+                        + "positive_min_unknown_reachable=%d "
+                        + "negative_max_min_unknown_reachable=%d unknown_reachable_gap=%d "
+                        + "positive_max_recovery_holes=%d negative_min_recovery_holes=%d%n",
+                positive.size(),
+                negative.size(),
+                positiveMinRecoveryHeadroom,
+                negativeMaxRecoveryHeadroom,
+                positiveMinRecoveryHeadroom - negativeMaxRecoveryHeadroom,
+                positiveMinPostUnknownHeadroom,
+                negativeMaxPostUnknownHeadroom,
+                positiveMinPostUnknownHeadroom - negativeMaxPostUnknownHeadroom,
+                positiveMinUnknownReachable,
+                negativeMaxMinUnknownReachable,
+                positiveMinUnknownReachable - negativeMaxMinUnknownReachable,
+                positiveMaxRecoveryHoles,
+                negativeMinRecoveryHoles);
     }
 
     private static void printFailureDistanceSummary(List<Sample> samples) {
