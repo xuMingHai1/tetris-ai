@@ -38,7 +38,7 @@ final class RecoveryInterventionPlanningAgent implements AiPlanningAgent {
     private final BuildShapeActionPlanningAgent buildShape;
     private final DeterministicActionPlanningAgent survival;
     private final Consumer<Observation> observer;
-    private BuildShapeDecisionObservation lastBuildShapeDecision;
+    private final DecisionCapture decisionCapture = new DecisionCapture();
 
     RecoveryInterventionPlanningAgent() {
         this(ShapeTarget.HEART, NOOP_OBSERVER);
@@ -51,17 +51,17 @@ final class RecoveryInterventionPlanningAgent implements AiPlanningAgent {
         this.observer = Objects.requireNonNull(observer, "observer");
         this.buildShape = new BuildShapeActionPlanningAgent(
                 target,
-                decision -> lastBuildShapeDecision = decision);
+                decisionCapture::record);
         this.survival = new DeterministicActionPlanningAgent();
     }
 
     @Override
     public AiPlan plan(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
-        lastBuildShapeDecision = null;
+        decisionCapture.reset();
 
         AiPlan buildShapePlan = buildShape.plan(snapshot);
-        BuildShapeDecisionObservation buildDecision = lastBuildShapeDecision;
+        BuildShapeDecisionObservation buildDecision = decisionCapture.current();
         if (buildDecision == null || snapshot.nextType().isEmpty()) {
             return buildShapePlan;
         }
@@ -120,6 +120,23 @@ final class RecoveryInterventionPlanningAgent implements AiPlanningAgent {
                 probeNanos,
                 verificationProbeNanos));
         return survivalPlan;
+    }
+
+
+    private static final class DecisionCapture {
+        private BuildShapeDecisionObservation current;
+
+        void reset() {
+            current = null;
+        }
+
+        void record(BuildShapeDecisionObservation decision) {
+            current = Objects.requireNonNull(decision, "decision");
+        }
+
+        BuildShapeDecisionObservation current() {
+            return current;
+        }
     }
 
     record Observation(
