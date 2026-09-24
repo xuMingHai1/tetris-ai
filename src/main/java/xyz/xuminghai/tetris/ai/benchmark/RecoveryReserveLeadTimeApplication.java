@@ -75,6 +75,7 @@ public final class RecoveryReserveLeadTimeApplication {
 
         printSourceSummary(samples);
         printRunSummary(runSummary);
+        printLowReserveConditionalSummary(samples);
         printCutoffSweep(samples, runSummary, Metric.RECOVERY_HEADROOM);
         printCutoffSweep(samples, runSummary, Metric.POST_UNKNOWN_HEADROOM);
         printFailureDistanceBands(samples);
@@ -297,6 +298,60 @@ public final class RecoveryReserveLeadTimeApplication {
                 FAILURE_HISTORY_STATES,
                 HEALTHY_CONTROL_INTERVAL,
                 HEALTHY_CONTROL_TAIL_STATES);
+    }
+
+    private static void printLowReserveConditionalSummary(List<Sample> samples) {
+        int cutoff = HEADROOM_CUTOFFS[0];
+        for (Source source : List.of(
+                Source.FAILED_GUARD_LEAD_TIME,
+                Source.HEALTHY_RUNTIME_CONTROL)) {
+            List<Sample> lowReserve = samples.stream()
+                    .filter(sample -> sample.source() == source)
+                    .filter(sample ->
+                            sample.probe().recoveryHeadroom() < 0
+                                    || sample.probe().recoveryHeadroom() <= cutoff)
+                    .filter(sample -> sample.probe().previewRecoverable())
+                    .toList();
+            if (lowReserve.isEmpty()) {
+                continue;
+            }
+
+            int minRecoveryHoles = lowReserve.stream()
+                    .mapToInt(sample -> sample.probe().recoveryHoles())
+                    .min()
+                    .orElseThrow();
+            int maxRecoveryHoles = lowReserve.stream()
+                    .mapToInt(sample -> sample.probe().recoveryHoles())
+                    .max()
+                    .orElseThrow();
+            double averageRecoveryHoles = lowReserve.stream()
+                    .mapToInt(sample -> sample.probe().recoveryHoles())
+                    .average()
+                    .orElse(0.0);
+            int minUnknownReachable = lowReserve.stream()
+                    .mapToInt(sample -> sample.probe().minUnknownReachableOutcomes())
+                    .min()
+                    .orElseThrow();
+            int maxUnknownReachable = lowReserve.stream()
+                    .mapToInt(sample -> sample.probe().minUnknownReachableOutcomes())
+                    .max()
+                    .orElseThrow();
+
+            System.out.printf(
+                    Locale.ROOT,
+                    "# recovery_reserve_low_headroom source=%s cutoff=%d samples=%d "
+                            + "min_recovery_holes=%d max_recovery_holes=%d "
+                            + "avg_recovery_holes=%.3f min_unknown_reachable=%d "
+                            + "max_unknown_reachable=%d%n",
+                    source.configValue,
+                    cutoff,
+                    lowReserve.size(),
+                    minRecoveryHoles,
+                    maxRecoveryHoles,
+                    averageRecoveryHoles,
+                    minUnknownReachable,
+                    maxUnknownReachable);
+        }
     }
 
     private static void printCutoffSweep(
