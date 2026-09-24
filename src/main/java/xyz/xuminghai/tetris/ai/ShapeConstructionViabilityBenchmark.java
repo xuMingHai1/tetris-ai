@@ -244,7 +244,7 @@ public final class ShapeConstructionViabilityBenchmark {
                     0);
         }
 
-        List<boolean[][]> frontier = List.of(copyBoard(initialBoard));
+        List<boolean[][]> frontier = List.<boolean[][]>of(copyBoard(initialBoard));
         boolean pruned = false;
         int survived = 0;
         int firstReachableOutcomes = -1;
