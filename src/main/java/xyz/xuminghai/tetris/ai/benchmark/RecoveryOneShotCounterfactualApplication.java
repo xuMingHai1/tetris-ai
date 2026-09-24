@@ -11,7 +11,6 @@ import xyz.xuminghai.tetris.ai.BuildShapeDecisionObservation;
 import xyz.xuminghai.tetris.ai.PlacementCandidate;
 import xyz.xuminghai.tetris.ai.RecoveryCandidateScanBenchmark;
 import xyz.xuminghai.tetris.ai.RecoveryRobustnessBenchmark;
-import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.TetrominoType;
