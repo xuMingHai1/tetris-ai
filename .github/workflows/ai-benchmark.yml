@@ -196,9 +196,6 @@ jobs:
         env:
           FEASIBILITY_DEPTH: ${{ inputs.feasibility_depth }}
           FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
-          VIABILITY_SEARCH_DEPTH: ${{ inputs.viability_search_depth }}
-          VIABILITY_BEAM_WIDTH: ${{ inputs.viability_beam_width }}
-          VIABILITY_GREEDY_DEPTH: ${{ inputs.viability_greedy_depth }}
         run: |
           set -euo pipefail
 
@@ -451,6 +448,9 @@ jobs:
           SEED: ${{ inputs.seed }}
           FEASIBILITY_DEPTH: ${{ inputs.feasibility_depth }}
           FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
+          VIABILITY_SEARCH_DEPTH: ${{ inputs.viability_search_depth }}
+          VIABILITY_BEAM_WIDTH: ${{ inputs.viability_beam_width }}
+          VIABILITY_GREEDY_DEPTH: ${{ inputs.viability_greedy_depth }}
         run: |
           set -euo pipefail
 
