@@ -55,6 +55,22 @@ class ShapeWitnessConstraintAuditTest {
         assertTrue(audit.finalWitnessHoles().forbiddenHoles() > 0);
         assertTrue(audit.finalWitnessHoles().totalHoles()
                 >= audit.finalWitnessHoles().forbiddenHoles());
+
+        ConstructionSafetyEnvelopeBenchmark.Result envelope =
+                ConstructionSafetyEnvelopeBenchmark.analyze(
+                        ShapeTarget.HEART,
+                        feasibility.witness(),
+                        20,
+                        10);
+
+        assertEquals(feasibility.piecesToCompletion(), envelope.steps().size());
+        assertTrue(envelope.finalProgress().cleanCompletion());
+        assertTrue(envelope.minHeadroom() > 0);
+        assertTrue(envelope.maxRawHoles() >= audit.finalWitnessHoles().totalHoles());
+        assertTrue(envelope.steps().stream()
+                .filter(step -> step.nextPieceType().isPresent())
+                .allMatch(step -> step.nextReachableOutcomes() > 0));
+        assertEquals(-1, envelope.steps().getLast().nextReachableOutcomes());
     }
 
     @Test
