@@ -70,7 +70,13 @@ class HeadlessGameRunnerTest {
                 new DeterministicActionPlanningAgent(),
                 null,
                 observations::add);
+        GameBenchmarkResult control =
+                runner.runPlanning(42L, 5, new DeterministicActionPlanningAgent());
 
+        assertEquals(control.piecesPlaced(), result.piecesPlaced());
+        assertEquals(control.linesCleared(), result.linesCleared());
+        assertEquals(control.boardHealth(), result.boardHealth());
+        assertEquals(control.reachedPieceLimit(), result.reachedPieceLimit());
         assertEquals(result.decisions(), observations.size());
         assertEquals(5, observations.size());
         for (int index = 0; index < observations.size(); index++) {
