@@ -149,19 +149,7 @@ public final class BuildShapeConstructionGuardPlanningAgent implements AiPlannin
     }
 
     private ConstructionSafetyGuard.Profile profile() {
-        return guardProfile(guard);
-    }
-
-    private static ConstructionSafetyGuard.Profile guardProfile(
-            ConstructionSafetyGuard guard) {
-        try {
-            var field = ConstructionSafetyGuard.class.getDeclaredField("profile");
-            field.setAccessible(true);
-            return (ConstructionSafetyGuard.Profile) field.get(guard);
-        }
-        catch (ReflectiveOperationException exception) {
-            throw new IllegalStateException("Unable to read construction guard profile", exception);
-        }
+        return guard.profile();
     }
 
     private ObjectiveCandidate objectiveCandidate(
