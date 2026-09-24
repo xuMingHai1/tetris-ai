@@ -49,6 +49,7 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$changed_files"
 
+          recovery_reserve_runtime_validation_changed=false
           recovery_reserve_validation_changed=false
           recovery_reserve_changed=false
           recovery_changed=false
@@ -65,6 +66,10 @@ jobs:
                 # Exercise the most feature-rich deterministic path when benchmark
                 # infrastructure itself changes.
                 shape_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReserveRuntimeValidationApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReserveRuntimeValidationApplicationTest.java)
+                recovery_reserve_runtime_validation_changed=true
                 ;;
 
               src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReserveValidationApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReserveValidationApplicationTest.java)
@@ -102,7 +107,10 @@ jobs:
 
           # One benchmark per PR revision keeps the self-hosted runner bounded.
           # Prefer the most specialized path when categories overlap.
-          if [ "$recovery_reserve_validation_changed" = "true" ]; then
+          if [ "$recovery_reserve_runtime_validation_changed" = "true" ]; then
+            benchmark=recovery-reserve-runtime-validation
+            reason="production BUILD_SHAPE recovery failure validation changed"
+          elif [ "$recovery_reserve_validation_changed" = "true" ]; then
             benchmark=recovery-reserve-validation
             reason="out-of-sample recovery reserve validation changed"
           elif [ "$recovery_reserve_changed" = "true" ]; then
@@ -128,6 +136,24 @@ jobs:
           echo "benchmark=$benchmark" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "Selected benchmark: $benchmark ($reason)"
+
+  recovery-reserve-runtime-validation:
+    name: Production Recovery Failure Validation
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'recovery-reserve-runtime-validation' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: recovery-reserve-runtime-validation
+      games: '40'
+      max_pieces: '1000'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      viability_search_depth: '4'
+      viability_beam_width: '32'
+      viability_greedy_depth: '24'
+      seed: '3000'
+      risk_profile: conservative
+      confirm_jev_cost: false
 
   recovery-reserve-validation:
     name: Recovery Reserve Validation
@@ -259,6 +285,7 @@ jobs:
       }}
     needs:
       - select-benchmark
+      - recovery-reserve-runtime-validation
       - recovery-reserve-validation
       - recovery-reserve-lead-time
       - recovery-robustness
@@ -276,6 +303,7 @@ jobs:
           SELECT_RESULT: ${{ needs.select-benchmark.result }}
           SELECTED: ${{ needs.select-benchmark.outputs.benchmark }}
           REASON: ${{ needs.select-benchmark.outputs.reason }}
+          RUNTIME_VALIDATION_RESULT: ${{ needs.recovery-reserve-runtime-validation.result }}
           VALIDATION_RESULT: ${{ needs.recovery-reserve-validation.result }}
           RESERVE_RESULT: ${{ needs.recovery-reserve-lead-time.result }}
           RECOVERY_RESULT: ${{ needs.recovery-robustness.result }}
@@ -294,6 +322,12 @@ jobs:
           case "$SELECTED" in
             none)
               echo "No deterministic AI benchmark required: $REASON"
+              ;;
+            recovery-reserve-runtime-validation)
+              [ "$RUNTIME_VALIDATION_RESULT" = "success" ] || {
+                echo "::error::recovery-reserve-runtime-validation benchmark result: $RUNTIME_VALIDATION_RESULT"
+                exit 1
+              }
               ;;
             recovery-reserve-validation)
               [ "$VALIDATION_RESULT" = "success" ] || {
