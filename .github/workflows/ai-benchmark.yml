@@ -87,6 +87,7 @@ on:
           - compare-shape
           - compare-shape-preview
           - compare-shape-guard
+          - recovery-robustness
           - calibrate-objective
           - reachability
       games:
@@ -371,6 +372,20 @@ jobs:
               javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
           done
 
+      - name: Run recovery robustness calibration
+        if: ${{ inputs.agent == 'recovery-robustness' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+          TETRIS_BENCHMARK_FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryRobustnessApplication \
+            javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run BUILD_SHAPE preview-lookahead benchmark
         if: ${{ inputs.agent == 'build-shape-preview' || inputs.agent == 'compare-shape-preview' }}
         shell: bash
@@ -501,6 +516,7 @@ jobs:
           grep '^shape_witness_audit,' target/benchmark/raw.log > target/benchmark/shape-witness-audit.csv || true
           grep '^construction_safety_envelope,' target/benchmark/raw.log > target/benchmark/construction-safety-envelope.csv || true
           grep '^construction_viability,' target/benchmark/raw.log > target/benchmark/construction-viability.csv || true
+          grep '^recovery_robustness,' target/benchmark/raw.log > target/benchmark/recovery-robustness.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -526,7 +542,7 @@ jobs:
             cat target/benchmark/summary.txt
             echo '~~~'
             echo
-            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data when applicable, summary, metadata, and the raw Maven/application log."
+            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness samples when applicable, summary, metadata, and the raw Maven/application log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
@@ -548,6 +564,7 @@ jobs:
             target/benchmark/shape-witness-audit.csv
             target/benchmark/construction-safety-envelope.csv
             target/benchmark/construction-viability.csv
+            target/benchmark/recovery-robustness.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
