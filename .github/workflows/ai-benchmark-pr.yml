@@ -108,6 +108,9 @@ jobs:
       max_pieces: '500'
       feasibility_depth: '24'
       feasibility_beam_width: '128'
+      viability_search_depth: '4'
+      viability_beam_width: '32'
+      viability_greedy_depth: '24'
       seed: '1000'
       risk_profile: conservative
       confirm_jev_cost: false
