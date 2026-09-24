@@ -92,6 +92,7 @@ on:
           - recovery-reserve-validation
           - recovery-reserve-runtime-validation
           - recovery-reserve-persistence-validation
+          - recovery-intervention-comparison
           - calibrate-objective
           - reachability
       games:
@@ -445,6 +446,19 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryReservePersistenceValidationApplication \
             javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
 
+      - name: Run paired recovery intervention comparison
+        if: ${{ inputs.agent == 'recovery-intervention-comparison' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryInterventionComparisonApplication \
+            javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run BUILD_SHAPE preview-lookahead benchmark
         if: ${{ inputs.agent == 'build-shape-preview' || inputs.agent == 'compare-shape-preview' }}
         shell: bash
@@ -582,6 +596,8 @@ jobs:
           grep '^recovery_reserve_persistence_warning,' target/benchmark/raw.log > target/benchmark/recovery-reserve-persistence-warnings.csv || true
           grep '^recovery_reserve_persistence_episode,' target/benchmark/raw.log > target/benchmark/recovery-reserve-persistence-episodes.csv || true
           grep '^recovery_reserve_persistence_game,' target/benchmark/raw.log > target/benchmark/recovery-reserve-persistence-games.csv || true
+          grep '^recovery_intervention_decision,' target/benchmark/raw.log > target/benchmark/recovery-intervention-decisions.csv || true
+          grep '^recovery_intervention_game,' target/benchmark/raw.log > target/benchmark/recovery-intervention-games.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -607,7 +623,7 @@ jobs:
             cat target/benchmark/summary.txt
             echo '~~~'
             echo
-            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness / recovery-reserve calibration samples, out-of-sample / production-runtime validation and warning-persistence evidence when applicable, summary, metadata, and the raw Maven/application log."
+            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness / recovery-reserve calibration samples, validation / warning-persistence evidence, and paired recovery-intervention results when applicable, summary, metadata, and the raw Maven/application log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
@@ -636,6 +652,8 @@ jobs:
             target/benchmark/recovery-reserve-persistence-warnings.csv
             target/benchmark/recovery-reserve-persistence-episodes.csv
             target/benchmark/recovery-reserve-persistence-games.csv
+            target/benchmark/recovery-intervention-decisions.csv
+            target/benchmark/recovery-intervention-games.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
