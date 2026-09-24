@@ -27,6 +27,30 @@ public final class RecoveryRobustnessBenchmark {
     private RecoveryRobustnessBenchmark() {
     }
 
+    /**
+     * Replays one already-known action plan from the production spawned-piece boundary and probes
+     * the resulting board without exposing package-local board-construction helpers to the
+     * benchmark application package.
+     */
+    public static ReplayedPlacement replayAndProbe(
+            boolean[][] board,
+            TetrominoType currentType,
+            AiPlan plan,
+            TetrominoType previewType) {
+        Objects.requireNonNull(board, "board");
+        Objects.requireNonNull(currentType, "currentType");
+        Objects.requireNonNull(plan, "plan");
+        Objects.requireNonNull(previewType, "previewType");
+
+        GameSnapshot snapshot =
+                BoardSimulator.snapshotForSpawnedPiece(board, currentType);
+        PlacementCandidate placement =
+                ActionPlanSimulator.requireTerminalPlacement(snapshot, plan);
+        return new ReplayedPlacement(
+                placement,
+                probe(placement.resultingBoard(), previewType));
+    }
+
     public static Probe probe(
             boolean[][] board,
             TetrominoType previewType) {
@@ -104,6 +128,16 @@ public final class RecoveryRobustnessBenchmark {
                 unplayableTypes == unknownTypes.length
                         ? -1
                         : maxPostUnknownAggregateHeight);
+    }
+
+    public record ReplayedPlacement(
+            PlacementCandidate placement,
+            Probe probe) {
+
+        public ReplayedPlacement {
+            Objects.requireNonNull(placement, "placement");
+            Objects.requireNonNull(probe, "probe");
+        }
     }
 
     /**
