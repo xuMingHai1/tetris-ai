@@ -64,6 +64,8 @@ class BoardSimulatorTest {
                 BoardOccupancyMetrics.analyzeWithHoleCells(board);
 
         assertEquals(3, metrics.aggregateHeight());
+        assertEquals(3, metrics.maxColumnHeight());
+        assertEquals(17, metrics.headroom());
         assertEquals(1, metrics.holes());
         assertEquals(6, metrics.bumpiness());
         assertEquals(List.of(new BoardPosition(18, 4)), metrics.holeCells());

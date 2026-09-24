@@ -379,6 +379,7 @@ jobs:
           grep '^shape_feasibility,' target/benchmark/raw.log > target/benchmark/shape-feasibility.csv || true
           grep '^shape_feasibility_witness,' target/benchmark/raw.log > target/benchmark/shape-feasibility-witness.csv || true
           grep '^shape_witness_audit,' target/benchmark/raw.log > target/benchmark/shape-witness-audit.csv || true
+          grep '^construction_safety_envelope,' target/benchmark/raw.log > target/benchmark/construction-safety-envelope.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -419,6 +420,7 @@ jobs:
             target/benchmark/shape-feasibility.csv
             target/benchmark/shape-feasibility-witness.csv
             target/benchmark/shape-witness-audit.csv
+            target/benchmark/construction-safety-envelope.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log

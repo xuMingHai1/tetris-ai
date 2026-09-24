@@ -8,6 +8,7 @@ package xyz.xuminghai.tetris.ai.benchmark;
 import org.junit.jupiter.api.Test;
 import xyz.xuminghai.tetris.ai.AiMove;
 import xyz.xuminghai.tetris.ai.AiPlan;
+import xyz.xuminghai.tetris.ai.ConstructionSafetyEnvelopeBenchmark;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskController;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskProfile;
 import xyz.xuminghai.tetris.ai.ObjectiveSafetyBudget;
@@ -15,10 +16,46 @@ import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeWitnessConstraintAudit;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShapeFeasibilityApplicationTest {
+
+    @Test
+    void formatsConstructionSafetyEnvelopeCsvWithoutPlaceholderMismatch() {
+        ConstructionSafetyEnvelopeBenchmark.Step step =
+                new ConstructionSafetyEnvelopeBenchmark.Step(
+                        2,
+                        TetrominoType.S,
+                        17,
+                        9,
+                        24,
+                        Optional.of(TetrominoType.I),
+                        18,
+                        0,
+                        11,
+                        9,
+                        36,
+                        8,
+                        new ShapeWitnessConstraintAudit.HoleBreakdown(12, 1, 4, 6, 1),
+                        new ShapeProgress(32, 14, 16, 0, 2));
+
+        String line = ShapeFeasibilityApplication.formatConstructionSafetyEnvelopeLine(1008L, step);
+        String[] columns = line.split(",", -1);
+
+        assertEquals(24, columns.length);
+        assertEquals("construction_safety_envelope", columns[0]);
+        assertEquals("1008", columns[1]);
+        assertEquals("17", columns[4]);
+        assertEquals("I", columns[7]);
+        assertEquals("11", columns[10]);
+        assertEquals("12", columns[13]);
+        assertEquals("8", columns[19]);
+        assertEquals("18", columns[22]);
+        assertEquals("false", columns[23]);
+    }
 
     @Test
     void formatsShapeWitnessAuditCsvWithoutPlaceholderMismatch() {
