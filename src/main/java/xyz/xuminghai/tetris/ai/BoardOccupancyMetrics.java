@@ -48,6 +48,7 @@ final class BoardOccupancyMetrics {
 
         int[] heights = new int[cols];
         int aggregateHeight = 0;
+        int maxColumnHeight = 0;
         int holes = 0;
         List<BoardPosition> holeCells =
                 includeHoleCells ? new ArrayList<>() : List.of();
@@ -59,6 +60,7 @@ final class BoardOccupancyMetrics {
                     if (!blockSeen) {
                         heights[col] = rows - row;
                         aggregateHeight += heights[col];
+                        maxColumnHeight = Math.max(maxColumnHeight, heights[col]);
                         blockSeen = true;
                     }
                 }
@@ -78,6 +80,8 @@ final class BoardOccupancyMetrics {
 
         return new Analysis(
                 aggregateHeight,
+                maxColumnHeight,
+                rows - maxColumnHeight,
                 holes,
                 bumpiness,
                 includeHoleCells ? List.copyOf(holeCells) : List.of());
@@ -85,12 +89,18 @@ final class BoardOccupancyMetrics {
 
     record Analysis(
             int aggregateHeight,
+            int maxColumnHeight,
+            int headroom,
             int holes,
             int bumpiness,
             List<BoardPosition> holeCells) {
 
         Analysis {
-            if (aggregateHeight < 0 || holes < 0 || bumpiness < 0) {
+            if (aggregateHeight < 0
+                    || maxColumnHeight < 0
+                    || headroom < 0
+                    || holes < 0
+                    || bumpiness < 0) {
                 throw new IllegalArgumentException("board metrics must not be negative");
             }
             holeCells = List.copyOf(Objects.requireNonNull(holeCells, "holeCells"));
