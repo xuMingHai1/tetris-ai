@@ -49,6 +49,7 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$changed_files"
 
+          recovery_clearing_planner_changed=false
           recovery_candidate_scan_changed=false
           recovery_intervention_changed=false
           recovery_reserve_persistence_validation_changed=false
@@ -69,6 +70,10 @@ jobs:
                 # Exercise the most feature-rich deterministic path when benchmark
                 # infrastructure itself changes.
                 shape_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryClearingPlanningAgent.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryClearingPlannerComparisonApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryClearingPlanningAgentTest.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryClearingPlannerComparisonApplicationTest.java)
+                recovery_clearing_planner_changed=true
                 ;;
 
               src/main/java/xyz/xuminghai/tetris/ai/RecoveryCandidateScanBenchmark.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryCandidateScanApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/RecoveryCandidateScanBenchmarkTest.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryCandidateScanApplicationTest.java)
@@ -122,7 +127,10 @@ jobs:
 
           # One benchmark per PR revision keeps the self-hosted runner bounded.
           # Prefer the most specialized path when categories overlap.
-          if [ "$recovery_candidate_scan_changed" = "true" ]; then
+          if [ "$recovery_clearing_planner_changed" = "true" ]; then
+            benchmark=recovery-clearing-planner-comparison
+            reason="paired first-clearing recovery planner changed"
+          elif [ "$recovery_candidate_scan_changed" = "true" ]; then
             benchmark=recovery-candidate-scan
             reason="warned-state recovery candidate scan changed"
           elif [ "$recovery_intervention_changed" = "true" ]; then
@@ -160,6 +168,24 @@ jobs:
           echo "benchmark=$benchmark" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "Selected benchmark: $benchmark ($reason)"
+
+  recovery-clearing-planner-comparison:
+    name: Recovery Clearing Planner Comparison
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'recovery-clearing-planner-comparison' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: recovery-clearing-planner-comparison
+      games: '30'
+      max_pieces: '1000'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      viability_search_depth: '4'
+      viability_beam_width: '32'
+      viability_greedy_depth: '24'
+      seed: '7000'
+      risk_profile: conservative
+      confirm_jev_cost: false
 
   recovery-candidate-scan:
     name: Recovery Candidate Scan
@@ -363,6 +389,7 @@ jobs:
       }}
     needs:
       - select-benchmark
+      - recovery-clearing-planner-comparison
       - recovery-candidate-scan
       - recovery-intervention-comparison
       - recovery-reserve-persistence-validation
@@ -384,6 +411,7 @@ jobs:
           SELECT_RESULT: ${{ needs.select-benchmark.result }}
           SELECTED: ${{ needs.select-benchmark.outputs.benchmark }}
           REASON: ${{ needs.select-benchmark.outputs.reason }}
+          CLEARING_PLANNER_RESULT: ${{ needs.recovery-clearing-planner-comparison.result }}
           CANDIDATE_SCAN_RESULT: ${{ needs.recovery-candidate-scan.result }}
           INTERVENTION_RESULT: ${{ needs.recovery-intervention-comparison.result }}
           PERSISTENCE_VALIDATION_RESULT: ${{ needs.recovery-reserve-persistence-validation.result }}
@@ -406,6 +434,12 @@ jobs:
           case "$SELECTED" in
             none)
               echo "No deterministic AI benchmark required: $REASON"
+              ;;
+            recovery-clearing-planner-comparison)
+              [ "$CLEARING_PLANNER_RESULT" = "success" ] || {
+                echo "::error::recovery-clearing-planner-comparison benchmark result: $CLEARING_PLANNER_RESULT"
+                exit 1
+              }
               ;;
             recovery-candidate-scan)
               [ "$CANDIDATE_SCAN_RESULT" = "success" ] || {

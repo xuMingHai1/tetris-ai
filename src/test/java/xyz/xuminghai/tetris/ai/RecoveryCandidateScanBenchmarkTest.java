@@ -15,6 +15,31 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RecoveryCandidateScanBenchmarkTest {
 
     @Test
+    void earlyStopSearchBeginsAtRequestedSurvivalRank() {
+        GameSnapshot base =
+                BoardSimulator.snapshotForSpawnedPiece(
+                        new boolean[20][10],
+                        TetrominoType.T);
+        GameSnapshot snapshot = new GameSnapshot(
+                base.rows(),
+                base.cols(),
+                base.occupied(),
+                base.currentType(),
+                base.currentCells(),
+                TetrominoType.I);
+
+        var search = RecoveryCandidateScanBenchmark.findFirstMatching(
+                snapshot,
+                2,
+                ignored -> true);
+
+        assertTrue(search.match().isPresent());
+        assertEquals(2, search.match().orElseThrow().survivalRank());
+        assertEquals(1, search.candidatesProbed());
+        assertTrue(search.totalCandidates() >= 2);
+    }
+
+    @Test
     void preservesProductionSurvivalOrderWhileAttachingRecoveryProbes() {
         GameSnapshot base =
                 BoardSimulator.snapshotForSpawnedPiece(
