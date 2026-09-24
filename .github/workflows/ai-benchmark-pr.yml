@@ -49,6 +49,7 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$changed_files"
 
+          recovery_reserve_persistence_validation_changed=false
           recovery_reserve_runtime_validation_changed=false
           recovery_reserve_validation_changed=false
           recovery_reserve_changed=false
@@ -66,6 +67,10 @@ jobs:
                 # Exercise the most feature-rich deterministic path when benchmark
                 # infrastructure itself changes.
                 shape_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReservePersistenceValidationApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReservePersistenceValidationApplicationTest.java)
+                recovery_reserve_persistence_validation_changed=true
                 ;;
 
               src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReserveRuntimeValidationApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReserveRuntimeValidationApplicationTest.java)
@@ -107,7 +112,10 @@ jobs:
 
           # One benchmark per PR revision keeps the self-hosted runner bounded.
           # Prefer the most specialized path when categories overlap.
-          if [ "$recovery_reserve_runtime_validation_changed" = "true" ]; then
+          if [ "$recovery_reserve_persistence_validation_changed" = "true" ]; then
+            benchmark=recovery-reserve-persistence-validation
+            reason="recovery warning persistence validation changed"
+          elif [ "$recovery_reserve_runtime_validation_changed" = "true" ]; then
             benchmark=recovery-reserve-runtime-validation
             reason="production BUILD_SHAPE recovery failure validation changed"
           elif [ "$recovery_reserve_validation_changed" = "true" ]; then
@@ -136,6 +144,24 @@ jobs:
           echo "benchmark=$benchmark" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "Selected benchmark: $benchmark ($reason)"
+
+  recovery-reserve-persistence-validation:
+    name: Recovery Warning Persistence Validation
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'recovery-reserve-persistence-validation' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: recovery-reserve-persistence-validation
+      games: '30'
+      max_pieces: '1000'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      viability_search_depth: '4'
+      viability_beam_width: '32'
+      viability_greedy_depth: '24'
+      seed: '4000'
+      risk_profile: conservative
+      confirm_jev_cost: false
 
   recovery-reserve-runtime-validation:
     name: Production Recovery Failure Validation
@@ -285,6 +311,7 @@ jobs:
       }}
     needs:
       - select-benchmark
+      - recovery-reserve-persistence-validation
       - recovery-reserve-runtime-validation
       - recovery-reserve-validation
       - recovery-reserve-lead-time
@@ -303,6 +330,7 @@ jobs:
           SELECT_RESULT: ${{ needs.select-benchmark.result }}
           SELECTED: ${{ needs.select-benchmark.outputs.benchmark }}
           REASON: ${{ needs.select-benchmark.outputs.reason }}
+          PERSISTENCE_VALIDATION_RESULT: ${{ needs.recovery-reserve-persistence-validation.result }}
           RUNTIME_VALIDATION_RESULT: ${{ needs.recovery-reserve-runtime-validation.result }}
           VALIDATION_RESULT: ${{ needs.recovery-reserve-validation.result }}
           RESERVE_RESULT: ${{ needs.recovery-reserve-lead-time.result }}
@@ -322,6 +350,12 @@ jobs:
           case "$SELECTED" in
             none)
               echo "No deterministic AI benchmark required: $REASON"
+              ;;
+            recovery-reserve-persistence-validation)
+              [ "$PERSISTENCE_VALIDATION_RESULT" = "success" ] || {
+                echo "::error::recovery-reserve-persistence-validation benchmark result: $PERSISTENCE_VALIDATION_RESULT"
+                exit 1
+              }
               ;;
             recovery-reserve-runtime-validation)
               [ "$RUNTIME_VALIDATION_RESULT" = "success" ] || {
