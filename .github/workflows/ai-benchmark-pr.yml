@@ -49,6 +49,7 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$changed_files"
 
+          recovery_changed=false
           shape_guard_changed=false
           shape_changed=false
           objective_changed=false
@@ -62,6 +63,10 @@ jobs:
                 # Exercise the most feature-rich deterministic path when benchmark
                 # infrastructure itself changes.
                 shape_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/RecoveryRobustnessBenchmark.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryRobustnessApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/RecoveryRobustnessBenchmarkTest.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryRobustnessApplicationTest.java)
+                recovery_changed=true
                 ;;
 
               src/main/java/xyz/xuminghai/tetris/ai/ConstructionSafetyGuard.java|              src/main/java/xyz/xuminghai/tetris/ai/BuildShapeConstructionGuard*.java|              src/test/java/xyz/xuminghai/tetris/ai/ConstructionSafetyGuardTest.java|              src/test/java/xyz/xuminghai/tetris/ai/BuildShapeConstructionGuard*.java)
@@ -87,7 +92,10 @@ jobs:
 
           # One benchmark per PR revision keeps the self-hosted runner bounded.
           # Prefer the most specialized path when categories overlap.
-          if [ "$shape_guard_changed" = "true" ]; then
+          if [ "$recovery_changed" = "true" ]; then
+            benchmark=recovery-robustness
+            reason="recovery robustness calibration changed"
+          elif [ "$shape_guard_changed" = "true" ]; then
             benchmark=compare-shape-guard
             reason="BUILD_SHAPE construction guard experiment changed"
           elif [ "$shape_changed" = "true" ]; then
@@ -104,6 +112,24 @@ jobs:
           echo "benchmark=$benchmark" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "Selected benchmark: $benchmark ($reason)"
+
+  recovery-robustness:
+    name: Recovery Robustness
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'recovery-robustness' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: recovery-robustness
+      games: '10'
+      max_pieces: '250'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      viability_search_depth: '4'
+      viability_beam_width: '32'
+      viability_greedy_depth: '24'
+      seed: '1000'
+      risk_profile: conservative
+      confirm_jev_cost: false
 
   shape-guard-comparison:
     name: Shape Guard Comparison
@@ -181,6 +207,7 @@ jobs:
       }}
     needs:
       - select-benchmark
+      - recovery-robustness
       - shape-guard-comparison
       - shape-feasibility
       - adaptive-objective
@@ -195,6 +222,7 @@ jobs:
           SELECT_RESULT: ${{ needs.select-benchmark.result }}
           SELECTED: ${{ needs.select-benchmark.outputs.benchmark }}
           REASON: ${{ needs.select-benchmark.outputs.reason }}
+          RECOVERY_RESULT: ${{ needs.recovery-robustness.result }}
           GUARD_RESULT: ${{ needs.shape-guard-comparison.result }}
           SHAPE_RESULT: ${{ needs.shape-feasibility.result }}
           OBJECTIVE_RESULT: ${{ needs.adaptive-objective.result }}
@@ -210,6 +238,12 @@ jobs:
           case "$SELECTED" in
             none)
               echo "No deterministic AI benchmark required: $REASON"
+              ;;
+            recovery-robustness)
+              [ "$RECOVERY_RESULT" = "success" ] || {
+                echo "::error::recovery-robustness benchmark result: $RECOVERY_RESULT"
+                exit 1
+              }
               ;;
             compare-shape-guard)
               [ "$GUARD_RESULT" = "success" ] || {
