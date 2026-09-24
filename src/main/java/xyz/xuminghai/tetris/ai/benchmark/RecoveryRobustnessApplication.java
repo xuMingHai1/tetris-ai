@@ -6,6 +6,7 @@
 package xyz.xuminghai.tetris.ai.benchmark;
 
 import xyz.xuminghai.tetris.ai.ActionPlanSimulator;
+import xyz.xuminghai.tetris.ai.BoardSimulator;
 import xyz.xuminghai.tetris.ai.BuildShapeConstructionGuardPlanningAgent;
 import xyz.xuminghai.tetris.ai.ConstructionSafetyGuard;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
@@ -13,12 +14,10 @@ import xyz.xuminghai.tetris.ai.PlacementCandidate;
 import xyz.xuminghai.tetris.ai.RecoveryRobustnessBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeConstructionFeasibilityBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
-import xyz.xuminghai.tetris.ai.BoardSimulator;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
