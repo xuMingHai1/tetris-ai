@@ -89,6 +89,7 @@ on:
           - compare-shape-guard
           - recovery-robustness
           - recovery-reserve-lead-time
+          - recovery-reserve-validation
           - calibrate-objective
           - reachability
       games:
@@ -194,7 +195,7 @@ jobs:
           fi
 
       - name: Validate shape feasibility inputs
-        if: ${{ inputs.agent == 'shape-feasibility' || inputs.agent == 'recovery-robustness' || inputs.agent == 'recovery-reserve-lead-time' }}
+        if: ${{ inputs.agent == 'shape-feasibility' || inputs.agent == 'recovery-robustness' || inputs.agent == 'recovery-reserve-lead-time' || inputs.agent == 'recovery-reserve-validation' }}
         shell: bash
         env:
           FEASIBILITY_DEPTH: ${{ inputs.feasibility_depth }}
@@ -401,6 +402,21 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryReserveLeadTimeApplication \
             javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
 
+      - name: Run recovery reserve out-of-sample validation
+        if: ${{ inputs.agent == 'recovery-reserve-validation' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+          TETRIS_BENCHMARK_FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
+          TETRIS_BENCHMARK_VALIDATION_FAILURE_MAX_PIECES: '500'
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryReserveValidationApplication \
+            javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run BUILD_SHAPE preview-lookahead benchmark
         if: ${{ inputs.agent == 'build-shape-preview' || inputs.agent == 'compare-shape-preview' }}
         shell: bash
@@ -533,6 +549,7 @@ jobs:
           grep '^construction_viability,' target/benchmark/raw.log > target/benchmark/construction-viability.csv || true
           grep '^recovery_robustness,' target/benchmark/raw.log > target/benchmark/recovery-robustness.csv || true
           grep '^recovery_reserve,' target/benchmark/raw.log > target/benchmark/recovery-reserve.csv || true
+          grep '^recovery_reserve_validation,' target/benchmark/raw.log > target/benchmark/recovery-reserve-validation.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -558,7 +575,7 @@ jobs:
             cat target/benchmark/summary.txt
             echo '~~~'
             echo
-            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness / recovery-reserve samples when applicable, summary, metadata, and the raw Maven/application log."
+            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness / recovery-reserve calibration samples, out-of-sample recovery-reserve validation samples when applicable, summary, metadata, and the raw Maven/application log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
@@ -582,6 +599,7 @@ jobs:
             target/benchmark/construction-viability.csv
             target/benchmark/recovery-robustness.csv
             target/benchmark/recovery-reserve.csv
+            target/benchmark/recovery-reserve-validation.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
