@@ -6,7 +6,9 @@
 package xyz.xuminghai.tetris.ai.benchmark;
 
 import org.junit.jupiter.api.Test;
+import xyz.xuminghai.tetris.ai.BuildShapeConstructionGuardObservation;
 import xyz.xuminghai.tetris.ai.BuildShapeDecisionObservation;
+import xyz.xuminghai.tetris.ai.ConstructionSafetyGuard;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskController;
 import xyz.xuminghai.tetris.ai.ObjectiveRiskProfile;
 import xyz.xuminghai.tetris.ai.ShapeProgress;
@@ -16,6 +18,41 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BenchmarkApplicationTest {
+
+    @Test
+    void formatsBuildShapeGuardDecisionCsvWithoutTypeMismatch() {
+        ShapeProgress baseline = new ShapeProgress(32, 8, 16, 1, 2);
+        ShapeProgress selected = new ShapeProgress(32, 12, 16, 0, 3);
+        BuildShapeConstructionGuardObservation observation =
+                new BuildShapeConstructionGuardObservation(
+                        ShapeTarget.HEART,
+                        ConstructionSafetyGuard.Profile.RETAIN_HALF,
+                        31,
+                        4,
+                        2,
+                        true,
+                        20,
+                        12,
+                        17,
+                        13,
+                        12,
+                        baseline,
+                        selected);
+
+        String line = BenchmarkApplication.formatBuildShapeGuardDecisionLine(
+                "build-shape-guard-half-heart",
+                1000L,
+                3,
+                observation);
+
+        String[] columns = line.split(",", -1);
+        assertEquals(24, columns.length);
+        assertEquals("build_shape_guard_decision", columns[0]);
+        assertEquals("retain-half", columns[3]);
+        assertEquals("17", columns[12]);
+        assertEquals("12", columns[14]);
+        assertEquals("1", columns[23]);
+    }
 
     @Test
     void formatsBuildShapeDecisionCsvWithoutTypeMismatch() {
