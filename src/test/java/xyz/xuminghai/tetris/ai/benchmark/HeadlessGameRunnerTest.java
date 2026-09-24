@@ -60,6 +60,35 @@ class HeadlessGameRunnerTest {
 
 
     @Test
+    void observedActionRunReportsTheSelectedProductionPlacement() {
+        HeadlessGameRunner runner = new HeadlessGameRunner();
+        List<HeadlessGameRunner.TurnObservation> observations = new ArrayList<>();
+
+        GameBenchmarkResult result = runner.runPlanningObserved(
+                42L,
+                5,
+                new DeterministicActionPlanningAgent(),
+                null,
+                observations::add);
+        GameBenchmarkResult control =
+                runner.runPlanning(42L, 5, new DeterministicActionPlanningAgent());
+
+        assertEquals(control.piecesPlaced(), result.piecesPlaced());
+        assertEquals(control.linesCleared(), result.linesCleared());
+        assertEquals(control.boardHealth(), result.boardHealth());
+        assertEquals(control.reachedPieceLimit(), result.reachedPieceLimit());
+        assertEquals(result.decisions(), observations.size());
+        assertEquals(5, observations.size());
+        for (int index = 0; index < observations.size(); index++) {
+            HeadlessGameRunner.TurnObservation observation = observations.get(index);
+            assertEquals(index + 1, observation.decision());
+            assertTrue(observation.snapshot().nextType().isPresent());
+            assertTrue(observation.selected().resultingBoard().length > 0);
+        }
+    }
+
+
+    @Test
     void placementAdapterAndActionRunnerProduceTheSameGame() {
         HeadlessGameRunner runner = new HeadlessGameRunner();
         HeuristicTetrisAgent heuristic = new HeuristicTetrisAgent();

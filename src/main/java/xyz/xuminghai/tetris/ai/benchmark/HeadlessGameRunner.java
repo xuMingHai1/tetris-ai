@@ -23,6 +23,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Runs deterministic Tetris games without JavaFX animation, input, audio or wall-clock gravity.
@@ -33,6 +34,9 @@ import java.util.Optional;
  * introducing benchmark-only Tetris rules.</p>
  */
 public final class HeadlessGameRunner {
+
+    private static final Consumer<TurnObservation> NOOP_TURN_OBSERVER = ignored -> {
+    };
 
     public static final int DEFAULT_ROWS = 20;
     public static final int DEFAULT_COLS = 10;
@@ -86,7 +90,8 @@ public final class HeadlessGameRunner {
                         AiMove move = requireLegalMove(agent.decide(snapshot), candidates);
                         return candidateFor(move, candidates);
                     }
-                });
+                },
+                NOOP_TURN_OBSERVER);
     }
 
     public GameBenchmarkResult run(long seed, int pieceLimit, TetrisAgent agent) {
@@ -109,7 +114,22 @@ public final class HeadlessGameRunner {
             int pieceLimit,
             AiPlanningAgent primaryAgent,
             AiPlanningAgent fallbackAgent) {
+        return runPlanningObserved(
+                seed,
+                pieceLimit,
+                primaryAgent,
+                fallbackAgent,
+                NOOP_TURN_OBSERVER);
+    }
+
+    GameBenchmarkResult runPlanningObserved(
+            long seed,
+            int pieceLimit,
+            AiPlanningAgent primaryAgent,
+            AiPlanningAgent fallbackAgent,
+            Consumer<TurnObservation> observer) {
         Objects.requireNonNull(primaryAgent, "primaryAgent");
+        Objects.requireNonNull(observer, "observer");
         return runGame(
                 seed,
                 pieceLimit,
@@ -132,7 +152,8 @@ public final class HeadlessGameRunner {
                                 snapshot,
                                 agent.plan(snapshot));
                     }
-                });
+                },
+                observer);
     }
 
     public GameBenchmarkResult runPlanning(long seed, int pieceLimit, AiPlanningAgent agent) {
@@ -144,12 +165,14 @@ public final class HeadlessGameRunner {
             int pieceLimit,
             A primaryAgent,
             A fallbackAgent,
-            TurnAdapter<A, C> adapter) {
+            TurnAdapter<A, C> adapter,
+            Consumer<TurnObservation> observer) {
         if (pieceLimit <= 0) {
             throw new IllegalArgumentException("pieceLimit must be greater than 0");
         }
         Objects.requireNonNull(primaryAgent, "primaryAgent");
         Objects.requireNonNull(adapter, "adapter");
+        Objects.requireNonNull(observer, "observer");
 
         PieceGenerator pieceGenerator = new BagPieceGenerator(seed);
         Tetris currentPiece = pieceGenerator.next();
@@ -198,6 +221,7 @@ public final class HeadlessGameRunner {
             }
             long elapsed = System.nanoTime() - started;
 
+            observer.accept(new TurnObservation(decisions + 1, snapshot, selected));
             board = selected.resultingBoard();
             linesCleared += selected.clearedLines();
             aggregateHeightSum += selected.aggregateHeight();
@@ -289,6 +313,20 @@ public final class HeadlessGameRunner {
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException(
                         "TetrisAgent returned a move that is not legal for the current snapshot: " + move));
+    }
+
+    record TurnObservation(
+            int decision,
+            GameSnapshot snapshot,
+            PlacementCandidate selected) {
+
+        TurnObservation {
+            if (decision <= 0) {
+                throw new IllegalArgumentException("decision must be positive");
+            }
+            Objects.requireNonNull(snapshot, "snapshot");
+            Objects.requireNonNull(selected, "selected");
+        }
     }
 
     private interface TurnAdapter<A, C> {
