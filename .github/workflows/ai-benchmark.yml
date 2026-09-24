@@ -27,6 +27,21 @@ on:
         required: false
         default: '128'
         type: string
+      viability_search_depth:
+        description: Future-piece depth for construction viability search
+        required: false
+        default: '4'
+        type: string
+      viability_beam_width:
+        description: Unique boards retained per construction viability depth
+        required: false
+        default: '32'
+        type: string
+      viability_greedy_depth:
+        description: Future-piece horizon for survival top-1 viability rollout
+        required: false
+        default: '24'
+        type: string
       seed:
         description: Seed for the first game; later games increment by one
         required: false
@@ -92,6 +107,21 @@ on:
         description: Unique board states retained per depth for shape-feasibility search
         required: true
         default: '128'
+        type: string
+      viability_search_depth:
+        description: Future-piece depth for construction viability search
+        required: true
+        default: '4'
+        type: string
+      viability_beam_width:
+        description: Unique boards retained per construction viability depth
+        required: true
+        default: '32'
+        type: string
+      viability_greedy_depth:
+        description: Future-piece horizon for survival top-1 viability rollout
+        required: true
+        default: '24'
         type: string
       seed:
         description: Seed for the first game; later games increment by one
@@ -177,6 +207,23 @@ jobs:
             echo "::error::feasibility_beam_width must be a positive integer"
             exit 1
           fi
+
+      - name: Validate construction viability inputs
+        if: ${{ inputs.agent == 'shape-feasibility' }}
+        shell: bash
+        env:
+          VIABILITY_SEARCH_DEPTH: ${{ inputs.viability_search_depth }}
+          VIABILITY_BEAM_WIDTH: ${{ inputs.viability_beam_width }}
+          VIABILITY_GREEDY_DEPTH: ${{ inputs.viability_greedy_depth }}
+        run: |
+          set -euo pipefail
+
+          for value in "$VIABILITY_SEARCH_DEPTH" "$VIABILITY_BEAM_WIDTH" "$VIABILITY_GREEDY_DEPTH"; do
+            if [[ ! "$value" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::construction viability inputs must be positive integers"
+              exit 1
+            fi
+          done
 
       - name: Validate Jev configuration
         if: ${{ inputs.agent == 'jev' || inputs.agent == 'jev-action' || inputs.agent == 'compare' || inputs.agent == 'compare-action' }}
@@ -326,6 +373,9 @@ jobs:
           TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.feasibility_depth }}
           TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
           TETRIS_BENCHMARK_FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
+          TETRIS_BENCHMARK_VIABILITY_SEARCH_DEPTH: ${{ inputs.viability_search_depth }}
+          TETRIS_BENCHMARK_VIABILITY_BEAM_WIDTH: ${{ inputs.viability_beam_width }}
+          TETRIS_BENCHMARK_VIABILITY_GREEDY_DEPTH: ${{ inputs.viability_greedy_depth }}
         run: |
           set -euo pipefail
           ./mvnw --batch-mode --no-transfer-progress \
@@ -398,6 +448,9 @@ jobs:
           SEED: ${{ inputs.seed }}
           FEASIBILITY_DEPTH: ${{ inputs.feasibility_depth }}
           FEASIBILITY_BEAM_WIDTH: ${{ inputs.feasibility_beam_width }}
+          VIABILITY_SEARCH_DEPTH: ${{ inputs.viability_search_depth }}
+          VIABILITY_BEAM_WIDTH: ${{ inputs.viability_beam_width }}
+          VIABILITY_GREEDY_DEPTH: ${{ inputs.viability_greedy_depth }}
         run: |
           set -euo pipefail
 
@@ -425,6 +478,7 @@ jobs:
           grep '^shape_feasibility_witness,' target/benchmark/raw.log > target/benchmark/shape-feasibility-witness.csv || true
           grep '^shape_witness_audit,' target/benchmark/raw.log > target/benchmark/shape-witness-audit.csv || true
           grep '^construction_safety_envelope,' target/benchmark/raw.log > target/benchmark/construction-safety-envelope.csv || true
+          grep '^construction_viability,' target/benchmark/raw.log > target/benchmark/construction-viability.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -434,6 +488,9 @@ jobs:
             echo "max_pieces=${MAX_PIECES}"
             echo "feasibility_depth=${FEASIBILITY_DEPTH}"
             echo "feasibility_beam_width=${FEASIBILITY_BEAM_WIDTH}"
+            echo "viability_search_depth=${VIABILITY_SEARCH_DEPTH}"
+            echo "viability_beam_width=${VIABILITY_BEAM_WIDTH}"
+            echo "viability_greedy_depth=${VIABILITY_GREEDY_DEPTH}"
             echo "seed=${SEED}"
           } > target/benchmark/metadata.txt
 
@@ -466,6 +523,7 @@ jobs:
             target/benchmark/shape-feasibility-witness.csv
             target/benchmark/shape-witness-audit.csv
             target/benchmark/construction-safety-envelope.csv
+            target/benchmark/construction-viability.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log

@@ -7,6 +7,7 @@ package xyz.xuminghai.tetris.ai.benchmark;
 
 import xyz.xuminghai.tetris.ai.ConstructionSafetyEnvelopeBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeConstructionFeasibilityBenchmark;
+import xyz.xuminghai.tetris.ai.ShapeConstructionViabilityBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.ai.ShapeWitnessConstraintAudit;
@@ -30,11 +31,20 @@ public final class ShapeFeasibilityApplication {
     static final String MAX_PIECES_ENV = "TETRIS_BENCHMARK_MAX_PIECES";
     static final String SEED_ENV = "TETRIS_BENCHMARK_SEED";
     static final String BEAM_WIDTH_ENV = "TETRIS_BENCHMARK_FEASIBILITY_BEAM_WIDTH";
+    static final String VIABILITY_SEARCH_DEPTH_ENV =
+            "TETRIS_BENCHMARK_VIABILITY_SEARCH_DEPTH";
+    static final String VIABILITY_BEAM_WIDTH_ENV =
+            "TETRIS_BENCHMARK_VIABILITY_BEAM_WIDTH";
+    static final String VIABILITY_GREEDY_DEPTH_ENV =
+            "TETRIS_BENCHMARK_VIABILITY_GREEDY_DEPTH";
 
     private static final int DEFAULT_GAMES = 1;
     private static final int DEFAULT_MAX_PIECES = 24;
     private static final long DEFAULT_SEED = 1L;
     private static final int DEFAULT_BEAM_WIDTH = 128;
+    private static final int DEFAULT_VIABILITY_SEARCH_DEPTH = 4;
+    private static final int DEFAULT_VIABILITY_BEAM_WIDTH = 32;
+    private static final int DEFAULT_VIABILITY_GREEDY_DEPTH = 24;
 
     private ShapeFeasibilityApplication() {
     }
@@ -44,6 +54,7 @@ public final class ShapeFeasibilityApplication {
         List<SeedResult> results = new ArrayList<>(configuration.games());
         List<WitnessAuditResult> audits = new ArrayList<>();
         List<EnvelopeResult> envelopes = new ArrayList<>();
+        List<ViabilityResult> viabilityResults = new ArrayList<>();
 
         System.out.println(
                 "shape_feasibility,seed,search_depth,beam_width,clean_completion,"
@@ -80,9 +91,26 @@ public final class ShapeFeasibilityApplication {
                         + "outside_holes,bumpiness,matched_required,forbidden_occupied,"
                         + "visual_error,clean_completion");
 
+        System.out.println(
+                "construction_viability,seed,step,source,piece,survival_rank,headroom,"
+                        + "max_column_height,aggregate_height,raw_holes,non_forbidden_holes,"
+                        + "required_holes,forbidden_holes,support_holes,outside_holes,bumpiness,"
+                        + "matched_required,forbidden_occupied,visual_error,available_future_pieces,"
+                        + "requested_greedy_depth,greedy_survived_depth,greedy_exhausted,"
+                        + "requested_search_depth,search_survived_depth,search_status,"
+                        + "search_pruned,first_reachable_outcomes,min_retained_frontier,"
+                        + "final_retained_frontier,max_unique_states,expanded_states,"
+                        + "generated_placements");
+
         for (int game = 0; game < configuration.games(); game++) {
             long seed = configuration.seed() + game;
-            List<TetrominoType> pieces = pieceSequence(seed, configuration.maxPieces());
+            int viabilityFuturePieces = Math.max(
+                    configuration.viabilitySearchDepth(),
+                    configuration.viabilityGreedyDepth());
+            List<TetrominoType> allPieces =
+                    pieceSequence(seed, configuration.maxPieces() + viabilityFuturePieces);
+            List<TetrominoType> pieces =
+                    allPieces.subList(0, configuration.maxPieces());
             long started = System.nanoTime();
             ShapeConstructionFeasibilityBenchmark.Result result =
                     ShapeConstructionFeasibilityBenchmark.search(
@@ -144,12 +172,164 @@ public final class ShapeFeasibilityApplication {
                                 HeadlessGameRunner.DEFAULT_COLS);
                 envelopes.add(new EnvelopeResult(seed, envelope));
                 printConstructionSafetyEnvelope(seed, envelope);
+
+                ShapeConstructionViabilityBenchmark.Result viability =
+                        ShapeConstructionViabilityBenchmark.calibrate(
+                                ShapeTarget.HEART,
+                                result.witness(),
+                                allPieces,
+                                HeadlessGameRunner.DEFAULT_ROWS,
+                                HeadlessGameRunner.DEFAULT_COLS,
+                                configuration.viabilitySearchDepth(),
+                                configuration.viabilityBeamWidth(),
+                                configuration.viabilityGreedyDepth());
+                viabilityResults.add(new ViabilityResult(seed, viability));
+                printConstructionViability(seed, viability);
             }
         }
 
         printSummary(configuration, results);
         printWitnessAuditSummary(audits);
         printConstructionSafetyEnvelopeSummary(envelopes);
+        printConstructionViabilitySummary(viabilityResults);
+    }
+
+    private static void printConstructionViability(
+            long seed,
+            ShapeConstructionViabilityBenchmark.Result viability) {
+        for (ShapeConstructionViabilityBenchmark.Comparison comparison :
+                viability.comparisons()) {
+            System.out.println(formatConstructionViabilityLine(seed, comparison.witness()));
+            System.out.println(
+                    formatConstructionViabilityLine(seed, comparison.survivalBaseline()));
+        }
+
+        System.out.printf(
+                Locale.ROOT,
+                "# construction_viability seed=%d steps=%d "
+                        + "witness_greedy_at_least_baseline=%d "
+                        + "witness_search_at_least_baseline=%d "
+                        + "witness_full_greedy_horizon=%d "
+                        + "witness_full_search_horizon=%d "
+                        + "witness_exact_exhaustions=%d baseline_exact_exhaustions=%d "
+                        + "min_witness_greedy_horizon=%d min_witness_search_horizon=%d "
+                        + "min_witness_initial_reachable=%d%n",
+                seed,
+                viability.comparisons().size(),
+                viability.witnessGreedyAtLeastBaselineSteps(),
+                viability.witnessSearchAtLeastBaselineSteps(),
+                viability.witnessFullGreedyHorizonSteps(),
+                viability.witnessFullSearchHorizonSteps(),
+                viability.witnessExactExhaustions(),
+                viability.baselineExactExhaustions(),
+                viability.minWitnessGreedyHorizon(),
+                viability.minWitnessSearchHorizon(),
+                viability.minWitnessInitialReachableOutcomes());
+    }
+
+    static String formatConstructionViabilityLine(
+            long seed,
+            ShapeConstructionViabilityBenchmark.Sample sample) {
+        ShapeConstructionViabilityBenchmark.Probe probe = sample.probe();
+        return String.join(
+                ",",
+                "construction_viability",
+                Long.toString(seed),
+                Integer.toString(sample.step()),
+                sample.source().name().toLowerCase(Locale.ROOT),
+                sample.pieceType().name(),
+                Integer.toString(sample.survivalRank()),
+                Integer.toString(sample.headroom()),
+                Integer.toString(sample.maxColumnHeight()),
+                Integer.toString(sample.aggregateHeight()),
+                Integer.toString(sample.holes().totalHoles()),
+                Integer.toString(sample.holes().nonForbiddenHoles()),
+                Integer.toString(sample.holes().requiredHoles()),
+                Integer.toString(sample.holes().forbiddenHoles()),
+                Integer.toString(sample.holes().supportAllowedHoles()),
+                Integer.toString(sample.holes().outsideTargetHoles()),
+                Integer.toString(sample.bumpiness()),
+                Integer.toString(sample.progress().matchedRequiredCells()),
+                Integer.toString(sample.progress().forbiddenOccupiedCells()),
+                Integer.toString(sample.progress().visualErrorCells()),
+                Integer.toString(probe.availableFuturePieces()),
+                Integer.toString(probe.requestedGreedyDepth()),
+                Integer.toString(probe.greedySurvivedDepth()),
+                Boolean.toString(probe.greedyExhausted()),
+                Integer.toString(probe.requestedSearchDepth()),
+                Integer.toString(probe.searchSurvivedDepth()),
+                probe.searchStatus().name().toLowerCase(Locale.ROOT),
+                Boolean.toString(probe.searchPruned()),
+                Integer.toString(probe.firstReachableOutcomes()),
+                Integer.toString(probe.minRetainedFrontier()),
+                Integer.toString(probe.finalRetainedFrontier()),
+                Integer.toString(probe.maxUniqueStates()),
+                Long.toString(probe.expandedStates()),
+                Long.toString(probe.generatedPlacements()));
+    }
+
+    private static void printConstructionViabilitySummary(
+            List<ViabilityResult> viabilityResults) {
+        if (viabilityResults.isEmpty()) {
+            return;
+        }
+
+        long steps = viabilityResults.stream()
+                .mapToLong(result -> result.viability().comparisons().size())
+                .sum();
+        long witnessGreedyAtLeastBaseline = viabilityResults.stream()
+                .mapToLong(result -> result.viability().witnessGreedyAtLeastBaselineSteps())
+                .sum();
+        long witnessSearchAtLeastBaseline = viabilityResults.stream()
+                .mapToLong(result -> result.viability().witnessSearchAtLeastBaselineSteps())
+                .sum();
+        long witnessFullGreedy = viabilityResults.stream()
+                .mapToLong(result -> result.viability().witnessFullGreedyHorizonSteps())
+                .sum();
+        long witnessFullSearch = viabilityResults.stream()
+                .mapToLong(result -> result.viability().witnessFullSearchHorizonSteps())
+                .sum();
+        long witnessExactExhaustions = viabilityResults.stream()
+                .mapToLong(result -> result.viability().witnessExactExhaustions())
+                .sum();
+        long baselineExactExhaustions = viabilityResults.stream()
+                .mapToLong(result -> result.viability().baselineExactExhaustions())
+                .sum();
+        int minWitnessGreedy = viabilityResults.stream()
+                .mapToInt(result -> result.viability().minWitnessGreedyHorizon())
+                .min()
+                .orElseThrow();
+        int minWitnessSearch = viabilityResults.stream()
+                .mapToInt(result -> result.viability().minWitnessSearchHorizon())
+                .min()
+                .orElseThrow();
+        int minWitnessInitialReachable = viabilityResults.stream()
+                .mapToInt(result -> result.viability().minWitnessInitialReachableOutcomes())
+                .filter(value -> value >= 0)
+                .min()
+                .orElse(-1);
+
+        System.out.printf(
+                Locale.ROOT,
+                "# construction_viability_total witnesses=%d steps=%d "
+                        + "witness_greedy_at_least_baseline=%d "
+                        + "witness_search_at_least_baseline=%d "
+                        + "witness_full_greedy_horizon=%d "
+                        + "witness_full_search_horizon=%d "
+                        + "witness_exact_exhaustions=%d baseline_exact_exhaustions=%d "
+                        + "min_witness_greedy_horizon=%d min_witness_search_horizon=%d "
+                        + "min_witness_initial_reachable=%d%n",
+                viabilityResults.size(),
+                steps,
+                witnessGreedyAtLeastBaseline,
+                witnessSearchAtLeastBaseline,
+                witnessFullGreedy,
+                witnessFullSearch,
+                witnessExactExhaustions,
+                baselineExactExhaustions,
+                minWitnessGreedy,
+                minWitnessSearch,
+                minWitnessInitialReachable);
     }
 
     private static void printConstructionSafetyEnvelope(
@@ -599,6 +779,11 @@ public final class ShapeFeasibilityApplication {
             ConstructionSafetyEnvelopeBenchmark.Result envelope) {
     }
 
+    private record ViabilityResult(
+            long seed,
+            ShapeConstructionViabilityBenchmark.Result viability) {
+    }
+
     private enum HoleMetric {
         TOTAL {
             @Override
@@ -634,14 +819,30 @@ public final class ShapeFeasibilityApplication {
         abstract int value(ShapeWitnessConstraintAudit.HoleBreakdown holes);
     }
 
-    private record Configuration(int games, int maxPieces, long seed, int beamWidth) {
+    private record Configuration(
+            int games,
+            int maxPieces,
+            long seed,
+            int beamWidth,
+            int viabilitySearchDepth,
+            int viabilityBeamWidth,
+            int viabilityGreedyDepth) {
 
         static Configuration fromEnvironment() {
             return new Configuration(
                     positiveInt(GAMES_ENV, DEFAULT_GAMES),
                     positiveInt(MAX_PIECES_ENV, DEFAULT_MAX_PIECES),
                     longValue(SEED_ENV, DEFAULT_SEED),
-                    positiveInt(BEAM_WIDTH_ENV, DEFAULT_BEAM_WIDTH));
+                    positiveInt(BEAM_WIDTH_ENV, DEFAULT_BEAM_WIDTH),
+                    positiveInt(
+                            VIABILITY_SEARCH_DEPTH_ENV,
+                            DEFAULT_VIABILITY_SEARCH_DEPTH),
+                    positiveInt(
+                            VIABILITY_BEAM_WIDTH_ENV,
+                            DEFAULT_VIABILITY_BEAM_WIDTH),
+                    positiveInt(
+                            VIABILITY_GREEDY_DEPTH_ENV,
+                            DEFAULT_VIABILITY_GREEDY_DEPTH));
         }
 
         private static int positiveInt(String name, int defaultValue) {
