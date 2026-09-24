@@ -65,6 +65,54 @@ class ShapeConstructionViabilityBenchmarkTest {
                 result.comparisons().getLast().witness();
         assertTrue(finalWitness.progress().cleanCompletion());
         assertTrue(finalWitness.probe().firstReachableOutcomes() > 0);
+
+        boolean[][] board = new boolean[20][10];
+        ConstructionSafetyGuard halfGuard =
+                new ConstructionSafetyGuard(
+                        ConstructionSafetyGuard.Profile.RETAIN_HALF);
+        ConstructionSafetyGuard preserveGuard =
+                new ConstructionSafetyGuard(
+                        ConstructionSafetyGuard.Profile.PRESERVE_BASELINE);
+        int preserveRejected = 0;
+
+        for (int index = 0; index < feasibility.witness().size(); index++) {
+            ShapeConstructionFeasibilityBenchmark.WitnessStep witnessStep =
+                    feasibility.witness().get(index);
+            GameSnapshot snapshot =
+                    BoardSimulator.snapshotForSpawnedPiece(
+                            board,
+                            witnessStep.pieceType());
+            List<ActionPlanCandidates.PlannedCandidate> ranked =
+                    ActionPlanCandidates.ranked(snapshot);
+            int witnessIndex = -1;
+            for (int candidateIndex = 0; candidateIndex < ranked.size(); candidateIndex++) {
+                if (ranked.get(candidateIndex).plan().equals(witnessStep.plan())) {
+                    witnessIndex = candidateIndex;
+                    break;
+                }
+            }
+            assertTrue(witnessIndex >= 0);
+
+            PlacementCandidate baseline = ranked.getFirst().placement();
+            PlacementCandidate witnessPlacement =
+                    ranked.get(witnessIndex).placement();
+            TetrominoType nextType = fullSequence.get(index + 1);
+
+            ConstructionSafetyGuard.Assessment halfAssessment =
+                    halfGuard.begin(baseline, nextType)
+                            .assess(witnessIndex + 1, witnessPlacement);
+            ConstructionSafetyGuard.Assessment preserveAssessment =
+                    preserveGuard.begin(baseline, nextType)
+                            .assess(witnessIndex + 1, witnessPlacement);
+
+            assertTrue(halfAssessment.allowed());
+            if (!preserveAssessment.allowed()) {
+                preserveRejected++;
+            }
+            board = witnessPlacement.resultingBoard();
+        }
+
+        assertTrue(preserveRejected > 0);
     }
 
     @Test
