@@ -30,6 +30,10 @@ public final class ConstructionSafetyGuard {
         this.profile = Objects.requireNonNull(profile, "profile");
     }
 
+    public Profile profile() {
+        return profile;
+    }
+
     public Decision begin(
             PlacementCandidate survivalBaseline,
             TetrominoType nextType) {
