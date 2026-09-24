@@ -361,8 +361,14 @@ jobs:
           TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
         run: |
           set -euo pipefail
-          for guard_agent in             build-shape-guard-preserve             build-shape-guard-half             build-shape-guard-any; do
-            TETRIS_BENCHMARK_AGENT="${guard_agent}"             ./mvnw --batch-mode --no-transfer-progress               -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication               javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
+          for guard_agent in \
+            build-shape-guard-preserve \
+            build-shape-guard-half \
+            build-shape-guard-any; do
+            TETRIS_BENCHMARK_AGENT="${guard_agent}" \
+            ./mvnw --batch-mode --no-transfer-progress \
+              -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
+              javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
           done
 
       - name: Run BUILD_SHAPE preview-lookahead benchmark
