@@ -5,12 +5,8 @@
  */
 package xyz.xuminghai.tetris.ai.benchmark;
 
-import xyz.xuminghai.tetris.ai.ActionPlanSimulator;
-import xyz.xuminghai.tetris.ai.BoardSimulator;
 import xyz.xuminghai.tetris.ai.BuildShapeConstructionGuardPlanningAgent;
 import xyz.xuminghai.tetris.ai.ConstructionSafetyGuard;
-import xyz.xuminghai.tetris.ai.GameSnapshot;
-import xyz.xuminghai.tetris.ai.PlacementCandidate;
 import xyz.xuminghai.tetris.ai.RecoveryRobustnessBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeConstructionFeasibilityBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
@@ -100,18 +96,20 @@ public final class RecoveryRobustnessApplication {
             for (int index = 0; index < witness.size(); index++) {
                 ShapeConstructionFeasibilityBenchmark.WitnessStep step =
                         witness.get(index);
-                GameSnapshot snapshot =
-                        BoardSimulator.snapshotForSpawnedPiece(board, step.pieceType());
-                PlacementCandidate selected =
-                        ActionPlanSimulator.requireTerminalPlacement(snapshot, step.plan());
-                board = selected.resultingBoard();
                 TetrominoType preview = fullSequence.get(index + 1);
+                RecoveryRobustnessBenchmark.ReplayedPlacement replay =
+                        RecoveryRobustnessBenchmark.replayAndProbe(
+                                board,
+                                step.pieceType(),
+                                step.plan(),
+                                preview);
+                board = replay.placement().resultingBoard();
                 samples.add(new Sample(
                         Source.CLEAN_WITNESS,
                         seed,
                         index + 1,
                         -1,
-                        RecoveryRobustnessBenchmark.probe(board, preview)));
+                        replay.probe()));
             }
         }
     }
