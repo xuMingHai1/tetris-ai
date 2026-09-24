@@ -49,6 +49,7 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$changed_files"
 
+          recovery_intervention_changed=false
           recovery_reserve_persistence_validation_changed=false
           recovery_reserve_runtime_validation_changed=false
           recovery_reserve_validation_changed=false
@@ -67,6 +68,10 @@ jobs:
                 # Exercise the most feature-rich deterministic path when benchmark
                 # infrastructure itself changes.
                 shape_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryInterventionPlanningAgent.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryInterventionComparisonApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryInterventionPlanningAgentTest.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryInterventionComparisonApplicationTest.java)
+                recovery_intervention_changed=true
                 ;;
 
               src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReservePersistenceValidationApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryReservePersistenceValidationApplicationTest.java)
@@ -112,7 +117,10 @@ jobs:
 
           # One benchmark per PR revision keeps the self-hosted runner bounded.
           # Prefer the most specialized path when categories overlap.
-          if [ "$recovery_reserve_persistence_validation_changed" = "true" ]; then
+          if [ "$recovery_intervention_changed" = "true" ]; then
+            benchmark=recovery-intervention-comparison
+            reason="paired recovery intervention experiment changed"
+          elif [ "$recovery_reserve_persistence_validation_changed" = "true" ]; then
             benchmark=recovery-reserve-persistence-validation
             reason="recovery warning persistence validation changed"
           elif [ "$recovery_reserve_runtime_validation_changed" = "true" ]; then
@@ -144,6 +152,24 @@ jobs:
           echo "benchmark=$benchmark" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "Selected benchmark: $benchmark ($reason)"
+
+  recovery-intervention-comparison:
+    name: Recovery Intervention Comparison
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'recovery-intervention-comparison' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: recovery-intervention-comparison
+      games: '30'
+      max_pieces: '1000'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      viability_search_depth: '4'
+      viability_beam_width: '32'
+      viability_greedy_depth: '24'
+      seed: '5000'
+      risk_profile: conservative
+      confirm_jev_cost: false
 
   recovery-reserve-persistence-validation:
     name: Recovery Warning Persistence Validation
@@ -311,6 +337,7 @@ jobs:
       }}
     needs:
       - select-benchmark
+      - recovery-intervention-comparison
       - recovery-reserve-persistence-validation
       - recovery-reserve-runtime-validation
       - recovery-reserve-validation
@@ -330,6 +357,7 @@ jobs:
           SELECT_RESULT: ${{ needs.select-benchmark.result }}
           SELECTED: ${{ needs.select-benchmark.outputs.benchmark }}
           REASON: ${{ needs.select-benchmark.outputs.reason }}
+          INTERVENTION_RESULT: ${{ needs.recovery-intervention-comparison.result }}
           PERSISTENCE_VALIDATION_RESULT: ${{ needs.recovery-reserve-persistence-validation.result }}
           RUNTIME_VALIDATION_RESULT: ${{ needs.recovery-reserve-runtime-validation.result }}
           VALIDATION_RESULT: ${{ needs.recovery-reserve-validation.result }}
@@ -350,6 +378,12 @@ jobs:
           case "$SELECTED" in
             none)
               echo "No deterministic AI benchmark required: $REASON"
+              ;;
+            recovery-intervention-comparison)
+              [ "$INTERVENTION_RESULT" = "success" ] || {
+                echo "::error::recovery-intervention-comparison benchmark result: $INTERVENTION_RESULT"
+                exit 1
+              }
               ;;
             recovery-reserve-persistence-validation)
               [ "$PERSISTENCE_VALIDATION_RESULT" = "success" ] || {
