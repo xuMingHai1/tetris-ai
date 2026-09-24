@@ -86,6 +86,7 @@ on:
           - compare-adaptive
           - compare-shape
           - compare-shape-preview
+          - compare-shape-guard
           - calibrate-objective
           - reachability
       games:
@@ -338,7 +339,7 @@ jobs:
             javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
 
       - name: Run BUILD_SHAPE benchmark
-        if: ${{ inputs.agent == 'build-shape' || inputs.agent == 'compare-shape' || inputs.agent == 'compare-shape-preview' }}
+        if: ${{ inputs.agent == 'build-shape' || inputs.agent == 'compare-shape' || inputs.agent == 'compare-shape-preview' || inputs.agent == 'compare-shape-guard' }}
         shell: bash
         env:
           TETRIS_BENCHMARK_AGENT: build-shape
@@ -350,6 +351,19 @@ jobs:
           ./mvnw --batch-mode --no-transfer-progress \
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
             javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
+
+      - name: Run BUILD_SHAPE construction guard calibration
+        if: ${{ inputs.agent == 'compare-shape-guard' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          for guard_agent in             build-shape-guard-preserve             build-shape-guard-half             build-shape-guard-any; do
+            TETRIS_BENCHMARK_AGENT="${guard_agent}"             ./mvnw --batch-mode --no-transfer-progress               -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication               javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
+          done
 
       - name: Run BUILD_SHAPE preview-lookahead benchmark
         if: ${{ inputs.agent == 'build-shape-preview' || inputs.agent == 'compare-shape-preview' }}
@@ -473,6 +487,8 @@ jobs:
           grep '^action_provenance,' target/benchmark/raw.log > target/benchmark/action-provenance.csv || true
           grep '^tuck_hunter_decision,' target/benchmark/raw.log > target/benchmark/tuck-hunter-decisions.csv || true
           grep '^build_shape_decision,' target/benchmark/raw.log > target/benchmark/build-shape-decisions.csv || true
+          grep '^build_shape_guard_decision,' target/benchmark/raw.log > target/benchmark/build-shape-guard-decisions.csv || true
+          grep '^build_shape_guard_game,' target/benchmark/raw.log > target/benchmark/build-shape-guard-games.csv || true
           grep '^build_shape_game,' target/benchmark/raw.log > target/benchmark/build-shape-games.csv || true
           grep '^shape_feasibility,' target/benchmark/raw.log > target/benchmark/shape-feasibility.csv || true
           grep '^shape_feasibility_witness,' target/benchmark/raw.log > target/benchmark/shape-feasibility-witness.csv || true
@@ -518,6 +534,8 @@ jobs:
             target/benchmark/action-provenance.csv
             target/benchmark/tuck-hunter-decisions.csv
             target/benchmark/build-shape-decisions.csv
+            target/benchmark/build-shape-guard-decisions.csv
+            target/benchmark/build-shape-guard-games.csv
             target/benchmark/build-shape-games.csv
             target/benchmark/shape-feasibility.csv
             target/benchmark/shape-feasibility-witness.csv
