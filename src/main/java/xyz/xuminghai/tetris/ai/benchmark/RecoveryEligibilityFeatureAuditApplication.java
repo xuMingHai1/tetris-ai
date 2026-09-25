@@ -639,7 +639,7 @@ public final class RecoveryEligibilityFeatureAuditApplication {
         columns.add(Long.toString(sample.seed()));
         columns.add(Integer.toString(sample.decision()));
         columns.add(Boolean.toString(sample.baselineGameReachedLimit()));
-        columns.add(sample.outcome().configValue);
+        columns.add(sample.outcome().name().toLowerCase(Locale.ROOT));
         columns.add(Boolean.toString(sample.helpful()));
         columns.add(Integer.toString(sample.survivedDepthDelta()));
         columns.add(Boolean.toString(sample.baseline().reachedHorizon()));
