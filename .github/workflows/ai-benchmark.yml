@@ -95,6 +95,7 @@ on:
           - recovery-intervention-comparison
           - recovery-candidate-scan
           - recovery-clearing-planner-comparison
+          - recovery-one-shot-counterfactual
           - calibrate-objective
           - reachability
       games:
@@ -487,6 +488,19 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryClearingPlannerComparisonApplication \
             javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
 
+      - name: Run one-shot recovery counterfactual validation
+        if: ${{ inputs.agent == 'recovery-one-shot-counterfactual' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryOneShotCounterfactualApplication \
+            javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run BUILD_SHAPE preview-lookahead benchmark
         if: ${{ inputs.agent == 'build-shape-preview' || inputs.agent == 'compare-shape-preview' }}
         shell: bash
@@ -631,6 +645,8 @@ jobs:
           grep '^recovery_candidate_game,' target/benchmark/raw.log > target/benchmark/recovery-candidate-games.csv || true
           grep '^recovery_clearing_decision,' target/benchmark/raw.log > target/benchmark/recovery-clearing-decisions.csv || true
           grep '^recovery_clearing_game,' target/benchmark/raw.log > target/benchmark/recovery-clearing-games.csv || true
+          grep '^recovery_one_shot_state,' target/benchmark/raw.log > target/benchmark/recovery-one-shot-states.csv || true
+          grep '^recovery_one_shot_game,' target/benchmark/raw.log > target/benchmark/recovery-one-shot-games.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -656,7 +672,7 @@ jobs:
             cat target/benchmark/summary.txt
             echo '~~~'
             echo
-            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness / recovery-reserve calibration samples, validation / warning-persistence evidence, paired recovery-intervention results, warned-state recovery-candidate scans, and paired first-clearing recovery-planner results when applicable, summary, metadata, and the raw Maven/application log."
+            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness / recovery-reserve calibration samples, validation / warning-persistence evidence, paired recovery-intervention results, warned-state recovery-candidate scans, and paired first-clearing recovery-planner and one-shot counterfactual recovery results when applicable, summary, metadata, and the raw Maven/application log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
@@ -692,6 +708,8 @@ jobs:
             target/benchmark/recovery-candidate-games.csv
             target/benchmark/recovery-clearing-decisions.csv
             target/benchmark/recovery-clearing-games.csv
+            target/benchmark/recovery-one-shot-states.csv
+            target/benchmark/recovery-one-shot-games.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
