@@ -96,6 +96,7 @@ on:
           - recovery-candidate-scan
           - recovery-clearing-planner-comparison
           - recovery-one-shot-counterfactual
+          - recovery-eligibility-feature-audit
           - calibrate-objective
           - reachability
       games:
@@ -501,6 +502,19 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryOneShotCounterfactualApplication \
             javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
 
+      - name: Run recovery eligibility feature audit
+        if: ${{ inputs.agent == 'recovery-eligibility-feature-audit' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryEligibilityFeatureAuditApplication \
+            javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run BUILD_SHAPE preview-lookahead benchmark
         if: ${{ inputs.agent == 'build-shape-preview' || inputs.agent == 'compare-shape-preview' }}
         shell: bash
@@ -647,6 +661,10 @@ jobs:
           grep '^recovery_clearing_game,' target/benchmark/raw.log > target/benchmark/recovery-clearing-games.csv || true
           grep '^recovery_one_shot_state,' target/benchmark/raw.log > target/benchmark/recovery-one-shot-states.csv || true
           grep '^recovery_one_shot_game,' target/benchmark/raw.log > target/benchmark/recovery-one-shot-games.csv || true
+          grep '^recovery_eligibility_sample,' target/benchmark/raw.log > target/benchmark/recovery-eligibility-samples.csv || true
+          grep '^recovery_eligibility_feature,' target/benchmark/raw.log > target/benchmark/recovery-eligibility-features.csv || true
+          grep '^recovery_eligibility_category,' target/benchmark/raw.log > target/benchmark/recovery-eligibility-categories.csv || true
+          grep '^recovery_eligibility_game,' target/benchmark/raw.log > target/benchmark/recovery-eligibility-games.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -672,7 +690,7 @@ jobs:
             cat target/benchmark/summary.txt
             echo '~~~'
             echo
-            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness / recovery-reserve calibration samples, validation / warning-persistence evidence, paired recovery-intervention results, warned-state recovery-candidate scans, and paired first-clearing recovery-planner and one-shot counterfactual recovery results when applicable, summary, metadata, and the raw Maven/application log."
+            echo "Artifact contains per-game CSV, Jev/action-provenance/tuck-hunter/BUILD_SHAPE telemetry, shape-feasibility evidence/witness data, recovery-robustness / recovery-reserve calibration samples, validation / warning-persistence evidence, paired recovery-intervention results, warned-state recovery-candidate scans, and paired first-clearing recovery-planner, one-shot counterfactual recovery results, and recovery eligibility feature-audit evidence when applicable, summary, metadata, and the raw Maven/application log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
@@ -710,6 +728,10 @@ jobs:
             target/benchmark/recovery-clearing-games.csv
             target/benchmark/recovery-one-shot-states.csv
             target/benchmark/recovery-one-shot-games.csv
+            target/benchmark/recovery-eligibility-samples.csv
+            target/benchmark/recovery-eligibility-features.csv
+            target/benchmark/recovery-eligibility-categories.csv
+            target/benchmark/recovery-eligibility-games.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
