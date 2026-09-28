@@ -20,6 +20,10 @@ class PreviewRescuePlanningAgentTest {
         assertFalse(PreviewRescuePlanningAgent.clearsWarning(probe(false, -1, -1)));
         assertFalse(PreviewRescuePlanningAgent.clearsWarning(probe(true, 2, 15)));
         assertTrue(PreviewRescuePlanningAgent.clearsWarning(probe(true, 3, 15)));
+        assertFalse(PreviewRescuePlanningAgent.Mode.PREVIEW_ONLY.accepts(probe(false, -1, -1)));
+        assertTrue(PreviewRescuePlanningAgent.Mode.PREVIEW_ONLY.accepts(probe(true, 2, 15)));
+        assertFalse(PreviewRescuePlanningAgent.Mode.STRICT.accepts(probe(true, 2, 15)));
+        assertTrue(PreviewRescuePlanningAgent.Mode.STRICT.accepts(probe(true, 3, 15)));
     }
 
     @Test
