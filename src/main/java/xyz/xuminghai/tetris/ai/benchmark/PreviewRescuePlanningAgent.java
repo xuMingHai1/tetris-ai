@@ -23,7 +23,7 @@ import java.util.function.Consumer;
  * Benchmark-only rescue when production rank 1 makes the already-known preview unplayable.
  *
  * <p>The action is replaced only by the first SURVIVAL-ranked alternative that restores preview
- * playability; the strict arm also clears the existing frozen warning. Every next decision starts from production
+ * playability and clears the existing frozen warning. Every next decision starts from production
  * BUILD_SHAPE again. The preview eligibility check first tries a straight hard drop and searches
  * all action paths only when that landing is hidden. This planner is never installed in the
  * desktop runtime.</p>
@@ -32,16 +32,10 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
 
     private final BuildShapeActionPlanningAgent production;
     private final Consumer<Observation> observer;
-    private final Mode mode;
     private final DecisionCapture decisionCapture = new DecisionCapture();
 
     PreviewRescuePlanningAgent(Consumer<Observation> observer) {
-        this(observer, Mode.STRICT);
-    }
-
-    PreviewRescuePlanningAgent(Consumer<Observation> observer, Mode mode) {
         this.observer = Objects.requireNonNull(observer, "observer");
-        this.mode = Objects.requireNonNull(mode, "mode");
         production = new BuildShapeActionPlanningAgent(
                 ShapeTarget.HEART, decisionCapture::record);
     }
@@ -74,7 +68,7 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
         long searchStart = System.nanoTime();
         RecoveryCandidateScanBenchmark.MatchSearch search =
                 RecoveryCandidateScanBenchmark.findFirstMatching(
-                        snapshot, 2, mode::accepts);
+                        snapshot, 2, PreviewRescuePlanningAgent::clearsWarning);
         long searchNanos = System.nanoTime() - searchStart;
         if (search.totalCandidates() != decision.reachableCandidateCount()) {
             throw new IllegalStateException("SURVIVAL candidate count diverged");
@@ -89,15 +83,6 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
     static boolean clearsWarning(RecoveryRobustnessBenchmark.Probe probe) {
         return probe.previewRecoverable()
                 && !RecoveryReserveValidationApplication.warning(probe);
-    }
-
-    enum Mode {
-        STRICT,
-        PREVIEW_ONLY;
-
-        boolean accepts(RecoveryRobustnessBenchmark.Probe probe) {
-            return this == STRICT ? clearsWarning(probe) : probe.previewRecoverable();
-        }
     }
 
     private static final class DecisionCapture {

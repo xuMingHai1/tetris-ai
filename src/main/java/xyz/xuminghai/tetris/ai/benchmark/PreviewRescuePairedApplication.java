@@ -15,19 +15,19 @@ import java.util.Locale;
 import java.util.Objects;
 
 /**
- * Paired whole-game evaluation of strict and preview-only benchmark rescue arms.
+ * Paired whole-game evaluation of a narrow, benchmark-only preview rescue.
  *
  * <p>Unrecoverable preview after rank 1 implies baseline continuation depth zero; selecting an
  * alternative that makes that exact preview playable implies at least one more placement. The
  * old 5/5 one-shot positive depth labels therefore do not establish a learned discriminator.
- * This experiment compares both eligibility rules against the same baseline on fresh 7-bag seeds,
- * including survival, construction impact, and rank-1 checking cost.</p>
+ * This experiment instead measures frequency, additional pieces and games reaching the horizon,
+ * construction impact, and the cost of checking rank-1 decisions on fresh, paired 7-bag seeds.</p>
  */
 public final class PreviewRescuePairedApplication {
 
     private static final int DEFAULT_GAMES = 120;
     private static final int DEFAULT_MAX_PIECES = 1000;
-    private static final long DEFAULT_SEED = 11000L;
+    private static final long DEFAULT_SEED = 10000L;
 
     private PreviewRescuePairedApplication() {
     }
@@ -48,18 +48,16 @@ public final class PreviewRescuePairedApplication {
                     turn -> baselineShape.record(
                             ShapeTarget.HEART.progress(turn.selected().resultingBoard())));
 
-            for (PreviewRescuePlanningAgent.Mode mode : PreviewRescuePlanningAgent.Mode.values()) {
-                Telemetry telemetry = new Telemetry(seed, mode, traces);
-                ShapeSummary rescueShape = new ShapeSummary();
-                GameBenchmarkResult rescue = runner.runPlanningObserved(
-                        seed, maxPieces, new PreviewRescuePlanningAgent(telemetry::record, mode),
-                        null, turn -> rescueShape.record(
-                                ShapeTarget.HEART.progress(turn.selected().resultingBoard())));
-                comparisons.add(new GameComparison(seed, mode, baseline, rescue,
-                        baselineShape.bestVisualError, rescueShape.bestVisualError,
-                        baselineShape.cleanCompletion, rescueShape.cleanCompletion,
-                        telemetry.snapshot()));
-            }
+            Telemetry telemetry = new Telemetry(seed, traces);
+            ShapeSummary rescueShape = new ShapeSummary();
+            GameBenchmarkResult rescue = runner.runPlanningObserved(
+                    seed, maxPieces, new PreviewRescuePlanningAgent(telemetry::record), null,
+                    turn -> rescueShape.record(
+                            ShapeTarget.HEART.progress(turn.selected().resultingBoard())));
+            comparisons.add(new GameComparison(seed, baseline, rescue,
+                    baselineShape.bestVisualError, rescueShape.bestVisualError,
+                    baselineShape.cleanCompletion, rescueShape.cleanCompletion,
+                    telemetry.snapshot()));
         }
 
         printDecisions(traces);
@@ -68,7 +66,7 @@ public final class PreviewRescuePairedApplication {
     }
 
     private static void printDecisions(List<DecisionTrace> traces) {
-        System.out.println("preview_rescue_decision,seed,mode,decision,replaced,replacement_rank,"
+        System.out.println("preview_rescue_decision,seed,decision,replaced,replacement_rank,"
                 + "candidates_probed,detection_ms,search_ms,total_overhead_ms");
         for (DecisionTrace trace : traces) {
             PreviewRescuePlanningAgent.Observation o = trace.observation();
@@ -76,15 +74,15 @@ public final class PreviewRescuePairedApplication {
                 continue;
             }
             System.out.printf(Locale.ROOT,
-                    "preview_rescue_decision,%d,%s,%d,%s,%d,%d,%.6f,%.6f,%.6f%n",
-                    trace.seed(), trace.mode(), trace.decision(), o.replaced(), o.replacementRank(),
+                    "preview_rescue_decision,%d,%d,%s,%d,%d,%.6f,%.6f,%.6f%n",
+                    trace.seed(), trace.decision(), o.replaced(), o.replacementRank(),
                     o.candidatesProbed(), millis(o.detectionNanos()),
                     millis(o.searchNanos()), millis(o.overheadNanos()));
         }
     }
 
     private static void printGames(List<GameComparison> games) {
-        System.out.println("preview_rescue_game,seed,mode,baseline_pieces,rescue_pieces,"
+        System.out.println("preview_rescue_game,seed,baseline_pieces,rescue_pieces,"
                 + "piece_delta,baseline_reached_limit,rescue_reached_limit,"
                 + "rank1_evaluations,preview_unrecoverable,replacements,"
                 + "unresolved,baseline_best_visual_error,rescue_best_visual_error,"
@@ -93,9 +91,9 @@ public final class PreviewRescuePairedApplication {
         for (GameComparison game : games) {
             TelemetrySnapshot t = game.telemetry();
             System.out.printf(Locale.ROOT,
-                    "preview_rescue_game,%d,%s,%d,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,%s,%s,"
+                    "preview_rescue_game,%d,%d,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,%s,%s,"
                             + "%.6f,%.6f,%.6f,%.6f%n",
-                    game.seed(), game.mode(), game.baseline().piecesPlaced(), game.rescue().piecesPlaced(),
+                    game.seed(), game.baseline().piecesPlaced(), game.rescue().piecesPlaced(),
                     game.pieceDelta(), game.baseline().reachedPieceLimit(),
                     game.rescue().reachedPieceLimit(), t.rank1Evaluations(),
                     t.previewUnrecoverable(), t.replacements(), t.unresolved(),
@@ -112,43 +110,6 @@ public final class PreviewRescuePairedApplication {
 
     private static void printSummary(
             long seed, int games, int maxPieces, List<GameComparison> comparisons) {
-        System.out.printf(Locale.ROOT,
-                "# preview_rescue_protocol seed_start=%d games=%d max_pieces=%d "
-                        + "baseline=production_build_shape arms=STRICT,PREVIEW_ONLY "
-                        + "trigger=rank1_preview_unrecoverable repeated_rescue=allowed "
-                        + "runtime_policy=unchanged%n", seed, games, maxPieces);
-        for (PreviewRescuePlanningAgent.Mode mode : PreviewRescuePlanningAgent.Mode.values()) {
-            printArmSummary(mode, games, comparisons.stream()
-                    .filter(g -> g.mode() == mode).toList());
-        }
-        int better = 0;
-        int worse = 0;
-        int extraPieces = 0;
-        int visualRegressions = 0;
-        for (int index = 0; index < comparisons.size(); index += 2) {
-            GameComparison strict = comparisons.get(index);
-            GameComparison previewOnly = comparisons.get(index + 1);
-            if (strict.seed() != previewOnly.seed()
-                    || strict.mode() != PreviewRescuePlanningAgent.Mode.STRICT
-                    || previewOnly.mode() != PreviewRescuePlanningAgent.Mode.PREVIEW_ONLY) {
-                throw new IllegalStateException("rescue arms must be paired by seed");
-            }
-            int delta = previewOnly.rescue().piecesPlaced() - strict.rescue().piecesPlaced();
-            better += delta > 0 ? 1 : 0;
-            worse += delta < 0 ? 1 : 0;
-            extraPieces += delta;
-            visualRegressions += previewOnly.rescueBestVisualError()
-                    > strict.rescueBestVisualError() ? 1 : 0;
-        }
-        System.out.printf(Locale.ROOT,
-                "# preview_rescue_arm_delta preview_only_vs_strict_improved=%d "
-                        + "regressed=%d tied=%d total_piece_delta=%d "
-                        + "best_visual_regression_games=%d%n",
-                better, worse, games - better - worse, extraPieces, visualRegressions);
-    }
-
-    private static void printArmSummary(
-            PreviewRescuePlanningAgent.Mode mode, int games, List<GameComparison> comparisons) {
         long improved = comparisons.stream().filter(g -> g.pieceDelta() > 0).count();
         long regressed = comparisons.stream().filter(g -> g.pieceDelta() < 0).count();
         long baselineHorizon = comparisons.stream()
@@ -170,13 +131,19 @@ public final class PreviewRescuePairedApplication {
         long visualRegressions = comparisons.stream()
                 .filter(g -> g.rescueBestVisualError() > g.baselineBestVisualError()).count();
         System.out.printf(Locale.ROOT,
-                "# preview_rescue_result mode=%s games=%d baseline_horizon=%d rescue_horizon=%d "
+                "# preview_rescue_protocol seed_start=%d games=%d max_pieces=%d "
+                        + "baseline=production_build_shape rescue=first_frozen_warning_"
+                        + "clearing_survival_alternative_only_when_rank1_preview_unrecoverable "
+                        + "repeated_rescue=allowed runtime_policy=unchanged%n",
+                seed, games, maxPieces);
+        System.out.printf(Locale.ROOT,
+                "# preview_rescue_result games=%d baseline_horizon=%d rescue_horizon=%d "
                         + "improved_games=%d regressed_games=%d tied_games=%d "
                         + "intervention_games=%d rank1_evaluations=%d preview_unrecoverable=%d "
                         + "replacements=%d unresolved=%d total_piece_delta=%d "
                         + "avg_piece_delta=%.3f best_visual_regression_games=%d "
                         + "avg_detection_ms=%.6f avg_search_per_warning_ms=%.6f%n",
-                mode, games, baselineHorizon, rescueHorizon, improved, regressed,
+                games, baselineHorizon, rescueHorizon, improved, regressed,
                 games - improved - regressed, interventionGames, evaluated, warnings,
                 replacements, warnings - replacements,
                 comparisons.stream().mapToInt(GameComparison::pieceDelta).sum(),
@@ -207,14 +174,12 @@ public final class PreviewRescuePairedApplication {
     }
 
     record GameComparison(
-            long seed, PreviewRescuePlanningAgent.Mode mode,
-            GameBenchmarkResult baseline, GameBenchmarkResult rescue,
+            long seed, GameBenchmarkResult baseline, GameBenchmarkResult rescue,
             int baselineBestVisualError, int rescueBestVisualError,
             boolean baselineClean, boolean rescueClean, TelemetrySnapshot telemetry) {
         GameComparison {
             Objects.requireNonNull(baseline, "baseline");
             Objects.requireNonNull(rescue, "rescue");
-            Objects.requireNonNull(mode, "mode");
             Objects.requireNonNull(telemetry, "telemetry");
             if (baseline.seed() != seed || rescue.seed() != seed
                     || baselineBestVisualError < 0 || rescueBestVisualError < 0) {
@@ -241,10 +206,8 @@ public final class PreviewRescuePairedApplication {
     }
 
     private record DecisionTrace(
-            long seed, PreviewRescuePlanningAgent.Mode mode,
-            int decision, PreviewRescuePlanningAgent.Observation observation) {
+            long seed, int decision, PreviewRescuePlanningAgent.Observation observation) {
         DecisionTrace {
-            Objects.requireNonNull(mode, "mode");
             Objects.requireNonNull(observation, "observation");
             if (decision <= 0) {
                 throw new IllegalArgumentException("invalid decision");
@@ -254,7 +217,6 @@ public final class PreviewRescuePairedApplication {
 
     private static final class Telemetry {
         private final long seed;
-        private final PreviewRescuePlanningAgent.Mode mode;
         private final List<DecisionTrace> traces;
         private int decision;
         private int evaluated;
@@ -263,9 +225,8 @@ public final class PreviewRescuePairedApplication {
         private long detection;
         private long search;
 
-        Telemetry(long seed, PreviewRescuePlanningAgent.Mode mode, List<DecisionTrace> traces) {
+        Telemetry(long seed, List<DecisionTrace> traces) {
             this.seed = seed;
-            this.mode = Objects.requireNonNull(mode, "mode");
             this.traces = Objects.requireNonNull(traces, "traces");
         }
 
@@ -278,7 +239,7 @@ public final class PreviewRescuePairedApplication {
             if (o.previewUnrecoverable()) {
                 warnings++;
                 search += o.searchNanos();
-                traces.add(new DecisionTrace(seed, mode, decision, o));
+                traces.add(new DecisionTrace(seed, decision, o));
             }
             if (o.replaced()) {
                 replacements++;
