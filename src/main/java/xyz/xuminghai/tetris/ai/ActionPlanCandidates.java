@@ -13,6 +13,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Builds action-native landing candidates and ranks them with the existing survival heuristic.
@@ -49,6 +50,45 @@ final class ActionPlanCandidates {
                 .stream()
                 .map(byCandidate::get)
                 .toList();
+    }
+
+    /** Finds the first SURVIVAL-ranked alternative that keeps the known preview playable. */
+    static PreviewSearch firstPreviewRecoverable(GameSnapshot snapshot, int firstRankInclusive) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        if (firstRankInclusive <= 0) {
+            throw new IllegalArgumentException("firstRankInclusive must be positive");
+        }
+        if (snapshot.nextType().isEmpty()) {
+            throw new IllegalArgumentException("preview search requires a known preview piece");
+        }
+
+        List<PlannedCandidate> candidates = ranked(snapshot);
+        if (firstRankInclusive > candidates.size()) {
+            return new PreviewSearch(candidates.size(), 0, Optional.empty());
+        }
+        var previewType = snapshot.nextType().orElseThrow();
+        for (int index = firstRankInclusive - 1; index < candidates.size(); index++) {
+            PlannedCandidate candidate = candidates.get(index);
+            if (ActionPlanSimulator.hasReachableTerminalPlacement(
+                    BoardSimulator.snapshotForSpawnedPiece(
+                            candidate.placement().resultingBoard(), previewType))) {
+                return new PreviewSearch(candidates.size(), index - firstRankInclusive + 2,
+                        Optional.of(candidate.plan()));
+            }
+        }
+        return new PreviewSearch(candidates.size(),
+                candidates.size() - firstRankInclusive + 1, Optional.empty());
+    }
+
+    record PreviewSearch(int totalCandidates, int candidatesProbed, Optional<AiPlan> plan) {
+        PreviewSearch {
+            Objects.requireNonNull(plan, "plan");
+            if (totalCandidates < 0 || candidatesProbed < 0
+                    || candidatesProbed > totalCandidates
+                    || (plan.isPresent() && candidatesProbed == 0)) {
+                throw new IllegalArgumentException("invalid preview candidate search counts");
+            }
+        }
     }
 
     private static PlacementCandidate describe(

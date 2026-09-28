@@ -18,6 +18,7 @@ import java.util.Objects;
 public final class AiPlanningAgentFactory {
 
     public static final String OBJECTIVE_ENV = "TETRIS_AI_OBJECTIVE";
+    public static final String PREVIEW_RESCUE_ENV = "TETRIS_AI_PREVIEW_RESCUE";
 
     private AiPlanningAgentFactory() {
     }
@@ -34,12 +35,24 @@ public final class AiPlanningAgentFactory {
                 .toLowerCase(Locale.ROOT);
         AiObjective objective = AiObjective.parse(
                 environment.getOrDefault(OBJECTIVE_ENV, AiObjective.SURVIVAL.configValue()));
+        boolean previewRescue = switch (environment.getOrDefault(PREVIEW_RESCUE_ENV, "false")
+                .trim().toLowerCase(Locale.ROOT)) {
+            case "true" -> true;
+            case "false" -> false;
+            default -> throw new IllegalArgumentException(
+                    PREVIEW_RESCUE_ENV + " must be true or false");
+        };
 
         if (objective != AiObjective.SURVIVAL && !"action".equals(configured)) {
             throw new IllegalArgumentException(
                     OBJECTIVE_ENV + "=" + objective.configValue()
                             + " currently requires "
                             + TetrisAgentFactory.AGENT_ENV + "=action");
+        }
+        if (previewRescue && (!"action".equals(configured) || objective != AiObjective.BUILD_SHAPE)) {
+            throw new IllegalArgumentException(PREVIEW_RESCUE_ENV
+                    + "=true requires " + TetrisAgentFactory.AGENT_ENV
+                    + "=action and " + OBJECTIVE_ENV + "=build-shape");
         }
 
         return switch (configured) {
@@ -51,7 +64,9 @@ public final class AiPlanningAgentFactory {
             case "action" -> switch (objective) {
                 case SURVIVAL -> new DeterministicActionPlanningAgent();
                 case TUCK_HUNTER -> new TuckHunterActionPlanningAgent();
-                case BUILD_SHAPE -> new BuildShapeActionPlanningAgent();
+                case BUILD_SHAPE -> previewRescue
+                        ? new PreviewRescueActionPlanningAgent()
+                        : new BuildShapeActionPlanningAgent();
             };
             case "jev-action" ->
                     new JevActionPlanningAgent(requireApiKey(environment, configured));
