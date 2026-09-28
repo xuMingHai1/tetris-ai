@@ -665,6 +665,8 @@ public final class GameWorld {
     private final PieceGenerator pieceGenerator = new BagPieceGenerator();
 
     private final AiDecisionExecutor aiDecisionExecutor;
+    private final boolean traceAiDecisions = Boolean.parseBoolean(
+            System.getenv().getOrDefault("TETRIS_AI_DECISION_TRACE", "false"));
 
     private final BooleanProperty aiEnabled = new SimpleBooleanProperty(this, "aiEnabled");
 
@@ -677,6 +679,7 @@ public final class GameWorld {
     private AiDecisionExecutor.AiDecision pendingAiDecision;
     private GameSnapshot pendingAiSnapshot;
     private Tetris pendingAiTetris;
+    private long pendingAiSubmittedAt;
 
     public GameWorld() {
         this(new HeuristicTetrisAgent());
@@ -1081,13 +1084,18 @@ public final class GameWorld {
      */
     private void requestAiMove(Tetris expectedTetris) {
         final GameSnapshot snapshot = createAiSnapshot();
+        final long submittedAt = traceAiDecisions ? System.nanoTime() : 0L;
         final AiDecisionExecutor.AiDecision decision = aiDecisionExecutor.submit(snapshot);
         pendingAiDecision = decision;
         pendingAiSnapshot = snapshot;
         pendingAiTetris = expectedTetris;
+        pendingAiSubmittedAt = submittedAt;
 
-        decision.result().whenComplete((move, failure) ->
-                Platform.runLater(() -> completePendingAiDecision(decision, snapshot, expectedTetris, move, failure)));
+        decision.result().whenComplete((move, failure) -> {
+            long completedAt = traceAiDecisions ? System.nanoTime() : 0L;
+            Platform.runLater(() -> completePendingAiDecision(
+                    decision, snapshot, expectedTetris, move, failure, submittedAt, completedAt));
+        });
     }
 
     private void completePendingAiDecision(
@@ -1095,7 +1103,9 @@ public final class GameWorld {
             GameSnapshot snapshot,
             Tetris expectedTetris,
             AiPlan plan,
-            Throwable failure) {
+            Throwable failure,
+            long submittedAt,
+            long completedAt) {
         if (pendingAiDecision != decision || !aiDecisionExecutor.isCurrent(decision)) {
             return;
         }
@@ -1105,6 +1115,8 @@ public final class GameWorld {
         }
 
         clearPendingAiDecision();
+        traceAiDecision(failure == null ? "callback" : "failed", submittedAt,
+                traceAiDecisions ? System.nanoTime() : 0L, completedAt, 0L);
         if (failure != null) {
             System.err.printf("AI decision failed: %s%n", failure.getMessage());
             return;
@@ -1128,14 +1140,18 @@ public final class GameWorld {
         }
 
         var result = pendingAiDecision.result().toCompletableFuture();
+        final long submittedAt = pendingAiSubmittedAt;
+        final long deadlineAt = traceAiDecisions ? System.nanoTime() : 0L;
         if (result.isDone()) {
             try {
                 AiPlan plan = result.join();
                 clearPendingAiDecision();
                 applyAiPlan(plan);
+                traceAiDecision("gravity-ready", submittedAt, deadlineAt, 0L, 0L);
             }
             catch (RuntimeException failure) {
                 clearPendingAiDecision();
+                traceAiDecision("failed", submittedAt, deadlineAt, 0L, 0L);
                 System.err.printf("AI decision failed: %s%n", failure.getMessage());
             }
             return;
@@ -1144,11 +1160,15 @@ public final class GameWorld {
         final GameSnapshot snapshot = pendingAiSnapshot;
         try {
             AiPlan fallbackPlan = aiDecisionExecutor.fallbackNow(snapshot);
+            long fallbackNanos = traceAiDecisions ? System.nanoTime() - deadlineAt : 0L;
             clearPendingAiDecision();
             applyAiPlan(fallbackPlan);
+            traceAiDecision("gravity-fallback", submittedAt, deadlineAt, 0L, fallbackNanos);
         }
         catch (RuntimeException failure) {
+            long fallbackNanos = traceAiDecisions ? System.nanoTime() - deadlineAt : 0L;
             clearPendingAiDecision();
+            traceAiDecision("fallback-failed", submittedAt, deadlineAt, 0L, fallbackNanos);
             System.err.printf("AI fallback failed: %s%n", failure.getMessage());
         }
     }
@@ -1169,6 +1189,8 @@ public final class GameWorld {
 
     private void cancelPendingAiDecision() {
         if (pendingAiDecision != null) {
+            traceAiDecision("cancelled", pendingAiSubmittedAt,
+                    traceAiDecisions ? System.nanoTime() : 0L, 0L, 0L);
             aiDecisionExecutor.invalidate();
             clearPendingAiDecision();
         }
@@ -1178,6 +1200,22 @@ public final class GameWorld {
         pendingAiDecision = null;
         pendingAiSnapshot = null;
         pendingAiTetris = null;
+        pendingAiSubmittedAt = 0L;
+    }
+
+    /** Logs the JavaFX-thread outcome; callback queue time is available only on that path. */
+    private void traceAiDecision(
+            String outcome, long submittedAt, long observedAt, long completedAt,
+            long fallbackNanos) {
+        if (!traceAiDecisions) {
+            return;
+        }
+        double elapsedMs = (observedAt - submittedAt) / 1_000_000.0;
+        double queueMs = completedAt == 0L ? -1.0 : (observedAt - completedAt) / 1_000_000.0;
+        System.out.printf(Locale.ROOT,
+                "AI_DECISION outcome=%s elapsed_ms=%.3f fx_queue_ms=%.3f fallback_ms=%.3f%n",
+                outcome, elapsedMs, queueMs,
+                fallbackNanos / 1_000_000.0);
     }
 
     private GameSnapshot createAiSnapshot() {
