@@ -11,11 +11,14 @@ import xyz.xuminghai.tetris.core.TetrominoType;
 
 import java.util.List;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -106,6 +109,46 @@ class AiDecisionExecutorTest {
 
         assertEquals(AiPlan.fromPlacement(fallbackMove), plan);
         assertEquals(1, fallbackCalls.get());
+        assertFalse(executor.isCurrent(decision));
+    }
+
+    @Test
+    void latePrimaryResultCannotBecomeCurrentAfterGravityFallback() throws InterruptedException {
+        CountDownLatch primaryStarted = new CountDownLatch(1);
+        CountDownLatch releasePrimary = new CountDownLatch(1);
+        GameSnapshot frozen = snapshot();
+        AiPlan primaryPlan = AiPlan.fromPlacement(new AiMove(0, 2));
+        AiPlan fallbackPlan = AiPlan.fromPlacement(new AiMove(0, -2));
+        AiDecisionExecutor executor = new AiDecisionExecutor(
+                (AiPlanningAgent) snapshot -> {
+                    assertSame(frozen, snapshot);
+                    primaryStarted.countDown();
+                    try {
+                        if (!releasePrimary.await(5, TimeUnit.SECONDS)) {
+                            throw new IllegalStateException("primary was not released");
+                        }
+                    }
+                    catch (InterruptedException failure) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("primary was interrupted", failure);
+                    }
+                    return primaryPlan;
+                },
+                snapshot -> {
+                    assertSame(frozen, snapshot);
+                    return fallbackPlan;
+                });
+        AiDecisionExecutor.AiDecision decision = executor.submit(frozen);
+
+        try {
+            assertTrue(primaryStarted.await(5, TimeUnit.SECONDS));
+            assertEquals(fallbackPlan, executor.fallbackNow(frozen));
+            assertFalse(executor.isCurrent(decision));
+        } finally {
+            releasePrimary.countDown();
+        }
+
+        assertEquals(primaryPlan, decision.result().toCompletableFuture().join());
         assertFalse(executor.isCurrent(decision));
     }
 
