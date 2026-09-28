@@ -72,18 +72,36 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
         }
 
         long searchStart = System.nanoTime();
-        RecoveryCandidateScanBenchmark.MatchSearch search =
-                RecoveryCandidateScanBenchmark.findFirstMatching(
-                        snapshot, 2, mode::accepts);
+        AiPlan replacement;
+        int totalCandidates;
+        int candidatesProbed;
+        int replacementRank;
+        if (mode == Mode.STRICT) {
+            RecoveryCandidateScanBenchmark.MatchSearch search =
+                    RecoveryCandidateScanBenchmark.findFirstMatching(
+                            snapshot, 2, PreviewRescuePlanningAgent::clearsWarning);
+            totalCandidates = search.totalCandidates();
+            candidatesProbed = search.candidatesProbed();
+            RecoveryCandidateScanBenchmark.CandidateAnalysis match =
+                    search.match().orElse(null);
+            replacement = match == null ? null : match.plan();
+            replacementRank = match == null ? 0 : match.survivalRank();
+        } else {
+            RecoveryCandidateScanBenchmark.PreviewSearch search =
+                    RecoveryCandidateScanBenchmark.findFirstPreviewRecoverable(snapshot, 2);
+            totalCandidates = search.totalCandidates();
+            candidatesProbed = search.candidatesProbed();
+            replacement = search.plan().orElse(null);
+            replacementRank = replacement == null ? 0 : candidatesProbed + 1;
+        }
         long searchNanos = System.nanoTime() - searchStart;
-        if (search.totalCandidates() != decision.reachableCandidateCount()) {
+        if (totalCandidates != decision.reachableCandidateCount()) {
             throw new IllegalStateException("SURVIVAL candidate count diverged");
         }
-        RecoveryCandidateScanBenchmark.CandidateAnalysis match = search.match().orElse(null);
-        observer.accept(new Observation(true, true, match != null,
-                match == null ? 0 : match.survivalRank(), search.candidatesProbed(),
+        observer.accept(new Observation(true, true, replacement != null,
+                replacementRank, candidatesProbed,
                 detectionNanos, searchNanos));
-        return match == null ? baseline : match.plan();
+        return replacement == null ? baseline : replacement;
     }
 
     static boolean clearsWarning(RecoveryRobustnessBenchmark.Probe probe) {
@@ -93,11 +111,7 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
 
     enum Mode {
         STRICT,
-        PREVIEW_ONLY;
-
-        boolean accepts(RecoveryRobustnessBenchmark.Probe probe) {
-            return this == STRICT ? clearsWarning(probe) : probe.previewRecoverable();
-        }
+        PREVIEW_ONLY
     }
 
     private static final class DecisionCapture {
