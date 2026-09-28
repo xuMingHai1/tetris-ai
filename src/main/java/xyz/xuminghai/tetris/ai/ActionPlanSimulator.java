@@ -31,8 +31,7 @@ public final class ActionPlanSimulator {
      */
     public static boolean hasReachableTerminalPlacement(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
-        return ActionStateSearch.landings(snapshot).stream()
-                .anyMatch(landing -> landing.cells().stream().noneMatch(cell -> cell.row() < 0));
+        return ActionStateSearch.hasVisibleLanding(snapshot);
     }
 
     /**

@@ -79,6 +79,30 @@ final class ActionStateSearch {
     }
 
     /**
+     * A straight hard drop is a reachable landing. Check it before enumerating all action paths;
+     * a hidden landing still needs the full search because movement may escape the blocked column.
+     */
+    static boolean hasVisibleLanding(GameSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        boolean[][] occupied = snapshot.occupied();
+        List<BoardPosition> cells = snapshot.currentCells();
+        if (!canPlace(snapshot, occupied, cells)) {
+            return false;
+        }
+        List<BoardPosition> next = down(cells);
+        while (canPlace(snapshot, occupied, next)) {
+            cells = next;
+            next = down(cells);
+        }
+        if (cells.stream().noneMatch(cell -> cell.row() < 0)) {
+            return true;
+        }
+        return landings(snapshot).stream()
+                .anyMatch(landing -> landing.cells().stream()
+                        .noneMatch(cell -> cell.row() < 0));
+    }
+
+    /**
      * Replays one non-terminal action path using the same stateful tetromino implementation as the
      * live game. The current runtime asks the AI immediately after spawn's first gravity step, so
      * the snapshot is the initial orientation expected by the newly created tetromino.

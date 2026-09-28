@@ -24,7 +24,9 @@ import java.util.function.Consumer;
  *
  * <p>The action is replaced only by the first SURVIVAL-ranked alternative that restores preview
  * playability and clears the existing frozen warning. Every next decision starts from production
- * BUILD_SHAPE again. This planner is never installed in the desktop runtime.</p>
+ * BUILD_SHAPE again. The preview eligibility check first tries a straight hard drop and searches
+ * all action paths only when that landing is hidden. This planner is never installed in the
+ * desktop runtime.</p>
  */
 final class PreviewRescuePlanningAgent implements AiPlanningAgent {
 
