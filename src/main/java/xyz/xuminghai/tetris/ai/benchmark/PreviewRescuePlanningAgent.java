@@ -55,10 +55,10 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
         PlacementCandidate placement =
                 ActionPlanSimulator.requireTerminalPlacement(snapshot, baseline);
         long detectStart = System.nanoTime();
-        RecoveryRobustnessBenchmark.Probe probe = RecoveryRobustnessBenchmark.probe(
+        boolean previewRecoverable = RecoveryRobustnessBenchmark.previewRecoverable(
                 placement.resultingBoard(), snapshot.nextType().orElseThrow());
         long detectionNanos = System.nanoTime() - detectStart;
-        if (probe.previewRecoverable()) {
+        if (previewRecoverable) {
             observer.accept(new Observation(true, false, false, 0, 0, detectionNanos, 0L));
             return baseline;
         }

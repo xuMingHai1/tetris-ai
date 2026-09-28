@@ -130,6 +130,23 @@ public final class RecoveryRobustnessBenchmark {
                         : maxPostUnknownAggregateHeight);
     }
 
+    /**
+     * Tests only whether the known preview has a visible action-native landing.
+     *
+     * <p>This uses the same post-spawn snapshot and landing search as {@link #probe}, without
+     * ranking the preview's placements or probing seven additional unknown piece types. It is
+     * sufficient for the benchmark-only preview rescue's first eligibility check; the existing
+     * full probe still evaluates each alternative against the frozen warning.</p>
+     */
+    public static boolean previewRecoverable(
+            boolean[][] board,
+            TetrominoType previewType) {
+        Objects.requireNonNull(board, "board");
+        Objects.requireNonNull(previewType, "previewType");
+        return ActionPlanSimulator.hasReachableTerminalPlacement(
+                BoardSimulator.snapshotForSpawnedPiece(board, previewType));
+    }
+
     public record ReplayedPlacement(
             PlacementCandidate placement,
             Probe probe) {
