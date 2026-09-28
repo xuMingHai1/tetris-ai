@@ -49,6 +49,7 @@ jobs:
           echo "Changed files:"
           printf '%s\n' "$changed_files"
 
+          preview_rescue_changed=false
           recovery_eligibility_changed=false
           recovery_one_shot_changed=false
           recovery_clearing_planner_changed=false
@@ -72,6 +73,10 @@ jobs:
                 # Exercise the most feature-rich deterministic path when benchmark
                 # infrastructure itself changes.
                 shape_changed=true
+                ;;
+
+              src/main/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePlanningAgent.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePairedApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePlanningAgentTest.java)
+                preview_rescue_changed=true
                 ;;
 
               src/main/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryEligibilityFeatureAuditApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/RecoveryEligibilityFeatureAuditApplicationTest.java)
@@ -137,7 +142,10 @@ jobs:
 
           # One benchmark per PR revision keeps the self-hosted runner bounded.
           # Prefer the most specialized path when categories overlap.
-          if [ "$recovery_eligibility_changed" = "true" ]; then
+          if [ "$preview_rescue_changed" = "true" ]; then
+            benchmark=preview-rescue-paired
+            reason="paired preview-unrecoverable rescue experiment changed"
+          elif [ "$recovery_eligibility_changed" = "true" ]; then
             benchmark=recovery-eligibility-feature-audit
             reason="recovery intervention eligibility feature audit changed"
           elif [ "$recovery_one_shot_changed" = "true" ]; then
@@ -184,6 +192,24 @@ jobs:
           echo "benchmark=$benchmark" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "Selected benchmark: $benchmark ($reason)"
+
+  preview-rescue-paired:
+    name: Paired Preview Rescue
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'preview-rescue-paired' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: preview-rescue-paired
+      games: '120'
+      max_pieces: '1000'
+      feasibility_depth: '24'
+      feasibility_beam_width: '128'
+      viability_search_depth: '4'
+      viability_beam_width: '32'
+      viability_greedy_depth: '24'
+      seed: '10000'
+      risk_profile: conservative
+      confirm_jev_cost: false
 
   recovery-eligibility-feature-audit:
     name: Recovery Eligibility Feature Audit
@@ -441,6 +467,7 @@ jobs:
       }}
     needs:
       - select-benchmark
+      - preview-rescue-paired
       - recovery-eligibility-feature-audit
       - recovery-one-shot-counterfactual
       - recovery-clearing-planner-comparison
@@ -465,6 +492,7 @@ jobs:
           SELECT_RESULT: ${{ needs.select-benchmark.result }}
           SELECTED: ${{ needs.select-benchmark.outputs.benchmark }}
           REASON: ${{ needs.select-benchmark.outputs.reason }}
+          PREVIEW_RESCUE_RESULT: ${{ needs.preview-rescue-paired.result }}
           ELIGIBILITY_RESULT: ${{ needs.recovery-eligibility-feature-audit.result }}
           ONE_SHOT_RESULT: ${{ needs.recovery-one-shot-counterfactual.result }}
           CLEARING_PLANNER_RESULT: ${{ needs.recovery-clearing-planner-comparison.result }}
@@ -490,6 +518,12 @@ jobs:
           case "$SELECTED" in
             none)
               echo "No deterministic AI benchmark required: $REASON"
+              ;;
+            preview-rescue-paired)
+              [ "$PREVIEW_RESCUE_RESULT" = "success" ] || {
+                echo "::error::preview-rescue-paired benchmark result: $PREVIEW_RESCUE_RESULT"
+                exit 1
+              }
               ;;
             recovery-eligibility-feature-audit)
               [ "$ELIGIBILITY_RESULT" = "success" ] || {
