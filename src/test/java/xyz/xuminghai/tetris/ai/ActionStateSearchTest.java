@@ -61,6 +61,28 @@ class ActionStateSearchTest {
     }
 
     @Test
+    void visibleLandingFastPathAlsoFindsSideEscapeFromHiddenHardDrop() {
+        boolean[][] board = new boolean[20][10];
+        board[1][4] = true;
+        board[1][5] = true;
+        GameSnapshot snapshot = new GameSnapshot(
+                20, 10, board, TetrominoType.O,
+                List.of(new BoardPosition(-1, 4), new BoardPosition(-1, 5),
+                        new BoardPosition(0, 4), new BoardPosition(0, 5)));
+
+        assertTrue(ActionStateSearch.hasVisibleLanding(snapshot));
+        assertTrue(ActionStateSearch.landings(snapshot).stream().anyMatch(landing ->
+                landing.cells().stream().noneMatch(cell -> cell.row() < 0)));
+
+        for (int col = 0; col < 10; col++) {
+            board[1][col] = true;
+        }
+        GameSnapshot blocked = new GameSnapshot(
+                20, 10, board, TetrominoType.O, snapshot.currentCells());
+        assertFalse(ActionStateSearch.hasVisibleLanding(blocked));
+    }
+
+    @Test
     void replayPreservesClockwiseRotationStateAcrossMultipleRotations() {
         Tetris live = TetrisFactory.create(TetrominoType.T);
         live.downMove();
