@@ -51,4 +51,27 @@ class RecoveryRobustnessBenchmarkTest {
         assertEquals(-1, probe.minPostUnknownHeadroom());
         assertFalse(probe.fullyRecoverableAcrossTetrominoes());
     }
+
+    @Test
+    void previewOnlyCheckMatchesFullProbeForEveryPieceAcrossBoardConditions() {
+        boolean[][] empty = new boolean[20][10];
+        boolean[][] partial = new boolean[20][10];
+        for (int col = 0; col < 10; col++) {
+            partial[19][col] = col != 4;
+            partial[18][col] = col != 4 && col != 5;
+        }
+        boolean[][] blocked = new boolean[20][10];
+        for (boolean[] row : blocked) {
+            java.util.Arrays.fill(row, true);
+        }
+
+        for (boolean[][] board : new boolean[][][] {empty, partial, blocked}) {
+            for (TetrominoType type : TetrominoType.values()) {
+                assertEquals(
+                        RecoveryRobustnessBenchmark.probe(board, type).previewRecoverable(),
+                        RecoveryRobustnessBenchmark.previewRecoverable(board, type),
+                        type.name());
+            }
+        }
+    }
 }
