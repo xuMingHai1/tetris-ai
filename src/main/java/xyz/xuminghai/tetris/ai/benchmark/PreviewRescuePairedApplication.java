@@ -21,13 +21,15 @@ import java.util.Objects;
  * alternative that makes that exact preview playable implies at least one more placement. The
  * old 5/5 one-shot positive depth labels therefore do not establish a learned discriminator.
  * This experiment compares both eligibility rules against the same baseline on fresh 7-bag seeds,
- * including survival, construction impact, and rank-1 checking cost.</p>
+ * including survival, construction impact, and rank-1 checking cost. Per-game maximum decision
+ * latency and warning-search tails help assess a later opt-in runtime integration, but headless
+ * timing does not model JavaFX scheduling or live gravity deadlines.</p>
  */
 public final class PreviewRescuePairedApplication {
 
     private static final int DEFAULT_GAMES = 120;
     private static final int DEFAULT_MAX_PIECES = 1000;
-    private static final long DEFAULT_SEED = 11000L;
+    private static final long DEFAULT_SEED = 12000L;
 
     private PreviewRescuePairedApplication() {
     }
@@ -64,7 +66,7 @@ public final class PreviewRescuePairedApplication {
 
         printDecisions(traces);
         printGames(comparisons);
-        printSummary(firstSeed, games, maxPieces, comparisons);
+        printSummary(firstSeed, games, maxPieces, comparisons, traces);
     }
 
     private static void printDecisions(List<DecisionTrace> traces) {
@@ -89,12 +91,13 @@ public final class PreviewRescuePairedApplication {
                 + "rank1_evaluations,preview_unrecoverable,replacements,"
                 + "unresolved,baseline_best_visual_error,rescue_best_visual_error,"
                 + "baseline_clean,rescue_clean,baseline_avg_decision_ms,"
-                + "rescue_avg_decision_ms,avg_detection_ms,avg_search_per_warning_ms");
+                + "rescue_avg_decision_ms,baseline_max_decision_ms,rescue_max_decision_ms,"
+                + "avg_detection_ms,avg_search_per_warning_ms");
         for (GameComparison game : games) {
             TelemetrySnapshot t = game.telemetry();
             System.out.printf(Locale.ROOT,
                     "preview_rescue_game,%d,%s,%d,%d,%d,%s,%s,%d,%d,%d,%d,%d,%d,%s,%s,"
-                            + "%.6f,%.6f,%.6f,%.6f%n",
+                            + "%.6f,%.6f,%.6f,%.6f,%.6f,%.6f%n",
                     game.seed(), game.mode(), game.baseline().piecesPlaced(), game.rescue().piecesPlaced(),
                     game.pieceDelta(), game.baseline().reachedPieceLimit(),
                     game.rescue().reachedPieceLimit(), t.rank1Evaluations(),
@@ -103,6 +106,8 @@ public final class PreviewRescuePairedApplication {
                     game.baselineClean(), game.rescueClean(),
                     game.baseline().averageDecisionMillis(),
                     game.rescue().averageDecisionMillis(),
+                    game.baseline().maxDecisionMillis(),
+                    game.rescue().maxDecisionMillis(),
                     t.rank1Evaluations() == 0 ? 0.0
                             : millis(t.detectionNanos()) / t.rank1Evaluations(),
                     t.previewUnrecoverable() == 0 ? 0.0
@@ -111,7 +116,8 @@ public final class PreviewRescuePairedApplication {
     }
 
     private static void printSummary(
-            long seed, int games, int maxPieces, List<GameComparison> comparisons) {
+            long seed, int games, int maxPieces, List<GameComparison> comparisons,
+            List<DecisionTrace> traces) {
         System.out.printf(Locale.ROOT,
                 "# preview_rescue_protocol seed_start=%d games=%d max_pieces=%d "
                         + "baseline=production_build_shape arms=STRICT,PREVIEW_ONLY "
@@ -119,7 +125,8 @@ public final class PreviewRescuePairedApplication {
                         + "runtime_policy=unchanged%n", seed, games, maxPieces);
         for (PreviewRescuePlanningAgent.Mode mode : PreviewRescuePlanningAgent.Mode.values()) {
             printArmSummary(mode, games, comparisons.stream()
-                    .filter(g -> g.mode() == mode).toList());
+                    .filter(g -> g.mode() == mode).toList(), traces.stream()
+                    .filter(t -> t.mode() == mode).toList());
         }
         int better = 0;
         int worse = 0;
@@ -148,7 +155,8 @@ public final class PreviewRescuePairedApplication {
     }
 
     private static void printArmSummary(
-            PreviewRescuePlanningAgent.Mode mode, int games, List<GameComparison> comparisons) {
+            PreviewRescuePlanningAgent.Mode mode, int games, List<GameComparison> comparisons,
+            List<DecisionTrace> traces) {
         long improved = comparisons.stream().filter(g -> g.pieceDelta() > 0).count();
         long regressed = comparisons.stream().filter(g -> g.pieceDelta() < 0).count();
         long baselineHorizon = comparisons.stream()
@@ -183,6 +191,28 @@ public final class PreviewRescuePairedApplication {
                 comparisons.stream().mapToInt(GameComparison::pieceDelta).average().orElse(0.0),
                 visualRegressions, evaluated == 0 ? 0.0 : millis(detection) / evaluated,
                 warnings == 0 ? 0.0 : millis(search) / warnings);
+        List<Long> baselineMaxima = comparisons.stream()
+                .map(g -> g.baseline().maxDecisionNanos()).sorted().toList();
+        List<Long> rescueMaxima = comparisons.stream()
+                .map(g -> g.rescue().maxDecisionNanos()).sorted().toList();
+        List<Long> warningSearches = traces.stream()
+                .map(t -> t.observation().searchNanos()).sorted().toList();
+        System.out.printf(Locale.ROOT,
+                "# preview_rescue_latency mode=%s baseline_game_max_p95_ms=%.6f "
+                        + "baseline_game_max_ms=%.6f rescue_game_max_p95_ms=%.6f "
+                        + "rescue_game_max_ms=%.6f warning_search_p95_ms=%.6f "
+                        + "warning_search_max_ms=%.6f warning_samples=%d%n",
+                mode, millis(p95(baselineMaxima)), millis(baselineMaxima.getLast()),
+                millis(p95(rescueMaxima)), millis(rescueMaxima.getLast()),
+                millis(p95(warningSearches)),
+                warningSearches.isEmpty() ? 0.0 : millis(warningSearches.getLast()),
+                warningSearches.size());
+    }
+
+    /** Nearest-rank 95th percentile; an empty warning population has no measured cost. */
+    static long p95(List<Long> sortedValues) {
+        return sortedValues.isEmpty() ? 0L
+                : sortedValues.get((int) Math.ceil(sortedValues.size() * 0.95) - 1);
     }
 
     private static double millis(long nanos) {
