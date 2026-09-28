@@ -207,7 +207,7 @@ jobs:
       viability_search_depth: '4'
       viability_beam_width: '32'
       viability_greedy_depth: '24'
-      seed: '10000'
+      seed: '11000'
       risk_profile: conservative
       confirm_jev_cost: false
 
