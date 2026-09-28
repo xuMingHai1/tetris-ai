@@ -16,7 +16,8 @@ import java.util.function.Predicate;
  *
  * <p>This class does not define a recovery policy or a new ranking. It preserves the exact
  * {@link ActionPlanCandidates} order already used by production SURVIVAL. The full scan attaches
- * {@link RecoveryRobustnessBenchmark} probes; preview-only search checks reachability directly.
+ * {@link RecoveryRobustnessBenchmark} probes; preview-only search delegates to the same candidate
+ * check used by the opt-in runtime planner.
  * Neither path duplicates movement rules or heuristic weights.</p>
  */
 public final class RecoveryCandidateScanBenchmark {
@@ -128,32 +129,10 @@ public final class RecoveryCandidateScanBenchmark {
      */
     public static PreviewSearch findFirstPreviewRecoverable(
             GameSnapshot snapshot, int firstRankInclusive) {
-        Objects.requireNonNull(snapshot, "snapshot");
-        if (firstRankInclusive <= 0) {
-            throw new IllegalArgumentException("firstRankInclusive must be positive");
-        }
-        if (snapshot.nextType().isEmpty()) {
-            throw new IllegalArgumentException(
-                    "preview candidate scan requires a known preview piece");
-        }
-
-        List<ActionPlanCandidates.PlannedCandidate> ranked = ActionPlanCandidates.ranked(snapshot);
-        if (firstRankInclusive > ranked.size()) {
-            return new PreviewSearch(ranked.size(), 0, Optional.empty());
-        }
-
-        var previewType = snapshot.nextType().orElseThrow();
-        int candidatesProbed = 0;
-        for (int index = firstRankInclusive - 1; index < ranked.size(); index++) {
-            ActionPlanCandidates.PlannedCandidate candidate = ranked.get(index);
-            candidatesProbed++;
-            if (RecoveryRobustnessBenchmark.previewRecoverable(
-                    candidate.placement().resultingBoard(), previewType)) {
-                return new PreviewSearch(
-                        ranked.size(), candidatesProbed, Optional.of(candidate.plan()));
-            }
-        }
-        return new PreviewSearch(ranked.size(), candidatesProbed, Optional.empty());
+        ActionPlanCandidates.PreviewSearch search =
+                ActionPlanCandidates.firstPreviewRecoverable(snapshot, firstRankInclusive);
+        return new PreviewSearch(
+                search.totalCandidates(), search.candidatesProbed(), search.plan());
     }
 
     public record PreviewSearch(int totalCandidates, int candidatesProbed, Optional<AiPlan> plan) {

@@ -48,6 +48,29 @@ class AiPlanningAgentFactoryTest {
     }
 
     @Test
+    void previewRescueRequiresExplicitBuildShapeOptIn() {
+        assertInstanceOf(
+                PreviewRescueActionPlanningAgent.class,
+                AiPlanningAgentFactory.from(Map.of(
+                        TetrisAgentFactory.AGENT_ENV, "action",
+                        AiPlanningAgentFactory.OBJECTIVE_ENV, "build-shape",
+                        AiPlanningAgentFactory.PREVIEW_RESCUE_ENV, "true")));
+        assertInstanceOf(
+                BuildShapeActionPlanningAgent.class,
+                AiPlanningAgentFactory.from(Map.of(
+                        TetrisAgentFactory.AGENT_ENV, "action",
+                        AiPlanningAgentFactory.OBJECTIVE_ENV, "build-shape",
+                        AiPlanningAgentFactory.PREVIEW_RESCUE_ENV, "false")));
+        assertThrows(IllegalArgumentException.class, () -> AiPlanningAgentFactory.from(Map.of(
+                TetrisAgentFactory.AGENT_ENV, "action",
+                AiPlanningAgentFactory.PREVIEW_RESCUE_ENV, "true")));
+        assertThrows(IllegalArgumentException.class, () -> AiPlanningAgentFactory.from(Map.of(
+                TetrisAgentFactory.AGENT_ENV, "action",
+                AiPlanningAgentFactory.OBJECTIVE_ENV, "build-shape",
+                AiPlanningAgentFactory.PREVIEW_RESCUE_ENV, "yes")));
+    }
+
+    @Test
     void rejectsTuckHunterObjectiveForPlacementAgent() {
         assertThrows(
                 IllegalArgumentException.class,

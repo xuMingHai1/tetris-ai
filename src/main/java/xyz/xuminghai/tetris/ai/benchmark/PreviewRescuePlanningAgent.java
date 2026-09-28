@@ -12,6 +12,7 @@ import xyz.xuminghai.tetris.ai.BuildShapeActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.BuildShapeDecisionObservation;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
 import xyz.xuminghai.tetris.ai.PlacementCandidate;
+import xyz.xuminghai.tetris.ai.PreviewRescueActionPlanningAgent;
 import xyz.xuminghai.tetris.ai.RecoveryCandidateScanBenchmark;
 import xyz.xuminghai.tetris.ai.RecoveryRobustnessBenchmark;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
@@ -23,16 +24,16 @@ import java.util.function.Consumer;
  * Benchmark-only rescue when production rank 1 makes the already-known preview unplayable.
  *
  * <p>The action is replaced only by the first SURVIVAL-ranked alternative that restores preview
- * playability; the strict arm also clears the existing frozen warning. Every next decision starts from production
- * BUILD_SHAPE again. The preview eligibility check first tries a straight hard drop and searches
- * all action paths only when that landing is hidden. This planner is never installed in the
- * desktop runtime.</p>
+ * playability; the strict arm also clears the existing frozen warning. The preview-only arm runs
+ * the same opt-in planner available to the desktop runtime. Every next decision starts from
+ * production BUILD_SHAPE again.</p>
  */
 final class PreviewRescuePlanningAgent implements AiPlanningAgent {
 
     private final BuildShapeActionPlanningAgent production;
     private final Consumer<Observation> observer;
     private final Mode mode;
+    private final PreviewRescueActionPlanningAgent previewOnly;
     private final DecisionCapture decisionCapture = new DecisionCapture();
 
     PreviewRescuePlanningAgent(Consumer<Observation> observer) {
@@ -42,6 +43,10 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
     PreviewRescuePlanningAgent(Consumer<Observation> observer, Mode mode) {
         this.observer = Objects.requireNonNull(observer, "observer");
         this.mode = Objects.requireNonNull(mode, "mode");
+        previewOnly = new PreviewRescueActionPlanningAgent(o -> observer.accept(
+                new Observation(o.rank1Evaluated(), o.previewUnrecoverable(), o.replaced(),
+                        o.replacementRank(), o.candidatesProbed(), o.detectionNanos(),
+                        o.searchNanos())));
         production = new BuildShapeActionPlanningAgent(
                 ShapeTarget.HEART, decisionCapture::record);
     }
@@ -49,6 +54,9 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
     @Override
     public AiPlan plan(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
+        if (mode == Mode.PREVIEW_ONLY) {
+            return previewOnly.plan(snapshot);
+        }
         decisionCapture.reset();
         AiPlan baseline = production.plan(snapshot);
         BuildShapeDecisionObservation decision = decisionCapture.current();
@@ -72,36 +80,18 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
         }
 
         long searchStart = System.nanoTime();
-        AiPlan replacement;
-        int totalCandidates;
-        int candidatesProbed;
-        int replacementRank;
-        if (mode == Mode.STRICT) {
-            RecoveryCandidateScanBenchmark.MatchSearch search =
-                    RecoveryCandidateScanBenchmark.findFirstMatching(
-                            snapshot, 2, PreviewRescuePlanningAgent::clearsWarning);
-            totalCandidates = search.totalCandidates();
-            candidatesProbed = search.candidatesProbed();
-            RecoveryCandidateScanBenchmark.CandidateAnalysis match =
-                    search.match().orElse(null);
-            replacement = match == null ? null : match.plan();
-            replacementRank = match == null ? 0 : match.survivalRank();
-        } else {
-            RecoveryCandidateScanBenchmark.PreviewSearch search =
-                    RecoveryCandidateScanBenchmark.findFirstPreviewRecoverable(snapshot, 2);
-            totalCandidates = search.totalCandidates();
-            candidatesProbed = search.candidatesProbed();
-            replacement = search.plan().orElse(null);
-            replacementRank = replacement == null ? 0 : candidatesProbed + 1;
-        }
+        RecoveryCandidateScanBenchmark.MatchSearch search =
+                RecoveryCandidateScanBenchmark.findFirstMatching(
+                        snapshot, 2, PreviewRescuePlanningAgent::clearsWarning);
         long searchNanos = System.nanoTime() - searchStart;
-        if (totalCandidates != decision.reachableCandidateCount()) {
+        if (search.totalCandidates() != decision.reachableCandidateCount()) {
             throw new IllegalStateException("SURVIVAL candidate count diverged");
         }
-        observer.accept(new Observation(true, true, replacement != null,
-                replacementRank, candidatesProbed,
+        RecoveryCandidateScanBenchmark.CandidateAnalysis match = search.match().orElse(null);
+        observer.accept(new Observation(true, true, match != null,
+                match == null ? 0 : match.survivalRank(), search.candidatesProbed(),
                 detectionNanos, searchNanos));
-        return replacement == null ? baseline : replacement;
+        return match == null ? baseline : match.plan();
     }
 
     static boolean clearsWarning(RecoveryRobustnessBenchmark.Probe probe) {
