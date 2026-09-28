@@ -97,6 +97,7 @@ on:
           - recovery-clearing-planner-comparison
           - recovery-one-shot-counterfactual
           - recovery-eligibility-feature-audit
+          - preview-rescue-paired
           - calibrate-objective
           - reachability
       games:
@@ -515,6 +516,19 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.RecoveryEligibilityFeatureAuditApplication \
             javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
 
+      - name: Run paired preview rescue
+        if: ${{ inputs.agent == 'preview-rescue-paired' }}
+        shell: bash
+        env:
+          TETRIS_BENCHMARK_GAMES: ${{ inputs.games }}
+          TETRIS_BENCHMARK_MAX_PIECES: ${{ inputs.max_pieces }}
+          TETRIS_BENCHMARK_SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.PreviewRescuePairedApplication \
+            javafx:run | tee "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run BUILD_SHAPE preview-lookahead benchmark
         if: ${{ inputs.agent == 'build-shape-preview' || inputs.agent == 'compare-shape-preview' }}
         shell: bash
@@ -665,6 +679,8 @@ jobs:
           grep '^recovery_eligibility_feature,' target/benchmark/raw.log > target/benchmark/recovery-eligibility-features.csv || true
           grep '^recovery_eligibility_category,' target/benchmark/raw.log > target/benchmark/recovery-eligibility-categories.csv || true
           grep '^recovery_eligibility_game,' target/benchmark/raw.log > target/benchmark/recovery-eligibility-games.csv || true
+          grep '^preview_rescue_decision,' target/benchmark/raw.log > target/benchmark/preview-rescue-decisions.csv || true
+          grep '^preview_rescue_game,' target/benchmark/raw.log > target/benchmark/preview-rescue-games.csv || true
 
           {
             echo "commit=${GITHUB_SHA}"
@@ -732,6 +748,8 @@ jobs:
             target/benchmark/recovery-eligibility-features.csv
             target/benchmark/recovery-eligibility-categories.csv
             target/benchmark/recovery-eligibility-games.csv
+            target/benchmark/preview-rescue-decisions.csv
+            target/benchmark/preview-rescue-games.csv
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log

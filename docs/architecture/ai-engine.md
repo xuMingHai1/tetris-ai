@@ -153,6 +153,17 @@ AiPlan
 
 The objective layer remains separate from provider integration. Non-survival objectives are currently supported only by the local `action` runtime. Jev objective integration should consume deterministic objective facts later rather than moving legality or objective simulation into the provider prompt.
 
+The post-#59 preview-unrecoverable observation has a deterministic boundary: when SURVIVAL
+rank 1 leaves the already-known preview with no reachable placement, the ordinary continuation
+cannot place its first future piece. A first alternative that restores that preview necessarily
+survives at least one more placement in the one-shot comparison. The 5/5 helpful labels therefore
+do not establish a learned eligibility discriminator. `PreviewRescuePairedApplication` instead
+runs fresh paired whole games on seeds 10000–10119 (120 × 1000), allowing this precise rescue on
+each qualifying decision and measuring availability, extra survival, games reaching the horizon,
+HEART construction, and scan cost. It reuses production reachability and SURVIVAL order and does
+not alter the desktop policy. A rescue can only extend the baseline at its first fatal preview,
+while the size of that extension and practical cost remain empirical questions.
+
 ## Runtime integration
 
 `F2` toggles AI mode. The current mode is shown in the side panel.
