@@ -30,18 +30,20 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
 
     private final BuildShapeActionPlanningAgent production;
     private final Consumer<Observation> observer;
-    private BuildShapeDecisionObservation decision;
+    private final DecisionCapture decisionCapture = new DecisionCapture();
 
     PreviewRescuePlanningAgent(Consumer<Observation> observer) {
         this.observer = Objects.requireNonNull(observer, "observer");
-        production = new BuildShapeActionPlanningAgent(ShapeTarget.HEART, value -> decision = value);
+        production = new BuildShapeActionPlanningAgent(
+                ShapeTarget.HEART, decisionCapture::record);
     }
 
     @Override
     public AiPlan plan(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
-        decision = null;
+        decisionCapture.reset();
         AiPlan baseline = production.plan(snapshot);
+        BuildShapeDecisionObservation decision = decisionCapture.current();
         if (decision == null) {
             throw new IllegalStateException("BUILD_SHAPE did not emit a decision");
         }
@@ -79,6 +81,22 @@ final class PreviewRescuePlanningAgent implements AiPlanningAgent {
     static boolean clearsWarning(RecoveryRobustnessBenchmark.Probe probe) {
         return probe.previewRecoverable()
                 && !RecoveryReserveValidationApplication.warning(probe);
+    }
+
+    private static final class DecisionCapture {
+        private BuildShapeDecisionObservation current;
+
+        void reset() {
+            current = null;
+        }
+
+        void record(BuildShapeDecisionObservation decision) {
+            current = Objects.requireNonNull(decision, "decision");
+        }
+
+        BuildShapeDecisionObservation current() {
+            return current;
+        }
     }
 
     record Observation(
