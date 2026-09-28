@@ -40,6 +40,31 @@ class RecoveryCandidateScanBenchmarkTest {
     }
 
     @Test
+    void previewOnlySearchMatchesFullProbeChoiceWithoutChangingSurvivalOrder() {
+        boolean[][] partial = new boolean[20][10];
+        for (int col = 0; col < 10; col++) {
+            partial[19][col] = col != 4;
+            partial[18][col] = col != 4 && col != 5;
+        }
+        for (boolean[][] board : new boolean[][][] {new boolean[20][10], partial}) {
+            GameSnapshot base = BoardSimulator.snapshotForSpawnedPiece(board, TetrominoType.T);
+            GameSnapshot snapshot = new GameSnapshot(base.rows(), base.cols(),
+                    base.occupied(), base.currentType(), base.currentCells(), TetrominoType.I);
+
+            var full = RecoveryCandidateScanBenchmark.findFirstMatching(
+                    snapshot, 2, RecoveryRobustnessBenchmark.Probe::previewRecoverable);
+            var preview = RecoveryCandidateScanBenchmark.findFirstPreviewRecoverable(snapshot, 2);
+
+            assertEquals(full.totalCandidates(), preview.totalCandidates());
+            assertEquals(full.candidatesProbed(), preview.candidatesProbed());
+            assertEquals(full.match().map(RecoveryCandidateScanBenchmark.CandidateAnalysis::plan),
+                    preview.plan());
+            assertEquals(full.match().map(RecoveryCandidateScanBenchmark.CandidateAnalysis::survivalRank),
+                    preview.plan().map(ignored -> preview.candidatesProbed() + 1));
+        }
+    }
+
+    @Test
     void preservesProductionSurvivalOrderWhileAttachingRecoveryProbes() {
         GameSnapshot base =
                 BoardSimulator.snapshotForSpawnedPiece(
