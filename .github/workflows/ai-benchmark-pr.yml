@@ -75,7 +75,7 @@ jobs:
                 shape_changed=true
                 ;;
 
-              src/main/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePlanningAgent.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePairedApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePlanningAgentTest.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePairedApplicationTest.java)
+              src/main/java/xyz/xuminghai/tetris/ai/PreviewRescueActionPlanningAgent.java|              src/test/java/xyz/xuminghai/tetris/ai/PreviewRescueActionPlanningAgentTest.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePlanningAgent.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePairedApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePlanningAgentTest.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePairedApplicationTest.java)
                 preview_rescue_changed=true
                 ;;
 
