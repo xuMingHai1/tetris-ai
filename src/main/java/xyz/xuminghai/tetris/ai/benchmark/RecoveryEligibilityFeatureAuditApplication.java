@@ -344,7 +344,7 @@ public final class RecoveryEligibilityFeatureAuditApplication {
         return score / (positives.size() * (double) negatives.size());
     }
 
-    private static List<NumericFeature> numericFeatures() {
+    static List<NumericFeature> numericFeatures() {
         return List.of(
                 feature("clearing_rank", sample -> sample.features().clearingRank()),
                 feature("total_candidates", sample -> sample.features().totalCandidates()),
@@ -427,17 +427,17 @@ public final class RecoveryEligibilityFeatureAuditApplication {
                                 probe -> probe.maxUnknownReachableOutcomes())),
                 feature(
                         "rank1_min_post_unknown_headroom",
-                        sample -> available(
+                        sample -> availablePostUnknown(
                                 sample.features().rank1Probe(),
                                 RecoveryRobustnessBenchmark.Probe::minPostUnknownHeadroom)),
                 feature(
                         "rank1_max_post_unknown_holes",
-                        sample -> available(
+                        sample -> availablePostUnknown(
                                 sample.features().rank1Probe(),
                                 RecoveryRobustnessBenchmark.Probe::maxPostUnknownHoles)),
                 feature(
                         "rank1_max_post_unknown_aggregate_height",
-                        sample -> available(
+                        sample -> availablePostUnknown(
                                 sample.features().rank1Probe(),
                                 RecoveryRobustnessBenchmark.Probe::maxPostUnknownAggregateHeight)),
                 feature(
@@ -495,17 +495,17 @@ public final class RecoveryEligibilityFeatureAuditApplication {
                                 probe -> probe.maxUnknownReachableOutcomes())),
                 feature(
                         "clearing_min_post_unknown_headroom",
-                        sample -> available(
+                        sample -> availablePostUnknown(
                                 sample.features().clearingProbe(),
                                 RecoveryRobustnessBenchmark.Probe::minPostUnknownHeadroom)),
                 feature(
                         "clearing_max_post_unknown_holes",
-                        sample -> available(
+                        sample -> availablePostUnknown(
                                 sample.features().clearingProbe(),
                                 RecoveryRobustnessBenchmark.Probe::maxPostUnknownHoles)),
                 feature(
                         "clearing_max_post_unknown_aggregate_height",
-                        sample -> available(
+                        sample -> availablePostUnknown(
                                 sample.features().clearingProbe(),
                                 RecoveryRobustnessBenchmark.Probe::maxPostUnknownAggregateHeight)),
                 feature(
@@ -565,19 +565,19 @@ public final class RecoveryEligibilityFeatureAuditApplication {
                                 RecoveryRobustnessBenchmark.Probe::averageUnknownReachableOutcomes)),
                 feature(
                         "delta_min_post_unknown_headroom",
-                        sample -> deltaAvailable(
+                        sample -> deltaAvailablePostUnknown(
                                 sample.features().rank1Probe(),
                                 sample.features().clearingProbe(),
                                 RecoveryRobustnessBenchmark.Probe::minPostUnknownHeadroom)),
                 feature(
                         "delta_max_post_unknown_holes",
-                        sample -> deltaAvailable(
+                        sample -> deltaAvailablePostUnknown(
                                 sample.features().rank1Probe(),
                                 sample.features().clearingProbe(),
                                 RecoveryRobustnessBenchmark.Probe::maxPostUnknownHoles)),
                 feature(
                         "delta_max_post_unknown_aggregate_height",
-                        sample -> deltaAvailable(
+                        sample -> deltaAvailablePostUnknown(
                                 sample.features().rank1Probe(),
                                 sample.features().clearingProbe(),
                                 RecoveryRobustnessBenchmark.Probe::maxPostUnknownAggregateHeight)));
@@ -597,6 +597,16 @@ public final class RecoveryEligibilityFeatureAuditApplication {
                 : Double.NaN;
     }
 
+    private static double availablePostUnknown(
+            RecoveryRobustnessBenchmark.Probe probe,
+            ToDoubleFunction<RecoveryRobustnessBenchmark.Probe> extractor) {
+        // Post-unknown board metrics are absent when every unknown piece is unplayable.
+        return probe.previewRecoverable()
+                && probe.unplayableUnknownTypes() < probe.unknownPieceTypes()
+                ? extractor.applyAsDouble(probe)
+                : Double.NaN;
+    }
+
     private static double deltaAvailable(
             RecoveryRobustnessBenchmark.Probe baseline,
             RecoveryRobustnessBenchmark.Probe clearing,
@@ -606,6 +616,17 @@ public final class RecoveryEligibilityFeatureAuditApplication {
         }
         return extractor.applyAsDouble(clearing)
                 - extractor.applyAsDouble(baseline);
+    }
+
+    private static double deltaAvailablePostUnknown(
+            RecoveryRobustnessBenchmark.Probe baseline,
+            RecoveryRobustnessBenchmark.Probe clearing,
+            ToDoubleFunction<RecoveryRobustnessBenchmark.Probe> extractor) {
+        double baselineValue = availablePostUnknown(baseline, extractor);
+        double clearingValue = availablePostUnknown(clearing, extractor);
+        return Double.isFinite(baselineValue) && Double.isFinite(clearingValue)
+                ? clearingValue - baselineValue
+                : Double.NaN;
     }
 
     private static double sortableAuc(NumericFeatureAudit audit) {
