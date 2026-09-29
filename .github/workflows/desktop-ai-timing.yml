@@ -54,6 +54,7 @@ jobs:
           TETRIS_AI_OBJECTIVE: build-shape
           TETRIS_AI_PREVIEW_RESCUE: 'true'
           TETRIS_AI_DECISION_TRACE: 'true'
+          TETRIS_UI_SCREENSHOT_DIR: ${{ runner.temp }}
           JAVA_TOOL_OPTIONS: -Dglass.platform=headless -Dprism.order=sw
         run: |
           set -euo pipefail
@@ -89,5 +90,7 @@ jobs:
           path: |
             ${{ runner.temp }}/ai-decision.log
             ${{ runner.temp }}/ai-decision-summary.txt
+            ${{ runner.temp }}/ui-v1-ready.png
+            ${{ runner.temp }}/ui-v1-playing.png
           if-no-files-found: ignore
           retention-days: 7

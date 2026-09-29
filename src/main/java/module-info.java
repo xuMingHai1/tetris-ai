@@ -8,6 +8,7 @@ module xyz.xuminghai.tetris {
     requires javafx.controls;
     requires javafx.media;
     requires java.net.http;
+    requires java.desktop;
     requires tools.jackson.databind;
 
     exports xyz.xuminghai.tetris to javafx.graphics;

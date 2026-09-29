@@ -26,6 +26,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.application.HostServices;
 import xyz.xuminghai.tetris.ai.AiAction;
+import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
 import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.game.GameWorld;
@@ -89,6 +90,22 @@ public final class DashboardView extends BorderPane {
     private final VBox actions = new VBox(3);
     private final StackPane overlay = new StackPane(overlayTitle);
     private boolean everStarted;
+
+    /** Uses the same startup configuration already validated by the planning-agent factory. */
+    public static DashboardView fromEnvironment(GameWorld world, HostServices hostServices) {
+        String configuredAgent = System.getenv().getOrDefault("TETRIS_AI_AGENT", "heuristic")
+                .trim().toLowerCase(Locale.ROOT);
+        String agentLabel = switch (configuredAgent) {
+            case "jev" -> "Jev AI";
+            case "jev-action" -> "Jev Action";
+            case "action" -> "Action AI";
+            default -> "Heuristic";
+        };
+        String objective = System.getenv()
+                .getOrDefault(AiPlanningAgentFactory.OBJECTIVE_ENV, "survival")
+                .trim().toLowerCase(Locale.ROOT);
+        return new DashboardView(world, hostServices, agentLabel, objective);
+    }
 
     public DashboardView(GameWorld world, HostServices hostServices,
                          String configuredAgent, String configuredObjective) {
