@@ -1394,6 +1394,9 @@ public final class GameWorld {
 
         aiPlaybackIndex++;
         aiPlaybackExecutedControls++;
+        if (action == AiAction.SOFT_DROP) {
+            aiPlaybackDropRows++;
+        }
         if (aiPlaybackIndex == aiPlaybackActions.size()) {
             cancelAiPlayback("completed");
         }

@@ -168,7 +168,7 @@ py -3 scripts\analyze_ai_decision_trace.py "%TEMP%\tetris-ai-decision.log"
 
 采集入口还会输出 `AI_PREVIEW_RESCUE`，汇总 rank-1 检查、已知下一块不可恢复、找到替代动作的次数，以及检查和搜索耗时。这些是 AI 工作线程**算出的计划**；被重力 tick 废弃或取消的计划也可能计入，不能用它代替 `AI_DECISION` 的实际应用结果。旧日志没有此行时汇总显示 `unavailable`，不推断为零次救援。
 
-开启 `TETRIS_AI_DECISION_TRACE=true` 后，逐步播放的 AI 计划结束时还会输出 `AI_PLAYBACK`：`completed` 表示动作执行完毕；`gravity-landed` 表示重力先使方块触底、剩余只有下落动作，直接走正常锁定；`blocked` 表示仍需其他动作但某步已不可执行、需重新决策；`piece-changed`、`manual`、`paused`、`ai-off`、`superseded` 分别标明其他打断原因。每条包含播放耗时、计划/已执行控制数和可见下落格数。摘要的完成比例将前两种视为完成，只以**已记录终态的播放**为分母；采集结束时仍在进行的计划不计入，重力 tick 内同步执行的回退没有逐步播放记录。软下落每格间隔 20 毫秒，横移和旋转间隔 45 毫秒。旧日志没有 `AI_PLAYBACK` 行时显示 `unavailable`。
+开启 `TETRIS_AI_DECISION_TRACE=true` 后，逐步播放的 AI 计划结束时还会输出 `AI_PLAYBACK`：`completed` 表示动作执行完毕；`gravity-landed` 表示重力先使方块触底、剩余只有下落动作，直接走正常锁定；`blocked` 表示仍需其他动作但某步已不可执行、需重新决策；`piece-changed`、`manual`、`paused`、`ai-off`、`superseded` 分别标明其他打断原因。每条包含播放耗时、计划/已执行控制数和 AI 成功执行的下落格数（软下落与逐格硬下落，不含自然重力）。摘要的完成比例将前两种视为完成，只以**已记录终态的播放**为分母；采集结束时仍在进行的计划不计入，重力 tick 内同步执行的回退没有逐步播放记录。软下落每格间隔 20 毫秒，横移和旋转间隔 45 毫秒。旧日志没有 `AI_PLAYBACK` 行时显示 `unavailable`。
 
 受阻时还会输出 `AI_PLAYBACK_BLOCKED`，记录失效动作、方块类型、计划索引、动作序列和当前方块坐标，用于区分重力竞争与重复的非法控制路径。
 
