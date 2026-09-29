@@ -690,6 +690,9 @@ public final class GameWorld {
     private List<AiAction> aiPlaybackActions = List.of();
     private int aiPlaybackIndex;
     private Tetris aiPlaybackPiece;
+    private long aiPlaybackStartedAt;
+    private int aiPlaybackExecutedControls;
+    private int aiPlaybackDropRows;
 
     public GameWorld() {
         this(new HeuristicTetrisAgent());
@@ -947,7 +950,7 @@ public final class GameWorld {
      */
     public void toggleAi() {
         cancelPendingAiDecision();
-        cancelAiPlayback();
+        cancelAiPlayback("ai-off");
         aiEnabled.set(!aiEnabled.get());
     }
 
@@ -992,7 +995,7 @@ public final class GameWorld {
         final Optional<Boolean> keyLocked = Platform.isKeyLocked(KeyCode.CAPS);
         if (gameActive) {
             cancelPendingAiDecision();
-            cancelAiPlayback();
+            cancelAiPlayback("paused");
             keyLocked.ifPresent(b -> {
                 if (b) {
                     robot.keyType(KeyCode.CAPS);
@@ -1046,7 +1049,7 @@ public final class GameWorld {
         if (origin == InputOrigin.PLAYER) {
             // Manual input wins over an in-flight remote decision for the same piece.
             cancelPendingAiDecision();
-            cancelAiPlayback();
+            cancelAiPlayback("manual");
         }
         final Tetris tetris = currentTetris.get();
         if (tetris != null) {
@@ -1295,21 +1298,22 @@ public final class GameWorld {
 
     /** Plays controls on the FX thread at a visible pace while regular gravity remains active. */
     private void playAiPlan(AiPlan plan) {
-        cancelAiPlayback();
+        cancelAiPlayback("superseded");
+        if (plan.actions().isEmpty() || currentTetris.get() == null) {
+            return;
+        }
         aiPlaybackActions = plan.actions();
         aiPlaybackPiece = currentTetris.get();
         aiPlaybackIndex = 0;
-        if (aiPlaybackPiece != null && !aiPlaybackActions.isEmpty()) {
-            advanceAiPlayback();
-        }
-        else {
-            cancelAiPlayback();
-        }
+        aiPlaybackStartedAt = traceAiDecisions ? System.nanoTime() : 0L;
+        aiPlaybackExecutedControls = 0;
+        aiPlaybackDropRows = 0;
+        advanceAiPlayback();
     }
 
     /** Preserve the deadline contract for decisions first resolved inside a gravity tick. */
     private void applyAiPlanBeforeGravity(AiPlan plan) {
-        cancelAiPlayback();
+        cancelAiPlayback("superseded");
         for (AiAction action : plan.actions()) {
             if (action == AiAction.HARD_DROP) {
                 while (downMove(InputOrigin.AI)) {
@@ -1324,17 +1328,20 @@ public final class GameWorld {
 
     private void advanceAiPlayback() {
         if (!gameActive || !aiEnabled.get() || currentTetris.get() != aiPlaybackPiece) {
-            cancelAiPlayback();
+            cancelAiPlayback(!gameActive ? "paused"
+                    : !aiEnabled.get() ? "ai-off" : "piece-changed");
             return;
         }
 
         AiAction action = aiPlaybackActions.get(aiPlaybackIndex);
         if (action == AiAction.HARD_DROP) {
             if (downMove(InputOrigin.AI)) {
+                aiPlaybackDropRows++;
                 scheduleAiPlayback(AI_DROP_INTERVAL_MS);
             }
             else {
-                cancelAiPlayback();
+                aiPlaybackExecutedControls++;
+                cancelAiPlayback("completed");
                 // The existing gravity path owns lock, row clearing, and the next-piece lifecycle.
                 gameTimeLine.advanceNow();
             }
@@ -1344,7 +1351,7 @@ public final class GameWorld {
         if (!applyAiAction(action)) {
             // Gravity may have moved the piece since planning. Replan from its current live cells.
             Tetris piece = aiPlaybackPiece;
-            cancelAiPlayback();
+            cancelAiPlayback("blocked");
             if (gameActive && aiEnabled.get() && currentTetris.get() == piece) {
                 requestAiMove(piece);
             }
@@ -1352,8 +1359,9 @@ public final class GameWorld {
         }
 
         aiPlaybackIndex++;
+        aiPlaybackExecutedControls++;
         if (aiPlaybackIndex == aiPlaybackActions.size()) {
-            cancelAiPlayback();
+            cancelAiPlayback("completed");
         }
         else {
             scheduleAiPlayback(AI_CONTROL_INTERVAL_MS);
@@ -1372,7 +1380,14 @@ public final class GameWorld {
         delay.play();
     }
 
-    private void cancelAiPlayback() {
+    private void cancelAiPlayback(String outcome) {
+        if (aiPlaybackPiece != null && traceAiDecisions) {
+            System.out.printf(Locale.ROOT,
+                    "AI_PLAYBACK outcome=%s elapsed_ms=%.3f controls=%d executed=%d "
+                            + "drop_rows=%d%n",
+                    outcome, (System.nanoTime() - aiPlaybackStartedAt) / 1_000_000.0,
+                    aiPlaybackActions.size(), aiPlaybackExecutedControls, aiPlaybackDropRows);
+        }
         if (aiPlaybackDelay != null) {
             aiPlaybackDelay.stop();
             aiPlaybackDelay = null;
@@ -1380,6 +1395,9 @@ public final class GameWorld {
         aiPlaybackActions = List.of();
         aiPlaybackIndex = 0;
         aiPlaybackPiece = null;
+        aiPlaybackStartedAt = 0L;
+        aiPlaybackExecutedControls = 0;
+        aiPlaybackDropRows = 0;
     }
 
     private boolean applyAiAction(AiAction action) {
