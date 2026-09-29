@@ -56,6 +56,7 @@ public final class DashboardView extends BorderPane {
     private final TranslateTransition gainLift = new TranslateTransition(Duration.millis(540), scoreGain);
     private final ParallelTransition gainAnimation = new ParallelTransition(gainFade, gainLift);
     private final Pane sweepLayer = new Pane();
+    private RowShiftView rowShiftView;
     private ParallelTransition sweepAnimation;
     private int cellPitch;
     private boolean awaitingClearSweep;
@@ -237,6 +238,7 @@ public final class DashboardView extends BorderPane {
         GameContextView board = new GameContextView(world);
         GhostLandingView ghost = new GhostLandingView(world, board,
                 objective.equals("build-shape"), reducedMotion::isSelected);
+        rowShiftView = new RowShiftView(world, board, reducedMotion::isSelected);
         cellPitch = (int) (board.getWidth() - 1) / world.getCols();
         sweepLayer.setPrefSize(board.getWidth(), board.getHeight());
         sweepLayer.setMaxSize(board.getWidth(), board.getHeight());
@@ -245,7 +247,7 @@ public final class DashboardView extends BorderPane {
         overlay.getStyleClass().add("board-overlay");
         overlay.setVisible(false);
         overlay.setMouseTransparent(true);
-        StackPane boardWell = new StackPane(board, ghost, sweepLayer, overlay);
+        StackPane boardWell = new StackPane(board, ghost, sweepLayer, rowShiftView, overlay);
         boardWell.getStyleClass().add("board-frame");
         boardWell.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
 
@@ -454,6 +456,7 @@ public final class DashboardView extends BorderPane {
     private void stopVisualEffects() {
         stopScoreEffects();
         clearSweep();
+        if (rowShiftView != null) rowShiftView.clear();
         awaitingClearSweep = false;
     }
 

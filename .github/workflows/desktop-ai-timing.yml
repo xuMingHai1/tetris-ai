@@ -92,5 +92,6 @@ jobs:
             ${{ runner.temp }}/ai-decision-summary.txt
             ${{ runner.temp }}/ui-v1-ready.png
             ${{ runner.temp }}/ui-v1-playing.png
+            ${{ runner.temp }}/ui-v1-row-shift.png
           if-no-files-found: ignore
           retention-days: 7

@@ -644,6 +644,10 @@ public final class GameContextView extends AbstractBlockView {
 
     private final Map<Color, Color> displayColors = new HashMap<>();
 
+    Color displayColor(Cell cell) {
+        return displayColors.getOrDefault(cell.getColor(), cell.getColor());
+    }
+
     public GameContextView(GameWorld gameWorld) {
         super(gameWorld.getRows(), gameWorld.getCols());
         gameWorld.currentCellsProperty().addListener((_, oldValue, newValue) -> {
@@ -660,8 +664,7 @@ public final class GameContextView extends AbstractBlockView {
                     }
                 }
                 for (Cell cell : newValue) {
-                    super.fillCell(cell.getRow(), cell.getCol(),
-                            displayColors.getOrDefault(cell.getColor(), cell.getColor()));
+                    super.fillCell(cell.getRow(), cell.getCol(), displayColor(cell));
                 }
             }
         });
@@ -675,8 +678,7 @@ public final class GameContextView extends AbstractBlockView {
         gameWorld.renderCellProperty().addListener((_, _, newValue) -> {
             if (newValue != null) {
                 for (Cell cell : newValue) {
-                    super.fillCell(cell.getRow(), cell.getCol(),
-                            displayColors.getOrDefault(cell.getColor(), cell.getColor()));
+                    super.fillCell(cell.getRow(), cell.getCol(), displayColor(cell));
                 }
             }
         });

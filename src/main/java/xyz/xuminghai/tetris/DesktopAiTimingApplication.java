@@ -31,6 +31,9 @@ public final class DesktopAiTimingApplication extends Application {
 
     private static final String DURATION_ENV = "TETRIS_AI_TRACE_SECONDS";
 
+    private boolean awaitingRowShift;
+    private boolean rowShiftCaptured;
+
     public static void main(String[] args) {
         launch(args);
     }
@@ -48,6 +51,23 @@ public final class DesktopAiTimingApplication extends Application {
         Scene scene = new Scene(DashboardView.fromEnvironment(world, getHostServices()), 950, 850);
         stage.setScene(scene);
         stage.show();
+
+        if (System.getenv("TETRIS_UI_SCREENSHOT_DIR") != null) {
+            world.linesProperty().addListener((_, oldLines, newLines) -> {
+                if (!rowShiftCaptured && newLines.intValue() > oldLines.intValue()) {
+                    awaitingRowShift = true;
+                }
+            });
+            world.renderCellProperty().addListener((_, _, cells) -> {
+                if (!awaitingRowShift || cells == null) return;
+                awaitingRowShift = false;
+                if (cells.isEmpty()) return;
+                rowShiftCaptured = true;
+                PauseTransition midway = new PauseTransition(Duration.millis(120));
+                midway.setOnFinished(_ -> snapshot(scene, "ui-v1-row-shift.png"));
+                midway.play();
+            });
+        }
 
         PauseTransition ready = new PauseTransition(Duration.millis(300));
         ready.setOnFinished(event -> {
