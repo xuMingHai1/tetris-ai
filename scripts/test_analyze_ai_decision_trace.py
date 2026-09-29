@@ -23,7 +23,7 @@ class AiDecisionTraceSummaryTest(unittest.TestCase):
             summarize(parse(lines))
 
         self.assertIn("Requests: 6", output.getvalue())
-        self.assertIn("Gravity fallback among applied decisions: 1/3 (33.33%)", output.getvalue())
+        self.assertIn("Gravity fallback among accepted decisions: 1/3 (33.33%)", output.getvalue())
         self.assertIn("Callback FX queue: mean=1.000 p95=1.000 max=1.000 ms", output.getvalue())
 
     def test_nearest_rank_percentile_and_malformed_line(self):

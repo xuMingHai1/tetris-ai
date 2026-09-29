@@ -626,6 +626,7 @@
 
 package xyz.xuminghai.tetris.game;
 
+import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.scene.input.KeyCode;
@@ -661,6 +662,8 @@ import java.util.function.Function;
 public final class GameWorld {
 
     private static final int MAX_LEVEL = 30;
+    private static final int AI_CONTROL_INTERVAL_MS = 45;
+    private static final int AI_DROP_INTERVAL_MS = 20;
 
     private final PieceGenerator pieceGenerator = new BagPieceGenerator();
 
@@ -681,6 +684,12 @@ public final class GameWorld {
     private GameSnapshot pendingAiSnapshot;
     private Tetris pendingAiTetris;
     private long pendingAiSubmittedAt;
+
+    /** FX-thread playback for a decided plan; gravity and manual controls stay live. */
+    private PauseTransition aiPlaybackDelay;
+    private List<AiAction> aiPlaybackActions = List.of();
+    private int aiPlaybackIndex;
+    private Tetris aiPlaybackPiece;
 
     public GameWorld() {
         this(new HeuristicTetrisAgent());
@@ -825,7 +834,7 @@ public final class GameWorld {
                     .ifPresent(gameGrid::clearCells);
             if (gameGrid.saveCellsData(cells)) {
                 currentCells.set(gameGrid.checkCells(tetris.copy()));
-                if (spawned && aiEnabled.get()) {
+                if (aiEnabled.get() && pendingAiDecision == null && aiPlaybackPiece == null) {
                     requestAiMove(tetris);
                 }
             }
@@ -938,6 +947,7 @@ public final class GameWorld {
      */
     public void toggleAi() {
         cancelPendingAiDecision();
+        cancelAiPlayback();
         aiEnabled.set(!aiEnabled.get());
     }
 
@@ -982,6 +992,7 @@ public final class GameWorld {
         final Optional<Boolean> keyLocked = Platform.isKeyLocked(KeyCode.CAPS);
         if (gameActive) {
             cancelPendingAiDecision();
+            cancelAiPlayback();
             keyLocked.ifPresent(b -> {
                 if (b) {
                     robot.keyType(KeyCode.CAPS);
@@ -1018,16 +1029,24 @@ public final class GameWorld {
         ROTATE_COUNTER_CLOCKWISE
     }
 
+    private enum InputOrigin {
+        PLAYER,
+        AI
+    }
+
     /**
      * 方块行为
      *
      * @param action   行为
      * @param function 行为函数
+     * @param origin 来源；人工输入优先并打断尚未完成的 AI 动作
      */
-    private boolean tetrisAction(ActionEnum action, Function<Tetris, Cell[]> function, boolean playAudio) {
-        if (playAudio) {
+    private boolean tetrisAction(ActionEnum action, Function<Tetris, Cell[]> function,
+            InputOrigin origin) {
+        if (origin == InputOrigin.PLAYER) {
             // Manual input wins over an in-flight remote decision for the same piece.
             cancelPendingAiDecision();
+            cancelAiPlayback();
         }
         final Tetris tetris = currentTetris.get();
         if (tetris != null) {
@@ -1042,7 +1061,7 @@ public final class GameWorld {
                 gameGrid.clearCells(previousCells);
             }
             if (gameGrid.saveCellsData(cells)) {
-                if (playAudio && audioEnabled) {
+                if (origin == InputOrigin.PLAYER && audioEnabled) {
                     switch (action) {
                         case DOWN_MOVE, LEFT_MOVE, RIGHT_MOVE -> AudioManager.getMoveAudioClip().play();
                         case ROTATE_CLOCKWISE, ROTATE_COUNTER_CLOCKWISE -> AudioManager.getRotateAudioClip().play();
@@ -1064,35 +1083,56 @@ public final class GameWorld {
      * 向下移动
      */
     void downMove() {
-        tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, true);
+        downMove(InputOrigin.PLAYER);
+    }
+
+    private boolean downMove(InputOrigin origin) {
+        return tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, origin);
     }
 
     /**
      * 向左移动
      */
     void leftMove() {
-        tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, true);
+        leftMove(InputOrigin.PLAYER);
+    }
+
+    private boolean leftMove(InputOrigin origin) {
+        return tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, origin);
     }
 
     /**
      * 向右移动
      */
     void rightMove() {
-        tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, true);
+        rightMove(InputOrigin.PLAYER);
+    }
+
+    private boolean rightMove(InputOrigin origin) {
+        return tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, origin);
     }
 
     /**
      * 顺时针旋转
      */
     public void rotateClockwise() {
-        tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, true);
+        rotateClockwise(InputOrigin.PLAYER);
+    }
+
+    private boolean rotateClockwise(InputOrigin origin) {
+        return tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, origin);
     }
 
     /**
      * 逆时针旋转
      */
     public void rotateCounterClockwise() {
-        tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, true);
+        rotateCounterClockwise(InputOrigin.PLAYER);
+    }
+
+    private boolean rotateCounterClockwise(InputOrigin origin) {
+        return tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE,
+                Tetris::rotateCounterClockwise, origin);
     }
 
     /**
@@ -1142,7 +1182,7 @@ public final class GameWorld {
             System.err.printf("AI decision failed: %s%n", failure.getMessage());
             return;
         }
-        applyAiPlan(plan);
+        playAiPlan(plan);
     }
 
     /**
@@ -1167,7 +1207,7 @@ public final class GameWorld {
             try {
                 AiPlan plan = result.join();
                 clearPendingAiDecision();
-                applyAiPlan(plan);
+                applyAiPlanBeforeGravity(plan);
                 traceAiDecision("gravity-ready", submittedAt, deadlineAt, 0L, 0L);
             }
             catch (RuntimeException failure) {
@@ -1183,7 +1223,7 @@ public final class GameWorld {
             AiPlan fallbackPlan = aiDecisionExecutor.fallbackNow(snapshot);
             long fallbackNanos = traceAiDecisions ? System.nanoTime() - deadlineAt : 0L;
             clearPendingAiDecision();
-            applyAiPlan(fallbackPlan);
+            applyAiPlanBeforeGravity(fallbackPlan);
             traceAiDecision("gravity-fallback", submittedAt, deadlineAt, 0L, fallbackNanos);
         }
         catch (RuntimeException failure) {
@@ -1253,36 +1293,103 @@ public final class GameWorld {
                 TetrominoType.from(nextTetris.get()));
     }
 
-    /**
-     * Executes an AI plan against the live model in order.
-     *
-     * <p>Every non-hard-drop action must succeed or the remainder of the plan is abandoned. Hard
-     * drop repeatedly applies the existing downward movement until collision; lock, row clearing
-     * and next-piece lifecycle remain owned by the normal gravity path.</p>
-     */
-    private void applyAiPlan(AiPlan plan) {
+    /** Plays controls on the FX thread at a visible pace while regular gravity remains active. */
+    private void playAiPlan(AiPlan plan) {
+        cancelAiPlayback();
+        aiPlaybackActions = plan.actions();
+        aiPlaybackPiece = currentTetris.get();
+        aiPlaybackIndex = 0;
+        if (aiPlaybackPiece != null && !aiPlaybackActions.isEmpty()) {
+            advanceAiPlayback();
+        }
+        else {
+            cancelAiPlayback();
+        }
+    }
+
+    /** Preserve the deadline contract for decisions first resolved inside a gravity tick. */
+    private void applyAiPlanBeforeGravity(AiPlan plan) {
+        cancelAiPlayback();
         for (AiAction action : plan.actions()) {
-            if (!applyAiAction(action)) {
+            if (action == AiAction.HARD_DROP) {
+                while (downMove(InputOrigin.AI)) {
+                    // Complete the fallback before the current gravity tick mutates the piece.
+                }
+            }
+            else if (!applyAiAction(action)) {
                 return;
             }
         }
     }
 
+    private void advanceAiPlayback() {
+        if (!gameActive || !aiEnabled.get() || currentTetris.get() != aiPlaybackPiece) {
+            cancelAiPlayback();
+            return;
+        }
+
+        AiAction action = aiPlaybackActions.get(aiPlaybackIndex);
+        if (action == AiAction.HARD_DROP) {
+            if (downMove(InputOrigin.AI)) {
+                scheduleAiPlayback(AI_DROP_INTERVAL_MS);
+            }
+            else {
+                cancelAiPlayback();
+                // The existing gravity path owns lock, row clearing, and the next-piece lifecycle.
+                gameTimeLine.advanceNow();
+            }
+            return;
+        }
+
+        if (!applyAiAction(action)) {
+            // Gravity may have moved the piece since planning. Replan from its current live cells.
+            Tetris piece = aiPlaybackPiece;
+            cancelAiPlayback();
+            if (gameActive && aiEnabled.get() && currentTetris.get() == piece) {
+                requestAiMove(piece);
+            }
+            return;
+        }
+
+        aiPlaybackIndex++;
+        if (aiPlaybackIndex == aiPlaybackActions.size()) {
+            cancelAiPlayback();
+        }
+        else {
+            scheduleAiPlayback(AI_CONTROL_INTERVAL_MS);
+        }
+    }
+
+    private void scheduleAiPlayback(int delayMillis) {
+        PauseTransition delay = new PauseTransition(javafx.util.Duration.millis(delayMillis));
+        aiPlaybackDelay = delay;
+        delay.setOnFinished(_ -> {
+            if (aiPlaybackDelay == delay) {
+                aiPlaybackDelay = null;
+                advanceAiPlayback();
+            }
+        });
+        delay.play();
+    }
+
+    private void cancelAiPlayback() {
+        if (aiPlaybackDelay != null) {
+            aiPlaybackDelay.stop();
+            aiPlaybackDelay = null;
+        }
+        aiPlaybackActions = List.of();
+        aiPlaybackIndex = 0;
+        aiPlaybackPiece = null;
+    }
+
     private boolean applyAiAction(AiAction action) {
         return switch (action) {
-            case LEFT -> tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, false);
-            case RIGHT -> tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, false);
-            case ROTATE_CLOCKWISE ->
-                    tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, false);
-            case ROTATE_COUNTER_CLOCKWISE ->
-                    tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, false);
-            case SOFT_DROP -> tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false);
-            case HARD_DROP -> {
-                while (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
-                    // Keep descending until the next row would collide.
-                }
-                yield true;
-            }
+            case LEFT -> leftMove(InputOrigin.AI);
+            case RIGHT -> rightMove(InputOrigin.AI);
+            case ROTATE_CLOCKWISE -> rotateClockwise(InputOrigin.AI);
+            case ROTATE_COUNTER_CLOCKWISE -> rotateCounterClockwise(InputOrigin.AI);
+            case SOFT_DROP -> downMove(InputOrigin.AI);
+            case HARD_DROP -> throw new IllegalStateException("hard drop is played one row at a time");
         };
     }
 

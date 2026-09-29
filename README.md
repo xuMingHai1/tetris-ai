@@ -149,7 +149,7 @@ TETRIS_AI_PREVIEW_RESCUE=true \
 
 若普通 BUILD_SHAPE 选中 SURVIVAL rank 1，但该动作使已知下一块无可见落点，AI 会按现有 SURVIVAL 顺序选择第一个能让下一块落下的替代动作；没有替代动作时保留原决策。后续决策仍从普通 BUILD_SHAPE 开始。配置仅接受 `true` / `false`，且仅适用于 `action + build-shape`。桌面继续通过异步 AI 执行器的 snapshot 校验和自动下落前 fallback 处理超时；headless 基准的延迟不能代替真实 JavaFX 时序验证。
 
-桌面实测可额外设置 `TETRIS_AI_DECISION_TRACE=true`。控制台每个请求输出一行 `AI_DECISION`：`callback` 表示 JavaFX 回调在重力前应用，`gravity-ready` 表示结果在 tick 到来时已完成，`gravity-fallback` 表示 tick 到来时主决策仍未完成并使用本地回退；`cancelled` / `failed` / `fallback-failed` 也会记录。`elapsed_ms` 从提交到 JavaFX 处理或重力 tick，`fx_queue_ms` 在回调处理（含回调失败）时可用，其他路径为 `-1`，`fallback_ms` 是 tick 上同步回退的计算耗时。默认关闭；打印本身会影响 JavaFX 线程时序，观察值不能直接当作无诊断开销下的性能保证。
+桌面实测可额外设置 `TETRIS_AI_DECISION_TRACE=true`。控制台每个请求输出一行 `AI_DECISION`：`callback` 表示 JavaFX 回调在重力前接收计划并开始逐步播放，`gravity-ready` 表示结果在 tick 到来时已完成，`gravity-fallback` 表示 tick 到来时主决策仍未完成并使用本地回退；`cancelled` / `failed` / `fallback-failed` 也会记录。这些 outcome 表示计划被接收或回退，不保证整串动作最终完成。`elapsed_ms` 从提交到 JavaFX 处理或重力 tick，`fx_queue_ms` 在回调处理（含回调失败）时可用，其他路径为 `-1`，`fallback_ms` 是 tick 上同步回退的计算耗时。默认关闭；打印本身会影响 JavaFX 线程时序，观察值不能直接当作无诊断开销下的性能保证。
 
 将开启诊断的一次桌面运行输出保存为日志后，可用 `python3 scripts/analyze_ai_decision_trace.py ai-decision.log` 汇总各 outcome 数量、有效应用中的重力回退比例，以及完成时间、JavaFX 回调排队和同步回退耗时的 nearest-rank P95 / 最大值。Windows 可用 `py -3 scripts\analyze_ai_decision_trace.py ai-decision.log`。脚本忽略其他控制台行，遇到损坏的 `AI_DECISION` 行或没有诊断数据会报错。取消与失败单独计数，不进入回退比例分母。此汇总只是一次非固定随机序列的桌面观察，不能把不同游戏日志直接当成同 seed 策略收益对照。
 
@@ -180,7 +180,7 @@ mvnw.cmd javafx:run
 
 API key 不应写入仓库或配置文件。当前 Jev adapter 使用官方 `jev-latest` 模型和 `/v1/systemone` Choice API，对 HTTP 429 / 529 进行有限指数退避重试。
 
-AI 决策不直接操作 JavaFX View；`GameWorld` 接收统一的 `AiPlan` 并按顺序映射到现有游戏动作。placement-oriented agent 会先通过 adapter 转换成 `AiPlan`，action-native agent 则可以直接返回动作序列。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
+AI 决策不直接操作 JavaFX View；`GameWorld` 接收统一的 `AiPlan`。人工键盘和 AI 都使用 `GameWorld` 的同一组移动、旋转、下落方法；输入来源只区分人工输入优先和音效，AI 不模拟键盘按住/连发。在重力前完成的普通回调会在 JavaFX 线程上逐步执行这些动作：横移和旋转间隔约 45 ms，快速下落按约 20 ms/格显示，到底后立即经正常游戏流程锁定。重力仍正常推进，若导致某个动作失效则从当前方块重新决策；玩家输入、暂停或关闭 AI 会取消尚未执行的动作。仅当决策直到重力 tick 才完成或需要本地回退时，仍在 tick 内同步执行全套动作，保证既有的 deadline 语义。placement-oriented agent 会先通过 adapter 转换成 `AiPlan`，action-native agent 则可以直接返回动作序列。方块序列由独立的 7-bag generator 提供，并支持 seed，用于可重复测试和后续 benchmark。
 
 架构说明见 `docs/architecture/ai-engine.md`。
 
