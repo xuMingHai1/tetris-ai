@@ -1358,6 +1358,14 @@ public final class GameWorld {
             }
             // Gravity may have moved the piece since planning. Replan from its current live cells.
             Tetris piece = aiPlaybackPiece;
+            if (traceAiDecisions) {
+                System.out.printf(Locale.ROOT,
+                        "AI_PLAYBACK_BLOCKED action=%s piece=%s index=%d plan=%s cells=%s%n",
+                        action, TetrominoType.from(piece), aiPlaybackIndex, aiPlaybackActions,
+                        Arrays.stream(piece.getCells())
+                                .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                                .toList());
+            }
             cancelAiPlayback("blocked");
             if (gameActive && aiEnabled.get() && currentTetris.get() == piece) {
                 requestAiMove(piece);
