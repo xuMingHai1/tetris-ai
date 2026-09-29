@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize desktop AI decision deadlines and computed preview rescue observations."""
+"""Summarize desktop AI decision, playback, and preview rescue observations."""
 
 import argparse
 from collections import Counter
@@ -24,6 +24,14 @@ RESCUE_TRACE = re.compile(
     r"replacement_rank=(\d+) candidates_probed=(\d+) "
     r"detection_ms=([0-9]+(?:\.[0-9]+)?) search_ms=([0-9]+(?:\.[0-9]+)?)$"
 )
+PLAYBACK_OUTCOMES = (
+    "completed", "gravity-landed", "blocked", "piece-changed", "manual", "paused",
+    "ai-off", "superseded"
+)
+PLAYBACK_TRACE = re.compile(
+    r"AI_PLAYBACK outcome=([a-z-]+) elapsed_ms=([0-9]+(?:\.[0-9]+)?) "
+    r"controls=(\d+) executed=(\d+) drop_rows=(\d+)$"
+)
 
 
 @dataclass(frozen=True)
@@ -46,15 +54,39 @@ class Rescue:
 
 
 @dataclass(frozen=True)
+class Playback:
+    outcome: str
+    elapsed_ms: float
+    controls: int
+    executed: int
+    drop_rows: int
+
+
+@dataclass(frozen=True)
 class Capture:
     decisions: list[Decision]
     rescues: list[Rescue]
+    playbacks: list[Playback]
 
 
 def parse_capture(lines):
     decisions = []
     rescues = []
+    playbacks = []
     for number, line in enumerate(lines, start=1):
+        if "AI_PLAYBACK" in line:
+            match = PLAYBACK_TRACE.search(line.strip())
+            if match is None:
+                raise ValueError(f"malformed AI_PLAYBACK at line {number}")
+            outcome = match.group(1)
+            elapsed = float(match.group(2))
+            controls, executed, rows = map(int, match.groups()[2:])
+            if (outcome not in PLAYBACK_OUTCOMES or not math.isfinite(elapsed)
+                    or elapsed < 0 or controls < 1 or executed > controls
+                    or (outcome == "completed" and executed != controls)):
+                raise ValueError(f"invalid AI_PLAYBACK at line {number}")
+            playbacks.append(Playback(outcome, elapsed, controls, executed, rows))
+            continue
         if "AI_PREVIEW_RESCUE" in line:
             match = RESCUE_TRACE.search(line.strip())
             if match is None:
@@ -88,7 +120,7 @@ def parse_capture(lines):
         decisions.append(Decision(outcome, elapsed, queue, fallback))
     if not decisions:
         raise ValueError("no AI_DECISION lines found; enable TETRIS_AI_DECISION_TRACE=true")
-    return Capture(decisions, rescues)
+    return Capture(decisions, rescues, playbacks)
 
 
 def parse(lines):
@@ -104,7 +136,7 @@ def timing(values):
     return f"mean={statistics.fmean(ordered):.3f} p95={p95:.3f} max={ordered[-1]:.3f} ms"
 
 
-def summarize(decisions, rescues=()):
+def summarize(decisions, rescues=(), playbacks=()):
     counts = Counter(decision.outcome for decision in decisions)
     completed = sum(counts[outcome] for outcome in ("callback", "gravity-ready", "gravity-fallback"))
     print(f"Requests: {len(decisions)}")
@@ -123,6 +155,21 @@ def summarize(decisions, rescues=()):
           + timing([d.fx_queue_ms for d in decisions if d.outcome == "callback"]))
     print("Gravity fallback computation: "
           + timing([d.fallback_ms for d in decisions if d.outcome == "gravity-fallback"]))
+    if playbacks:
+        playback_counts = Counter(playback.outcome for playback in playbacks)
+        print(f"Playback terminal events: {len(playbacks)}")
+        for outcome in PLAYBACK_OUTCOMES:
+            print(f"  {outcome}: {playback_counts[outcome]}")
+        finished = playback_counts['completed'] + playback_counts['gravity-landed']
+        print("Finished playback: "
+              f"{finished}/{len(playbacks)} "
+              f"({100 * finished / len(playbacks):.2f}%)")
+        print("Finished playback duration: "
+              + timing([p.elapsed_ms for p in playbacks
+                        if p.outcome in ("completed", "gravity-landed")]))
+        print(f"Animated drop rows: {sum(p.drop_rows for p in playbacks)}")
+    else:
+        print("Playback terminal events: unavailable")
     if not rescues:
         print("Preview rescue observations: unavailable")
         return
@@ -149,7 +196,7 @@ def main():
         else:
             with args.log.open(encoding="utf-8", errors="replace") as lines:
                 capture = parse_capture(lines)
-        summarize(capture.decisions, capture.rescues)
+        summarize(capture.decisions, capture.rescues, capture.playbacks)
     except (OSError, UnicodeError, ValueError) as failure:
         argument_parser.exit(2, f"error: {failure}\n")
 

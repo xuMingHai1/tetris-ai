@@ -54,6 +54,30 @@ class AiDecisionTraceSummaryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "line 2"):
             parse_capture(["unrelated\n", "AI_PREVIEW_RESCUE replaced=bad\n"])
 
+    def test_playback_completion_and_interruption_are_separate_from_decisions(self):
+        capture = parse_capture([
+            "AI_DECISION outcome=callback elapsed_ms=3.000 fx_queue_ms=0.100 "
+            "fallback_ms=0.000\n",
+            "AI_DECISION outcome=callback elapsed_ms=4.000 fx_queue_ms=0.100 "
+            "fallback_ms=0.000\n",
+            "AI_PLAYBACK outcome=completed elapsed_ms=240.000 controls=4 "
+            "executed=4 drop_rows=12\n",
+            "AI_PLAYBACK outcome=blocked elapsed_ms=90.000 controls=5 "
+            "executed=2 drop_rows=0\n",
+            "AI_PLAYBACK outcome=gravity-landed elapsed_ms=180.000 controls=8 "
+            "executed=6 drop_rows=0\n",
+        ])
+        output = StringIO()
+        with redirect_stdout(output):
+            summarize(capture.decisions, capture.rescues, capture.playbacks)
+        self.assertIn("Requests: 2", output.getvalue())
+        self.assertIn("Finished playback: 2/3 (66.67%)", output.getvalue())
+        self.assertIn("Animated drop rows: 12", output.getvalue())
+        with self.assertRaisesRegex(ValueError, "line 2"):
+            parse_capture(["unrelated\n",
+                           "AI_PLAYBACK outcome=completed elapsed_ms=2.000 "
+                           "controls=3 executed=2 drop_rows=0\n"])
+
 
 if __name__ == "__main__":
     unittest.main()
