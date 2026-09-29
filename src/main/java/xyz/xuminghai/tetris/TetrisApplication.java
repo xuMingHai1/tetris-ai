@@ -681,11 +681,13 @@ public class TetrisApplication extends Application {
         primaryStage.getIcons().add(new Image("img/icon.png"));
         // 禁止改变大小
         primaryStage.setResizable(false);
-        final DashboardView gameView = DashboardView.fromEnvironment(gameWorld, getHostServices());
         final var available = Screen.getPrimary().getVisualBounds();
+        final double sceneWidth = Math.min(950, available.getWidth() - 40);
+        final double sceneHeight = Math.min(850, available.getHeight() - 40);
+        final DashboardView gameView = DashboardView.fromEnvironment(
+                gameWorld, getHostServices(), sceneWidth, sceneHeight);
         primaryStage.setScene(keyMonitor(new Scene(gameView,
-                Math.min(950, available.getWidth() - 40),
-                Math.min(850, available.getHeight() - 40))));
+                sceneWidth, sceneHeight)));
         primaryStage.show();
         checkUpdate(primaryStage);
         System.out.printf("启动完成耗时 = %dms%n", System.currentTimeMillis() - BOOT_TIME);

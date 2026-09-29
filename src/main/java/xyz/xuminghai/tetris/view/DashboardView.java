@@ -47,6 +47,8 @@ public final class DashboardView extends BorderPane {
     private final GameWorld world;
     private final String agent;
     private final String objective;
+    private final int boardCellSide;
+    private final double viewportWidth;
     private final Label score = label("score-value");
     private final Label scoreGain = label("score-gain");
     private final Pane scoreFrame = new Pane(score, scoreGain);
@@ -58,7 +60,7 @@ public final class DashboardView extends BorderPane {
     private final Pane sweepLayer = new Pane();
     private RowShiftView rowShiftView;
     private ParallelTransition sweepAnimation;
-    private int cellPitch;
+    private double cellPitch;
     private boolean awaitingClearSweep;
     private final Label lines = label("stat-value");
     private final Label level = label("stat-value");
@@ -94,7 +96,8 @@ public final class DashboardView extends BorderPane {
     private boolean everStarted;
 
     /** Uses the same startup configuration already validated by the planning-agent factory. */
-    public static DashboardView fromEnvironment(GameWorld world, HostServices hostServices) {
+    public static DashboardView fromEnvironment(GameWorld world, HostServices hostServices,
+                                                double viewportWidth, double viewportHeight) {
         String configuredAgent = System.getenv().getOrDefault("TETRIS_AI_AGENT", "heuristic")
                 .trim().toLowerCase(Locale.ROOT);
         String agentLabel = switch (configuredAgent) {
@@ -106,14 +109,20 @@ public final class DashboardView extends BorderPane {
         String objective = System.getenv()
                 .getOrDefault(AiPlanningAgentFactory.OBJECTIVE_ENV, "survival")
                 .trim().toLowerCase(Locale.ROOT);
-        return new DashboardView(world, hostServices, agentLabel, objective);
+        int cellSide = Math.max(16, Math.min(25,
+                25 - (int) Math.ceil(Math.max(0, 850 - viewportHeight) / world.getRows())));
+        return new DashboardView(world, hostServices, agentLabel, objective,
+                cellSide, viewportWidth);
     }
 
     public DashboardView(GameWorld world, HostServices hostServices,
-                         String configuredAgent, String configuredObjective) {
+                         String configuredAgent, String configuredObjective,
+                         int boardCellSide, double viewportWidth) {
         this.world = world;
         this.agent = configuredAgent;
         this.objective = configuredObjective;
+        this.boardCellSide = boardCellSide;
+        this.viewportWidth = viewportWidth;
         getStyleClass().add("dashboard");
         getStylesheets().add("css/dashboard.css");
 
@@ -202,10 +211,18 @@ public final class DashboardView extends BorderPane {
         return new VBox(top, toolbar);
     }
 
-    private HBox content(HostServices hostServices) {
+    private Pane content(HostServices hostServices) {
         VBox left = sidebar();
         VBox center = stage();
         VBox right = cockpit(hostServices);
+        if (viewportWidth < 740) {
+            HBox game = new HBox(24, left, center);
+            game.setAlignment(Pos.TOP_CENTER);
+            VBox compact = new VBox(20, game, right);
+            compact.getStyleClass().add("main-content");
+            compact.setAlignment(Pos.TOP_CENTER);
+            return compact;
+        }
         HBox row = new HBox(24, left, center, right);
         row.getStyleClass().add("main-content");
         row.setAlignment(Pos.TOP_CENTER);
@@ -235,11 +252,11 @@ public final class DashboardView extends BorderPane {
     }
 
     private VBox stage() {
-        GameContextView board = new GameContextView(world);
+        GameContextView board = new GameContextView(world, boardCellSide);
         GhostLandingView ghost = new GhostLandingView(world, board,
                 objective.equals("build-shape"), reducedMotion::isSelected);
         rowShiftView = new RowShiftView(world, board, reducedMotion::isSelected);
-        cellPitch = (int) (board.getWidth() - 1) / world.getCols();
+        cellPitch = (board.getWidth() - 1) / world.getCols();
         sweepLayer.setPrefSize(board.getWidth(), board.getHeight());
         sweepLayer.setMaxSize(board.getWidth(), board.getHeight());
         sweepLayer.setClip(new Rectangle(board.getWidth(), board.getHeight()));
@@ -277,8 +294,9 @@ public final class DashboardView extends BorderPane {
         VBox goalSection = new VBox(9, goalTitle, goal);
         goalSection.getStyleClass().add("cockpit-section");
         actionScroll.setFitToWidth(true);
-        actionScroll.setPrefViewportHeight(155);
-        actionScroll.setMaxHeight(155);
+        double actionHeight = boardCellSide < 20 ? 125 : 155;
+        actionScroll.setPrefViewportHeight(actionHeight);
+        actionScroll.setMaxHeight(actionHeight);
         actionScroll.getStyleClass().add("action-scroll");
         VBox actionSection = new VBox(9, actionsTitle, actionScroll);
         actionSection.getStyleClass().add("cockpit-section");

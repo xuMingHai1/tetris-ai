@@ -649,7 +649,11 @@ public final class GameContextView extends AbstractBlockView {
     }
 
     public GameContextView(GameWorld gameWorld) {
-        super(gameWorld.getRows(), gameWorld.getCols());
+        this(gameWorld, 25);
+    }
+
+    GameContextView(GameWorld gameWorld, int cellSide) {
+        super(gameWorld.getRows(), gameWorld.getCols(), cellSide);
         gameWorld.currentCellsProperty().addListener((_, oldValue, newValue) -> {
             if (oldValue != null && newValue != null) {
                 for (Cell cell : oldValue) {

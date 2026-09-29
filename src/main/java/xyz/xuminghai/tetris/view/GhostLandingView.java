@@ -19,7 +19,7 @@ import java.util.function.BooleanSupplier;
 final class GhostLandingView extends Canvas {
 
     private final GameWorld world;
-    private final int cellSize;
+    private final double cellSize;
     private final boolean showTarget;
     private final BooleanSupplier reducedMotion;
     private final List<TrailCell> trail = new ArrayList<>();
@@ -42,7 +42,7 @@ final class GhostLandingView extends Canvas {
                      BooleanSupplier reducedMotion) {
         super(board.getWidth(), board.getHeight());
         this.world = world;
-        this.cellSize = (int) (board.getWidth() - 1) / world.getCols();
+        this.cellSize = (board.getWidth() - 1) / world.getCols();
         this.showTarget = showTarget;
         this.reducedMotion = reducedMotion;
         setMouseTransparent(true);

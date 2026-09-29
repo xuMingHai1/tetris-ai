@@ -48,7 +48,10 @@ public final class DesktopAiTimingApplication extends Application {
         GameWorld world = new GameWorld(
                 AiPlanningAgentFactory.fromEnvironment(
                         DesktopAiTimingApplication::tracePreviewRescue), false);
-        Scene scene = new Scene(DashboardView.fromEnvironment(world, getHostServices()), 950, 850);
+        int width = Integer.parseInt(System.getenv().getOrDefault("TETRIS_UI_CAPTURE_WIDTH", "950"));
+        int height = Integer.parseInt(System.getenv().getOrDefault("TETRIS_UI_CAPTURE_HEIGHT", "850"));
+        Scene scene = new Scene(DashboardView.fromEnvironment(world, getHostServices(), width, height),
+                width, height);
         stage.setScene(scene);
         stage.show();
 

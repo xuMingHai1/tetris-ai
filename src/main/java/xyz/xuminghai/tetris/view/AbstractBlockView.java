@@ -650,9 +650,13 @@ public sealed abstract class AbstractBlockView extends Canvas
     private final double side, border, arc;
 
     public AbstractBlockView(int rows, int cols) {
+        this(rows, cols, 25.0);
+    }
+
+    protected AbstractBlockView(int rows, int cols, double side) {
         this.rows = rows;
         this.cols = cols;
-        this.side = 25.0;
+        this.side = side;
         this.border = 1.0;
         this.arc = 2.0;
         this.graphicsContext = super.getGraphicsContext2D();

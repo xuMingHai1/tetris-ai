@@ -20,7 +20,7 @@ final class RowShiftView extends Canvas {
 
     private final GameContextView board;
     private final BooleanSupplier reducedMotion;
-    private final int pitch;
+    private final double pitch;
     private final GraphicsContext graphics;
     private final AnimationTimer timer = new AnimationTimer() {
         @Override
@@ -48,7 +48,7 @@ final class RowShiftView extends Canvas {
         super(board.getWidth(), board.getHeight());
         this.board = board;
         this.reducedMotion = reducedMotion;
-        this.pitch = (int) (board.getWidth() - 1) / world.getCols();
+        this.pitch = (board.getWidth() - 1) / world.getCols();
         this.graphics = getGraphicsContext2D();
         setMouseTransparent(true);
 
