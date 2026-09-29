@@ -30,7 +30,7 @@ public final class DesktopAiTimingApplication extends Application {
         if (seconds < 1 || seconds > 900) {
             throw new IllegalArgumentException(DURATION_ENV + " must be between 1 and 900");
         }
-        GameWorld world = new GameWorld(AiPlanningAgentFactory.fromEnvironment());
+        GameWorld world = new GameWorld(AiPlanningAgentFactory.fromEnvironment(), false);
         stage.setScene(new Scene(new GameView(world, getHostServices())));
         stage.show();
 
