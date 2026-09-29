@@ -25,7 +25,8 @@ RESCUE_TRACE = re.compile(
     r"detection_ms=([0-9]+(?:\.[0-9]+)?) search_ms=([0-9]+(?:\.[0-9]+)?)$"
 )
 PLAYBACK_OUTCOMES = (
-    "completed", "blocked", "piece-changed", "manual", "paused", "ai-off", "superseded"
+    "completed", "gravity-landed", "blocked", "piece-changed", "manual", "paused",
+    "ai-off", "superseded"
 )
 PLAYBACK_TRACE = re.compile(
     r"AI_PLAYBACK outcome=([a-z-]+) elapsed_ms=([0-9]+(?:\.[0-9]+)?) "
@@ -159,11 +160,13 @@ def summarize(decisions, rescues=(), playbacks=()):
         print(f"Playback terminal events: {len(playbacks)}")
         for outcome in PLAYBACK_OUTCOMES:
             print(f"  {outcome}: {playback_counts[outcome]}")
-        print("Completed playback: "
-              f"{playback_counts['completed']}/{len(playbacks)} "
-              f"({100 * playback_counts['completed'] / len(playbacks):.2f}%)")
-        print("Completed playback duration: "
-              + timing([p.elapsed_ms for p in playbacks if p.outcome == "completed"]))
+        finished = playback_counts['completed'] + playback_counts['gravity-landed']
+        print("Finished playback: "
+              f"{finished}/{len(playbacks)} "
+              f"({100 * finished / len(playbacks):.2f}%)")
+        print("Finished playback duration: "
+              + timing([p.elapsed_ms for p in playbacks
+                        if p.outcome in ("completed", "gravity-landed")]))
         print(f"Animated drop rows: {sum(p.drop_rows for p in playbacks)}")
     else:
         print("Playback terminal events: unavailable")

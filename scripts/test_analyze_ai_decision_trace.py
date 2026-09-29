@@ -64,12 +64,14 @@ class AiDecisionTraceSummaryTest(unittest.TestCase):
             "executed=4 drop_rows=12\n",
             "AI_PLAYBACK outcome=blocked elapsed_ms=90.000 controls=5 "
             "executed=2 drop_rows=0\n",
+            "AI_PLAYBACK outcome=gravity-landed elapsed_ms=180.000 controls=8 "
+            "executed=6 drop_rows=0\n",
         ])
         output = StringIO()
         with redirect_stdout(output):
             summarize(capture.decisions, capture.rescues, capture.playbacks)
         self.assertIn("Requests: 2", output.getvalue())
-        self.assertIn("Completed playback: 1/2 (50.00%)", output.getvalue())
+        self.assertIn("Finished playback: 2/3 (66.67%)", output.getvalue())
         self.assertIn("Animated drop rows: 12", output.getvalue())
         with self.assertRaisesRegex(ValueError, "line 2"):
             parse_capture(["unrelated\n",

@@ -1349,6 +1349,13 @@ public final class GameWorld {
         }
 
         if (!applyAiAction(action)) {
+            if (action == AiAction.SOFT_DROP && remainingActionsOnlyDrop()) {
+                // Gravity can reach the landing before the planned soft drops do. No placement
+                // correction remains, so finish through the ordinary lock path.
+                cancelAiPlayback("gravity-landed");
+                gameTimeLine.advanceNow();
+                return;
+            }
             // Gravity may have moved the piece since planning. Replan from its current live cells.
             Tetris piece = aiPlaybackPiece;
             cancelAiPlayback("blocked");
@@ -1364,8 +1371,22 @@ public final class GameWorld {
             cancelAiPlayback("completed");
         }
         else {
-            scheduleAiPlayback(AI_CONTROL_INTERVAL_MS);
+            scheduleAiPlayback(action == AiAction.SOFT_DROP
+                    ? AI_DROP_INTERVAL_MS : AI_CONTROL_INTERVAL_MS);
         }
+    }
+
+    private boolean remainingActionsOnlyDrop() {
+        if (aiPlaybackActions.getLast() != AiAction.HARD_DROP) {
+            return false;
+        }
+        for (int index = aiPlaybackIndex + 1; index < aiPlaybackActions.size(); index++) {
+            AiAction action = aiPlaybackActions.get(index);
+            if (action != AiAction.SOFT_DROP && action != AiAction.HARD_DROP) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void scheduleAiPlayback(int delayMillis) {
