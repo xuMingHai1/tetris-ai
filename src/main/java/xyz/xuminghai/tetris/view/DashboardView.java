@@ -88,6 +88,7 @@ public final class DashboardView extends BorderPane {
     private final Button takeoverButton = button("takeover-button");
     private final Button languageButton = button("quiet-button");
     private final VBox actions = new VBox(3);
+    private final ScrollPane actionScroll = new ScrollPane(actions);
     private final StackPane overlay = new StackPane(overlayTitle);
     private boolean everStarted;
 
@@ -273,7 +274,6 @@ public final class DashboardView extends BorderPane {
         goal.setWrapText(true);
         VBox goalSection = new VBox(9, goalTitle, goal);
         goalSection.getStyleClass().add("cockpit-section");
-        ScrollPane actionScroll = new ScrollPane(actions);
         actionScroll.setFitToWidth(true);
         actionScroll.setPrefViewportHeight(155);
         actionScroll.setMaxHeight(155);
@@ -429,6 +429,7 @@ public final class DashboardView extends BorderPane {
             Label empty = label("empty-actions");
             empty.setText(zh ? "当前没有执行中的计划" : "No active plan");
             actions.getChildren().add(empty);
+            actionScroll.setVvalue(0);
             return;
         }
         for (int index = 0; index < plan.size(); index++) {
@@ -439,6 +440,7 @@ public final class DashboardView extends BorderPane {
             else if (index == completed) action.getStyleClass().add("action-active");
             actions.getChildren().add(action);
         }
+        actionScroll.setVvalue(Math.clamp((completed - 2.0) / Math.max(1, plan.size() - 4), 0, 1));
     }
 
     private void showScoreGain(long gain) {
