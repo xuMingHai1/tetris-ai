@@ -34,7 +34,7 @@
     -fx-padding: 7 12;
     -fx-text-fill: #627ba9;
 }
-.main-content { -fx-padding: 20 28 26 28; }
+.main-content { -fx-padding: 12 28 12 28; }
 .main-scroll, .main-scroll > .viewport { -fx-background-color: #f2f4f8; }
 .score-panel, .right-panel { -fx-padding: 26 0 0 0; }
 .section-label { -fx-text-fill: #6c7a8f; -fx-font-size: 11px; }
@@ -45,7 +45,7 @@
 .next-frame { -fx-background-color: #fcfdff; -fx-border-color: #dbe2ec; -fx-border-radius: 7; -fx-background-radius: 7; -fx-padding: 10; -fx-alignment: center; }
 .controller-value { -fx-font-weight: 600; }
 .duration-value { -fx-font-family: "Consolas", monospace; -fx-font-size: 16px; }
-.stage { -fx-spacing: 12; }
+.stage { -fx-spacing: 10; }
 .stage-head { -fx-alignment: center-left; }
 .stage-status { -fx-text-fill: #627ba9; -fx-font-size: 11px; }
 .board-frame {
@@ -56,7 +56,7 @@
     -fx-padding: 10;
     -fx-effect: dropshadow(gaussian, #253c5915, 12, 0, 0, 4);
 }
-.board-overlay { -fx-background-color: #fcfdffe8; }
+.board-overlay { -fx-background-color: #fcfdffb0; }
 .overlay-title { -fx-font-size: 23px; -fx-font-weight: 600; -fx-text-fill: #4d6897; }
 .primary-button {
     -fx-background-color: #647fae;
