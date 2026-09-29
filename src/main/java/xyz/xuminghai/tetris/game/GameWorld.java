@@ -665,6 +665,7 @@ public final class GameWorld {
     private final PieceGenerator pieceGenerator = new BagPieceGenerator();
 
     private final AiDecisionExecutor aiDecisionExecutor;
+    private final boolean audioEnabled;
     private final boolean traceAiDecisions = Boolean.parseBoolean(
             System.getenv().getOrDefault("TETRIS_AI_DECISION_TRACE", "false"));
 
@@ -702,6 +703,12 @@ public final class GameWorld {
      * @param aiAgent primary action-planning implementation
      */
     public GameWorld(AiPlanningAgent aiAgent) {
+        this(aiAgent, true);
+    }
+
+    /** Creates a world without audio for headless timing capture when {@code audioEnabled} is false. */
+    public GameWorld(AiPlanningAgent aiAgent, boolean audioEnabled) {
+        this.audioEnabled = audioEnabled;
         this.aiDecisionExecutor = new AiDecisionExecutor(
                 aiAgent, AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()));
     }
@@ -757,13 +764,15 @@ public final class GameWorld {
             // 方块下落速度
             gameTimeLine.setPulse(GameTimeLine.DEFAULT_PULSE - levelValue * 16.67);
             // 背景音乐播放速度
-            AudioManager.getBgmMediaPlayer().setRate(1 + (double) levelValue / MAX_LEVEL);
+            if (audioEnabled) {
+                AudioManager.getBgmMediaPlayer().setRate(1 + (double) levelValue / MAX_LEVEL);
+            }
         }
 
         {
             // 音效处理
             super.addListener((_, oldValue, newValue) -> {
-                if (gameActive) {
+                if (gameActive && isAudioEnabled()) {
                     final int oldLevel = oldValue.intValue();
                     final int newLevel = newValue.intValue();
                     if (newLevel > oldLevel) {
@@ -776,6 +785,10 @@ public final class GameWorld {
             });
         }
     };
+
+    private boolean isAudioEnabled() {
+        return audioEnabled;
+    }
 
     /**
      * 分数
@@ -824,8 +837,10 @@ public final class GameWorld {
                     currentCells.set(null);
                     // 游戏结束动画
                     gameTimeLine.setGameAnimation(new GameOverAnimation(GameWorld.this));
-                    AudioManager.getBgmMediaPlayer().stop();
-                    AudioManager.getGameOverAudioClip().play();
+                    if (audioEnabled) {
+                        AudioManager.getBgmMediaPlayer().stop();
+                        AudioManager.getGameOverAudioClip().play();
+                    }
                 }
                 else {
                     // 保存上次方块数据
@@ -840,7 +855,9 @@ public final class GameWorld {
                         gameTimeLine.setGameAnimation(new RemoveRowsAnimation(GameWorld.this, removeRowList));
                         lines.set(lines.get() + size);
                         calculateScore(size);
-                        AudioManager.getClearRowAudioClip().play();
+                        if (audioEnabled) {
+                            AudioManager.getClearRowAudioClip().play();
+                        }
                     }
                     else {
                         // 方块锁定动画
@@ -970,7 +987,9 @@ public final class GameWorld {
                     robot.keyType(KeyCode.CAPS);
                 }
             });
-            AudioManager.getBgmMediaPlayer().stop();
+            if (audioEnabled) {
+                AudioManager.getBgmMediaPlayer().stop();
+            }
             gameTimeLine.stop();
         }
         else {
@@ -980,7 +999,9 @@ public final class GameWorld {
                     robot.keyType(KeyCode.CAPS);
                 }
             });
-            AudioManager.getBgmMediaPlayer().play();
+            if (audioEnabled) {
+                AudioManager.getBgmMediaPlayer().play();
+            }
             gameTimeLine.start();
         }
         gameActive = !gameActive;
@@ -1021,7 +1042,7 @@ public final class GameWorld {
                 gameGrid.clearCells(previousCells);
             }
             if (gameGrid.saveCellsData(cells)) {
-                if (playAudio) {
+                if (playAudio && audioEnabled) {
                     switch (action) {
                         case DOWN_MOVE, LEFT_MOVE, RIGHT_MOVE -> AudioManager.getMoveAudioClip().play();
                         case ROTATE_CLOCKWISE, ROTATE_COUNTER_CLOCKWISE -> AudioManager.getRotateAudioClip().play();

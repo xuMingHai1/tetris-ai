@@ -3,6 +3,8 @@ target/
 out/
 bin/
 *.class
+__pycache__/
+*.pyc
 
 # IDE-local project state. Shared formatting lives in .editorconfig.
 .idea/
