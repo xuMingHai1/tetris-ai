@@ -74,7 +74,9 @@ def parse_capture(lines):
     rescues = []
     playbacks = []
     for number, line in enumerate(lines, start=1):
-        if "AI_PLAYBACK outcome=" in line:
+        if "AI_PLAYBACK_BLOCKED " in line:
+            continue
+        if "AI_PLAYBACK" in line:
             match = PLAYBACK_TRACE.search(line.strip())
             if match is None:
                 raise ValueError(f"malformed AI_PLAYBACK at line {number}")

@@ -1064,18 +1064,15 @@ public final class GameWorld {
             if (previousCells != null) {
                 gameGrid.clearCells(previousCells);
             }
-            if (cells.length == 0
+            boolean legalOffscreenMove = cells.length == 0
                     && Arrays.stream(tetris.getCells()).allMatch(cell -> cell.getRow() < 0)
                     && BoardRules.canPlace(gameGrid.occupiedSnapshot(null), gameGrid.getRows(),
                             gameGrid.getCols(), Arrays.stream(tetris.getCells())
                                     .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
-                                    .toList())) {
-                // A legal rotation can leave all four cells above the visible board. The grid has
-                // nothing to save yet, but the live piece and its rotation state must still advance.
-                currentCells.set(cells);
-                return true;
-            }
-            if (gameGrid.saveCellsData(cells)) {
+                                    .toList());
+            // An all-hidden legal move has nothing to save in the grid, but it still goes through
+            // the same accepted-input path (including player audio) as every visible move.
+            if (legalOffscreenMove || gameGrid.saveCellsData(cells)) {
                 if (origin == InputOrigin.PLAYER && audioEnabled) {
                     switch (action) {
                         case DOWN_MOVE, LEFT_MOVE, RIGHT_MOVE -> AudioManager.getMoveAudioClip().play();

@@ -79,6 +79,10 @@ class AiDecisionTraceSummaryTest(unittest.TestCase):
             parse_capture(["unrelated\n",
                            "AI_PLAYBACK outcome=completed elapsed_ms=2.000 "
                            "controls=3 executed=2 drop_rows=0\n"])
+        with self.assertRaisesRegex(ValueError, "malformed AI_PLAYBACK at line 2"):
+            parse_capture(["AI_DECISION outcome=callback elapsed_ms=3.000 "
+                           "fx_queue_ms=0.100 fallback_ms=0.000\n",
+                           "AI_PLAYBACK elapsed_ms=2.000 controls=3 executed=3 drop_rows=0\n"])
 
 
 if __name__ == "__main__":
