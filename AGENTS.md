@@ -88,6 +88,7 @@ Windows 对应使用 `mvnw.cmd`。
 GitHub Actions 使用 `[self-hosted, linux, x64]`。
 
 `Desktop AI Timing` 对同仓库、以 default branch 为目标且修改生产 AI / 游戏运行相关路径的 PR 自动进行 120 秒 JavaFX headless 采集；新的 revision 取消旧 run。它运行真实 `GameWorld` / `GameView`，在专用采集入口关闭音频，开启 AI 决策诊断，并上传原始日志与汇总。手动 `workflow_dispatch` 可指定 1–900 秒。runner 的软件渲染和时钟只提供 Linux 观察值，不能视为 Windows 桌面重力 deadline 的性能保证。
+该采集入口通过生产 `PreviewRescueActionPlanningAgent` 的 observer 记录 computed preview rescue；其计数可能包含已取消或重力回退后丢弃的计划，必须与 JavaFX 线程输出的实际 `AI_DECISION` outcome 区分。无 `AI_PREVIEW_RESCUE` 行的旧日志代表不可得，不代表 0 次。
 
 `PreviewRescuePairedApplication` 是 #59 后的 benchmark-only 后续：已知 preview 在 SURVIVAL rank 1 后无落点而某替代动作恢复落点时，one-shot 深度改善至少 1 是定义必然，旧 5/5 不能解释长期策略收益。新实验固定 seed 10000–10119、120 × 1000 的 paired whole-game 轨迹，只在该精确条件下按原 SURVIVAL 排序采用第一个清除 frozen warning 的动作，可在后续再次救援；报告可用率、存活长度、到达 horizon、HEART 构造与检测/搜索成本。它不更改 runtime，也不选新阈值。PR 自动运行 `preview-rescue-paired`，上传 per-decision / per-game CSV。
 
