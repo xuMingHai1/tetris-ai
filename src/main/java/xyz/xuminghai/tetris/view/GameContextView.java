@@ -627,8 +627,12 @@
 package xyz.xuminghai.tetris.view;
 
 import javafx.scene.Cursor;
+import javafx.scene.paint.Color;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.game.GameWorld;
+
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * 2024/1/29 12:48 星期一<br/>
@@ -637,6 +641,8 @@ import xyz.xuminghai.tetris.game.GameWorld;
  * @author xuMingHai
  */
 public final class GameContextView extends AbstractBlockView {
+
+    private final Map<Color, Color> displayColors = new HashMap<>();
 
     public GameContextView(GameWorld gameWorld) {
         super(gameWorld.getRows(), gameWorld.getCols());
@@ -647,8 +653,15 @@ public final class GameContextView extends AbstractBlockView {
                 }
             }
             if (newValue != null) {
+                if (gameWorld.currentTypeProperty().get() != null) {
+                    Color displayColor = BlockPalette.color(gameWorld.currentTypeProperty().get());
+                    for (Cell cell : newValue) {
+                        displayColors.putIfAbsent(cell.getColor(), displayColor);
+                    }
+                }
                 for (Cell cell : newValue) {
-                    super.fillCell(cell.getRow(), cell.getCol(), cell.getColor());
+                    super.fillCell(cell.getRow(), cell.getCol(),
+                            displayColors.getOrDefault(cell.getColor(), cell.getColor()));
                 }
             }
         });
@@ -662,8 +675,14 @@ public final class GameContextView extends AbstractBlockView {
         gameWorld.renderCellProperty().addListener((_, _, newValue) -> {
             if (newValue != null) {
                 for (Cell cell : newValue) {
-                    super.fillCell(cell.getRow(), cell.getCol(), cell.getColor());
+                    super.fillCell(cell.getRow(), cell.getCol(),
+                            displayColors.getOrDefault(cell.getColor(), cell.getColor()));
                 }
+            }
+        });
+        gameWorld.settledCellsProperty().addListener((_, _, settled) -> {
+            if (settled.isEmpty() && gameWorld.gameOverDisplayProperty().get()) {
+                displayColors.clear();
             }
         });
         // 设置光标

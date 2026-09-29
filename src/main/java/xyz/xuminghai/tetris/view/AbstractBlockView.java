@@ -700,18 +700,10 @@ public sealed abstract class AbstractBlockView extends Canvas
     public final void fillCell(int row, int col, Paint paint) {
         validate(row, col);
         double x = computeX(col), y = computeY(row);
-        graphicsContext.setFill(displayPaint(paint));
+        graphicsContext.setFill(paint);
         graphicsContext.fillRoundRect(x, y, side, side, arc, arc);
         graphicsContext.setFill(Color.rgb(255, 255, 255, 0.28));
         graphicsContext.fillRect(x + 2, y + 1, side - 4, 1);
-    }
-
-    private Paint displayPaint(Paint paint) {
-        if (paint instanceof Color color) {
-            Color muted = color.interpolate(Color.web("#9ba9bd"), 0.55);
-            return muted.deriveColor(0, 1, 1, 1);
-        }
-        return paint;
     }
 
     private void validate(int row, int col) {

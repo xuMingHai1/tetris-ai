@@ -682,6 +682,8 @@ public final class GameWorld {
             this, "ghostCells", List.of());
     private final ObjectProperty<List<BoardPosition>> settledCells = new SimpleObjectProperty<>(
             this, "settledCells", List.of());
+    private final ObjectProperty<TetrominoType> currentType = new SimpleObjectProperty<>(
+            this, "currentType");
 
     /** Immutable FX-thread observation of the current decision and its executed controls. */
     public record AiDisplay(String phase, List<AiAction> actions, int completedActions) {
@@ -937,6 +939,7 @@ public final class GameWorld {
             if (super.get() != null) {
                 nextTetris.set(pieceGenerator.next());
             }
+            currentType.set(super.get() == null ? null : TetrominoType.from(super.get()));
         }
     };
 
@@ -967,6 +970,10 @@ public final class GameWorld {
 
     public ReadOnlyObjectProperty<List<BoardPosition>> settledCellsProperty() {
         return settledCells;
+    }
+
+    public ReadOnlyObjectProperty<TetrominoType> currentTypeProperty() {
+        return currentType;
     }
 
     void publishSettledCells() {
@@ -1115,6 +1122,18 @@ public final class GameWorld {
         activeDisplay.set(gameActive);
         if (gameActive && aiEnabled.get() && currentTetris.get() != null) {
             requestAiMove(currentTetris.get());
+        }
+    }
+
+    /** Stops the live timeline and invalidates work that must not update a closed view. */
+    public void shutdown() {
+        if (gameActive) {
+            startOrPauseGame();
+        }
+        else {
+            cancelPendingAiDecision();
+            cancelAiPlayback("closed");
+            gameTimeLine.stop();
         }
     }
 

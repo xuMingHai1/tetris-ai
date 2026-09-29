@@ -705,6 +705,11 @@ public class TetrisApplication extends Application {
         System.out.printf("启动完成耗时 = %dms%n", System.currentTimeMillis() - BOOT_TIME);
     }
 
+    @Override
+    public void stop() {
+        gameWorld.shutdown();
+    }
+
 
     private Scene keyMonitor(Scene scene) {
         // 移动按键键入

@@ -1,8 +1,13 @@
 package xyz.xuminghai.tetris.view;
 
+import javafx.animation.FadeTransition;
+import javafx.animation.ParallelTransition;
+import javafx.animation.ScaleTransition;
+import javafx.animation.TranslateTransition;
 import javafx.css.PseudoClass;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
@@ -11,8 +16,10 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
@@ -22,11 +29,14 @@ import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.game.GameWorld;
+import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.util.Version;
+import javafx.util.Duration;
 
 import java.text.NumberFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.LinkedHashSet;
 
 /** JavaFX layout and read-only presentation for the desktop game and AI controls. */
 public final class DashboardView extends BorderPane {
@@ -37,6 +47,17 @@ public final class DashboardView extends BorderPane {
     private final String agent;
     private final String objective;
     private final Label score = label("score-value");
+    private final Label scoreGain = label("score-gain");
+    private final Pane scoreFrame = new Pane(score, scoreGain);
+    private final CheckBox reducedMotion = new CheckBox();
+    private final ScaleTransition scorePulse = new ScaleTransition(Duration.millis(220), score);
+    private final FadeTransition gainFade = new FadeTransition(Duration.millis(540), scoreGain);
+    private final TranslateTransition gainLift = new TranslateTransition(Duration.millis(540), scoreGain);
+    private final ParallelTransition gainAnimation = new ParallelTransition(gainFade, gainLift);
+    private final Pane sweepLayer = new Pane();
+    private ParallelTransition sweepAnimation;
+    private int cellPitch;
+    private boolean awaitingClearSweep;
     private final Label lines = label("stat-value");
     private final Label level = label("stat-value");
     private final Label duration = label("duration-value");
@@ -86,6 +107,35 @@ public final class DashboardView extends BorderPane {
         setBottom(footer(hostServices));
 
         score.textProperty().bind(world.scoreProperty().map(NumberFormat.getIntegerInstance()::format));
+        score.textProperty().addListener((_, _, value) -> score.setStyle(
+                "-fx-font-size: " + (value.length() > 7 ? 22 : value.length() > 5 ? 29 : 38) + "px"));
+        scorePulse.setFromX(1.06);
+        scorePulse.setFromY(1.06);
+        scorePulse.setToX(1);
+        scorePulse.setToY(1);
+        gainFade.setFromValue(1);
+        gainFade.setToValue(0);
+        gainLift.setFromY(0);
+        gainLift.setToY(-24);
+        gainAnimation.setOnFinished(_ -> scoreGain.setVisible(false));
+        world.scoreProperty().addListener((_, oldScore, newScore) -> {
+            long gain = newScore.longValue() - oldScore.longValue();
+            if (gain > 0 && !reducedMotion.isSelected()) {
+                showScoreGain(gain);
+            }
+            else {
+                stopVisualEffects();
+            }
+        });
+        world.linesProperty().addListener((_, oldLines, newLines) -> {
+            if (newLines.intValue() > oldLines.intValue()) awaitingClearSweep = true;
+        });
+        world.clearCellProperty().addListener((_, _, cells) -> {
+            if (awaitingClearSweep && cells != null && !cells.isEmpty()) {
+                awaitingClearSweep = false;
+                showRowSweep(cells);
+            }
+        });
         lines.textProperty().bind(world.linesProperty().asString());
         level.textProperty().bind(world.levelProperty().asString());
         duration.textProperty().bind(world.gameDurationProperty().map(time ->
@@ -94,9 +144,13 @@ public final class DashboardView extends BorderPane {
         world.aiEnabledProperty().addListener((_, _, _) -> refresh());
         world.activeDisplayProperty().addListener((_, _, active) -> {
             if (active) everStarted = true;
+            else stopVisualEffects();
             refresh();
         });
-        world.gameOverDisplayProperty().addListener((_, _, _) -> refresh());
+        world.gameOverDisplayProperty().addListener((_, _, over) -> {
+            if (over) stopVisualEffects();
+            refresh();
+        });
         world.aiDisplayProperty().addListener((_, _, _) -> refresh());
         world.settledCellsProperty().addListener((_, _, _) -> refresh());
         world.languageProperty().addListener((_, _, _) -> refresh());
@@ -149,7 +203,11 @@ public final class DashboardView extends BorderPane {
         nextFrame.getStyleClass().add("next-frame");
         Label controlTitle = label("section-label");
         controlTitle.setText("CONTROL");
-        VBox side = new VBox(10, scoreTitle, score, stats, nextTitle, nextFrame,
+        scoreFrame.setPrefSize(150, 54);
+        scoreGain.setLayoutX(85);
+        scoreGain.setLayoutY(0);
+        scoreGain.setVisible(false);
+        VBox side = new VBox(10, scoreTitle, scoreFrame, stats, nextTitle, nextFrame,
                 controlTitle, controller, durationTitle, duration);
         side.getStyleClass().add("score-panel");
         side.setPrefWidth(150);
@@ -160,11 +218,16 @@ public final class DashboardView extends BorderPane {
     private VBox stage() {
         GameContextView board = new GameContextView(world);
         GhostLandingView ghost = new GhostLandingView(world, board,
-                objective.equals("build-shape"));
+                objective.equals("build-shape"), reducedMotion::isSelected);
+        cellPitch = (int) (board.getWidth() - 1) / world.getCols();
+        sweepLayer.setPrefSize(board.getWidth(), board.getHeight());
+        sweepLayer.setMaxSize(board.getWidth(), board.getHeight());
+        sweepLayer.setClip(new Rectangle(board.getWidth(), board.getHeight()));
+        sweepLayer.setMouseTransparent(true);
         overlay.getStyleClass().add("board-overlay");
         overlay.setVisible(false);
         overlay.setMouseTransparent(true);
-        StackPane boardWell = new StackPane(board, ghost, overlay);
+        StackPane boardWell = new StackPane(board, ghost, sweepLayer, overlay);
         boardWell.getStyleClass().add("board-frame");
         boardWell.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
 
@@ -222,11 +285,14 @@ public final class DashboardView extends BorderPane {
 
         TitledPane shortcuts = new TitledPane();
         shortcuts.setExpanded(false);
-        shortcuts.setContent(keys);
+        shortcuts.setContent(new VBox(10, keys, reducedMotion));
         shortcuts.getStyleClass().add("shortcuts");
         shortcuts.textProperty().bind(world.languageProperty().map(locale ->
                 locale.getLanguage().equals("zh") ? "操作与快捷键" : "Controls"));
         keys.setWrapText(true);
+        reducedMotion.setOnAction(_ -> {
+            if (reducedMotion.isSelected()) stopVisualEffects();
+        });
 
         Button minus = button("stepper-button");
         minus.setText("−");
@@ -335,6 +401,7 @@ public final class DashboardView extends BorderPane {
         keys.setText(zh
                 ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
                 : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
+        reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
         boardHint.setText(zh ? "空心轮廓 · 预计落点" : "Outline · projected landing");
         refreshActions(display.actions(), display.completedActions(), zh);
     }
@@ -355,6 +422,60 @@ public final class DashboardView extends BorderPane {
             else if (index == completed) action.getStyleClass().add("action-active");
             actions.getChildren().add(action);
         }
+    }
+
+    private void showScoreGain(long gain) {
+        stopScoreEffects();
+        scoreGain.setText("+" + NumberFormat.getIntegerInstance().format(gain));
+        scoreGain.setVisible(true);
+        scorePulse.playFromStart();
+        gainAnimation.playFromStart();
+    }
+
+    private void stopVisualEffects() {
+        stopScoreEffects();
+        clearSweep();
+        awaitingClearSweep = false;
+    }
+
+    private void stopScoreEffects() {
+        scorePulse.stop();
+        score.setScaleX(1);
+        score.setScaleY(1);
+        gainAnimation.stop();
+        scoreGain.setVisible(false);
+        scoreGain.setOpacity(1);
+        scoreGain.setTranslateY(0);
+    }
+
+    private void showRowSweep(List<Cell> clearedCells) {
+        if (reducedMotion.isSelected()) return;
+        clearSweep();
+        sweepAnimation = new ParallelTransition();
+        for (int row : clearedCells.stream().map(Cell::getRow)
+                .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new))) {
+            Rectangle stripe = new Rectangle(0, row * cellPitch + 1,
+                    sweepLayer.getPrefWidth(), cellPitch - 1);
+            stripe.setFill(Color.web("#9bb3d6", 0.38));
+            sweepLayer.getChildren().add(stripe);
+            FadeTransition fade = new FadeTransition(Duration.millis(350), stripe);
+            fade.setFromValue(0.8);
+            fade.setToValue(0);
+            TranslateTransition move = new TranslateTransition(Duration.millis(350), stripe);
+            move.setFromX(-18);
+            move.setToX(18);
+            sweepAnimation.getChildren().add(new ParallelTransition(fade, move));
+        }
+        sweepAnimation.setOnFinished(_ -> clearSweep());
+        sweepAnimation.play();
+    }
+
+    private void clearSweep() {
+        if (sweepAnimation != null) {
+            sweepAnimation.stop();
+            sweepAnimation = null;
+        }
+        sweepLayer.getChildren().clear();
     }
 
     private static String actionName(AiAction action, boolean zh) {

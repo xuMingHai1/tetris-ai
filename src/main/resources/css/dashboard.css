@@ -39,6 +39,7 @@
 .score-panel, .right-panel { -fx-padding: 26 0 0 0; }
 .section-label { -fx-text-fill: #6c7a8f; -fx-font-size: 11px; }
 .score-value { -fx-font-size: 38px; -fx-font-weight: 600; -fx-font-family: "Consolas", monospace; }
+.score-gain { -fx-text-fill: #627ba9; -fx-font-size: 12px; -fx-font-family: "Consolas", monospace; }
 .stats-row { -fx-border-color: #dbe2ec; -fx-border-width: 0 0 1 0; -fx-padding: 0 0 20 0; }
 .stat-value { -fx-font-size: 23px; -fx-font-family: "Consolas", monospace; }
 .next-frame { -fx-background-color: #fcfdff; -fx-border-color: #dbe2ec; -fx-border-radius: 7; -fx-background-radius: 7; -fx-padding: 10; -fx-alignment: center; }
