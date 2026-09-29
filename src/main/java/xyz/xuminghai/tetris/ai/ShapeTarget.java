@@ -7,6 +7,9 @@ package xyz.xuminghai.tetris.ai;
 
 import java.util.Locale;
 import java.util.Objects;
+import java.util.List;
+import java.util.ArrayList;
+import xyz.xuminghai.tetris.core.BoardPosition;
 
 /**
  * Built-in occupancy-only creative targets with explicit visual and support semantics.
@@ -65,6 +68,19 @@ public enum ShapeTarget {
 
     public int forbiddenCells() {
         return forbiddenCells;
+    }
+
+    /** Required cells in target-local coordinates for read-only visual presentation. */
+    public List<BoardPosition> requiredLocalCells() {
+        List<BoardPosition> cells = new ArrayList<>(requiredCells);
+        for (int row = 0; row < height(); row++) {
+            for (int col = 0; col < width(); col++) {
+                if (mask[row][col] == CellRole.REQUIRED) {
+                    cells.add(new BoardPosition(row, col));
+                }
+            }
+        }
+        return List.copyOf(cells);
     }
 
     /**

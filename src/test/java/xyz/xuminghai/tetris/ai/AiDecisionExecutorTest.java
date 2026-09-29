@@ -42,6 +42,7 @@ class AiDecisionExecutorTest {
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
         assertEquals(AiPlan.fromPlacement(expected), decision.result().toCompletableFuture().join());
+        assertFalse(decision.fallbackUsed().toCompletableFuture().join());
         assertTrue(virtualThread.get());
         assertEquals(0, fallbackCalls.get());
         assertTrue(executor.isCurrent(decision));
@@ -63,6 +64,7 @@ class AiDecisionExecutorTest {
         AiDecisionExecutor.AiDecision decision = executor.submit(snapshot());
 
         assertEquals(AiPlan.fromPlacement(fallbackMove), decision.result().toCompletableFuture().join());
+        assertTrue(decision.fallbackUsed().toCompletableFuture().join());
         assertEquals(1, fallbackCalls.get());
     }
 

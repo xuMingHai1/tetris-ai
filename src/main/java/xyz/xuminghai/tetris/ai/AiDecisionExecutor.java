@@ -44,9 +44,10 @@ public final class AiDecisionExecutor {
     public AiDecision submit(GameSnapshot snapshot) {
         Objects.requireNonNull(snapshot, "snapshot");
         final long requestGeneration = generation.incrementAndGet();
-        final CompletableFuture<AiPlan> result =
-                CompletableFuture.supplyAsync(() -> planWithFallback(snapshot), VIRTUAL_THREAD_EXECUTOR);
-        return new AiDecision(requestGeneration, result);
+        final CompletableFuture<Boolean> fallbackUsed = new CompletableFuture<>();
+        final CompletableFuture<AiPlan> result = CompletableFuture.supplyAsync(
+                () -> planWithFallback(snapshot, fallbackUsed), VIRTUAL_THREAD_EXECUTOR);
+        return new AiDecision(requestGeneration, result, fallbackUsed);
     }
 
     /**
@@ -78,16 +79,21 @@ public final class AiDecisionExecutor {
         return decision != null && generation.get() == decision.generation();
     }
 
-    private AiPlan planWithFallback(GameSnapshot snapshot) {
+    private AiPlan planWithFallback(GameSnapshot snapshot, CompletableFuture<Boolean> fallbackUsed) {
         try {
-            return AiPlanValidator.requireValid(primaryAgent.plan(snapshot));
+            AiPlan plan = AiPlanValidator.requireValid(primaryAgent.plan(snapshot));
+            fallbackUsed.complete(false);
+            return plan;
         }
         catch (RuntimeException primaryFailure) {
             try {
-                return AiPlanValidator.requireValid(fallbackAgent.plan(snapshot));
+                AiPlan plan = AiPlanValidator.requireValid(fallbackAgent.plan(snapshot));
+                fallbackUsed.complete(true);
+                return plan;
             }
             catch (RuntimeException fallbackFailure) {
                 fallbackFailure.addSuppressed(primaryFailure);
+                fallbackUsed.completeExceptionally(fallbackFailure);
                 throw fallbackFailure;
             }
         }
@@ -96,10 +102,12 @@ public final class AiDecisionExecutor {
     /**
      * One asynchronous decision request.
      */
-    public record AiDecision(long generation, CompletionStage<AiPlan> result) {
+    public record AiDecision(long generation, CompletionStage<AiPlan> result,
+                             CompletionStage<Boolean> fallbackUsed) {
 
         public AiDecision {
             Objects.requireNonNull(result, "result");
+            Objects.requireNonNull(fallbackUsed, "fallbackUsed");
         }
     }
 }

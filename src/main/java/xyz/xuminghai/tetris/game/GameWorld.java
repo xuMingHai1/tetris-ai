@@ -674,6 +674,21 @@ public final class GameWorld {
             System.getenv().getOrDefault("TETRIS_AI_DECISION_TRACE", "false"));
 
     private final BooleanProperty aiEnabled = new SimpleBooleanProperty(this, "aiEnabled");
+    private final BooleanProperty activeDisplay = new SimpleBooleanProperty(this, "activeDisplay");
+    private final BooleanProperty gameOverDisplay = new SimpleBooleanProperty(this, "gameOverDisplay");
+    private final ObjectProperty<AiDisplay> aiDisplay = new SimpleObjectProperty<>(
+            this, "aiDisplay", new AiDisplay("idle", List.of(), 0));
+    private final ObjectProperty<List<BoardPosition>> ghostCells = new SimpleObjectProperty<>(
+            this, "ghostCells", List.of());
+    private final ObjectProperty<List<BoardPosition>> settledCells = new SimpleObjectProperty<>(
+            this, "settledCells", List.of());
+
+    /** Immutable FX-thread observation of the current decision and its executed controls. */
+    public record AiDisplay(String phase, List<AiAction> actions, int completedActions) {
+        public AiDisplay {
+            actions = List.copyOf(actions);
+        }
+    }
 
     /**
      * AI request that still owns the unchanged live-piece snapshot.
@@ -724,6 +739,7 @@ public final class GameWorld {
         this.audioEnabled = audioEnabled;
         this.aiDecisionExecutor = new AiDecisionExecutor(
                 aiAgent, AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()));
+        currentCells.addListener((_, _, _) -> updateGhostCells());
     }
 
     /**
@@ -848,6 +864,8 @@ public final class GameWorld {
                 if (lastCells == null || lastCells.length < 4) {
                     currentTetris.set(null);
                     currentCells.set(null);
+                    gameOverDisplay.set(true);
+                    aiDisplay.set(new AiDisplay("game-over", List.of(), 0));
                     // 游戏结束动画
                     gameTimeLine.setGameAnimation(new GameOverAnimation(GameWorld.this));
                     if (audioEnabled) {
@@ -875,6 +893,7 @@ public final class GameWorld {
                     else {
                         // 方块锁定动画
                         gameTimeLine.setGameAnimation(new TetrisLockAnimation(GameWorld.this, lastCells));
+                        publishSettledCells();
                     }
                 }
             }
@@ -930,6 +949,73 @@ public final class GameWorld {
         return gameActive;
     }
 
+    public ReadOnlyBooleanProperty activeDisplayProperty() {
+        return activeDisplay;
+    }
+
+    public ReadOnlyBooleanProperty gameOverDisplayProperty() {
+        return gameOverDisplay;
+    }
+
+    public ReadOnlyObjectProperty<AiDisplay> aiDisplayProperty() {
+        return aiDisplay;
+    }
+
+    public ReadOnlyObjectProperty<List<BoardPosition>> ghostCellsProperty() {
+        return ghostCells;
+    }
+
+    public ReadOnlyObjectProperty<List<BoardPosition>> settledCellsProperty() {
+        return settledCells;
+    }
+
+    void publishSettledCells() {
+        Cell[][] board = gameGrid.getData();
+        List<BoardPosition> positions = new java.util.ArrayList<>();
+        for (int row = 0; row < getRows(); row++) {
+            for (int col = 0; col < getCols(); col++) {
+                if (board[row][col] != null) positions.add(new BoardPosition(row, col));
+            }
+        }
+        settledCells.set(List.copyOf(positions));
+    }
+
+    private void updateGhostCells() {
+        Tetris piece = currentTetris.get();
+        if (piece == null || currentCells.get() == null) {
+            ghostCells.set(List.of());
+            return;
+        }
+        List<BoardPosition> cells = Arrays.stream(piece.getCells())
+                .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                .toList();
+        boolean[][] occupied = gameGrid.occupiedSnapshot(currentCells.get());
+        ghostCells.set(landingGhost(occupied, getRows(), getCols(), cells));
+    }
+
+    static List<BoardPosition> landingGhost(
+            boolean[][] occupied, int rows, int cols, List<BoardPosition> cells) {
+        int drop = 0;
+        while (true) {
+            int nextDrop = drop + 1;
+            List<BoardPosition> next = cells.stream()
+                    .map(cell -> new BoardPosition(cell.row() + nextDrop, cell.col()))
+                    .toList();
+            if (!BoardRules.canPlace(occupied, rows, cols, next)) {
+                break;
+            }
+            drop = nextDrop;
+        }
+        if (drop == 0) {
+            return List.of();
+        }
+        int finalDrop = drop;
+        return cells.stream()
+                .map(cell -> new BoardPosition(cell.row() + finalDrop, cell.col()))
+                .filter(cell -> cell.row() >= 0)
+                .toList();
+    }
+
     public int getRows() {
         return gameGrid.getRows();
     }
@@ -953,6 +1039,9 @@ public final class GameWorld {
         cancelPendingAiDecision();
         cancelAiPlayback("ai-off");
         aiEnabled.set(!aiEnabled.get());
+        aiDisplay.set(new AiDisplay(!aiEnabled.get() ? "manual"
+                : gameActive && currentTetris.get() != null ? "next-piece" : "ready",
+                List.of(), 0));
     }
 
     public ReadOnlyObjectProperty<Cell[]> currentCellsProperty() {
@@ -1006,8 +1095,10 @@ public final class GameWorld {
                 AudioManager.getBgmMediaPlayer().stop();
             }
             gameTimeLine.stop();
+            aiDisplay.set(new AiDisplay("paused", List.of(), 0));
         }
         else {
+            gameOverDisplay.set(false);
             // 大写锁定处理
             keyLocked.ifPresent(b -> {
                 if (!b) {
@@ -1018,8 +1109,10 @@ public final class GameWorld {
                 AudioManager.getBgmMediaPlayer().play();
             }
             gameTimeLine.start();
+            aiDisplay.set(new AiDisplay(aiEnabled.get() ? "ready" : "manual", List.of(), 0));
         }
         gameActive = !gameActive;
+        activeDisplay.set(gameActive);
         if (gameActive && aiEnabled.get() && currentTetris.get() != null) {
             requestAiMove(currentTetris.get());
         }
@@ -1170,6 +1263,7 @@ public final class GameWorld {
         pendingAiSnapshot = snapshot;
         pendingAiTetris = expectedTetris;
         pendingAiSubmittedAt = submittedAt;
+        aiDisplay.set(new AiDisplay("thinking", List.of(), 0));
 
         decision.result().whenComplete((move, failure) -> {
             long completedAt = traceAiDecisions ? System.nanoTime() : 0L;
@@ -1199,9 +1293,14 @@ public final class GameWorld {
                 traceAiDecisions ? System.nanoTime() : 0L, completedAt, 0L);
         if (failure != null) {
             System.err.printf("AI decision failed: %s%n", failure.getMessage());
+            aiDisplay.set(new AiDisplay("failed", List.of(), 0));
             return;
         }
         playAiPlan(plan);
+        if (decision.fallbackUsed().toCompletableFuture().getNow(false)) {
+            AiDisplay current = aiDisplay.get();
+            aiDisplay.set(new AiDisplay("fallback", current.actions(), current.completedActions()));
+        }
     }
 
     /**
@@ -1225,14 +1324,21 @@ public final class GameWorld {
         if (result.isDone()) {
             try {
                 AiPlan plan = result.join();
+                boolean fallbackUsed = pendingAiDecision.fallbackUsed()
+                        .toCompletableFuture().getNow(false);
                 clearPendingAiDecision();
-                applyAiPlanBeforeGravity(plan);
+                boolean applied = applyAiPlanBeforeGravity(plan);
+                aiDisplay.set(new AiDisplay(
+                        applied && fallbackUsed ? "fallback"
+                                : applied ? "completed" : "cancelled",
+                        plan.actions(), applied ? plan.actions().size() : aiDisplay.get().completedActions()));
                 traceAiDecision("gravity-ready", submittedAt, deadlineAt, 0L, 0L);
             }
             catch (RuntimeException failure) {
                 clearPendingAiDecision();
                 traceAiDecision("failed", submittedAt, deadlineAt, 0L, 0L);
                 System.err.printf("AI decision failed: %s%n", failure.getMessage());
+                aiDisplay.set(new AiDisplay("failed", List.of(), 0));
             }
             return;
         }
@@ -1242,7 +1348,10 @@ public final class GameWorld {
             AiPlan fallbackPlan = aiDecisionExecutor.fallbackNow(snapshot);
             long fallbackNanos = traceAiDecisions ? System.nanoTime() - deadlineAt : 0L;
             clearPendingAiDecision();
-            applyAiPlanBeforeGravity(fallbackPlan);
+            boolean applied = applyAiPlanBeforeGravity(fallbackPlan);
+            aiDisplay.set(new AiDisplay(applied ? "fallback" : "cancelled",
+                    fallbackPlan.actions(), applied ? fallbackPlan.actions().size()
+                            : aiDisplay.get().completedActions()));
             traceAiDecision("gravity-fallback", submittedAt, deadlineAt, 0L, fallbackNanos);
         }
         catch (RuntimeException failure) {
@@ -1250,6 +1359,7 @@ public final class GameWorld {
             clearPendingAiDecision();
             traceAiDecision("fallback-failed", submittedAt, deadlineAt, 0L, fallbackNanos);
             System.err.printf("AI fallback failed: %s%n", failure.getMessage());
+            aiDisplay.set(new AiDisplay("failed", List.of(), 0));
         }
     }
 
@@ -1273,6 +1383,7 @@ public final class GameWorld {
                     traceAiDecisions ? System.nanoTime() : 0L, 0L, 0L);
             aiDecisionExecutor.invalidate();
             clearPendingAiDecision();
+            aiDisplay.set(new AiDisplay("cancelled", List.of(), 0));
         }
     }
 
@@ -1324,12 +1435,14 @@ public final class GameWorld {
         aiPlaybackStartedAt = traceAiDecisions ? System.nanoTime() : 0L;
         aiPlaybackExecutedControls = 0;
         aiPlaybackDropRows = 0;
+        aiDisplay.set(new AiDisplay("executing", aiPlaybackActions, 0));
         advanceAiPlayback();
     }
 
     /** Preserve the deadline contract for decisions first resolved inside a gravity tick. */
-    private void applyAiPlanBeforeGravity(AiPlan plan) {
+    private boolean applyAiPlanBeforeGravity(AiPlan plan) {
         cancelAiPlayback("superseded");
+        int completed = 0;
         for (AiAction action : plan.actions()) {
             if (action == AiAction.HARD_DROP) {
                 while (downMove(InputOrigin.AI)) {
@@ -1337,9 +1450,13 @@ public final class GameWorld {
                 }
             }
             else if (!applyAiAction(action)) {
-                return;
+                aiDisplay.set(new AiDisplay("cancelled", plan.actions(), completed));
+                return false;
             }
+            completed++;
+            aiDisplay.set(new AiDisplay("executing", plan.actions(), completed));
         }
+        return true;
     }
 
     private void advanceAiPlayback() {
@@ -1357,6 +1474,7 @@ public final class GameWorld {
             }
             else {
                 aiPlaybackExecutedControls++;
+                aiPlaybackIndex++;
                 cancelAiPlayback("completed");
                 // The existing gravity path owns lock, row clearing, and the next-piece lifecycle.
                 gameTimeLine.advanceNow();
@@ -1391,6 +1509,7 @@ public final class GameWorld {
 
         aiPlaybackIndex++;
         aiPlaybackExecutedControls++;
+        aiDisplay.set(new AiDisplay("executing", aiPlaybackActions, aiPlaybackIndex));
         if (action == AiAction.SOFT_DROP) {
             aiPlaybackDropRows++;
         }
@@ -1435,6 +1554,12 @@ public final class GameWorld {
     }
 
     private void cancelAiPlayback(String outcome) {
+        if (aiPlaybackPiece != null) {
+            aiDisplay.set(new AiDisplay(
+                    "completed".equals(outcome) || "gravity-landed".equals(outcome)
+                            ? "completed" : "cancelled",
+                    aiPlaybackActions, aiPlaybackIndex));
+        }
         if (aiPlaybackPiece != null && traceAiDecisions) {
             System.out.printf(Locale.ROOT,
                     "AI_PLAYBACK outcome=%s elapsed_ms=%.3f controls=%d executed=%d "

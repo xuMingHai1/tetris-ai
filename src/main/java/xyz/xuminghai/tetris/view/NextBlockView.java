@@ -627,7 +627,6 @@
 package xyz.xuminghai.tetris.view;
 
 import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.scene.paint.Color;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.core.Tetris;
 
@@ -652,8 +651,11 @@ public final class NextBlockView extends AbstractBlockView {
     }
 
     private void clearView() {
-        super.graphicsContext.setFill(Color.BLACK);
-        super.graphicsContext.fillRect(0.0, 0.0, super.getWidth(), super.getHeight());
+        for (int row = 0; row < getRows(); row++) {
+            for (int col = 0; col < getCols(); col++) {
+                super.clearCell(row, col);
+            }
+        }
     }
 
     private void fillTetris(Tetris tetris) {

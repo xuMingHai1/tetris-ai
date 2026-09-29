@@ -636,12 +636,15 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
+import javafx.stage.Screen;
 import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
 import xyz.xuminghai.tetris.game.GameKeyCodeAction;
 import xyz.xuminghai.tetris.game.GameWorld;
 import xyz.xuminghai.tetris.util.AudioManager;
 import xyz.xuminghai.tetris.util.Version;
-import xyz.xuminghai.tetris.view.GameView;
+import xyz.xuminghai.tetris.view.DashboardView;
+
+import java.util.Locale;
 
 
 /**
@@ -679,8 +682,24 @@ public class TetrisApplication extends Application {
         primaryStage.getIcons().add(new Image("img/icon.png"));
         // 禁止改变大小
         primaryStage.setResizable(false);
-        final GameView gameView = new GameView(gameWorld, getHostServices());
-        primaryStage.setScene(keyMonitor(new Scene(gameView)));
+        final String configuredAgent = System.getenv()
+                .getOrDefault("TETRIS_AI_AGENT", "heuristic")
+                .trim().toLowerCase(Locale.ROOT);
+        final String agentLabel = switch (configuredAgent) {
+            case "jev" -> "Jev AI";
+            case "jev-action" -> "Jev Action";
+            case "action" -> "Action AI";
+            default -> "Heuristic";
+        };
+        final String objective = System.getenv()
+                .getOrDefault(AiPlanningAgentFactory.OBJECTIVE_ENV, "survival")
+                .trim().toLowerCase(Locale.ROOT);
+        final DashboardView gameView = new DashboardView(
+                gameWorld, getHostServices(), agentLabel, objective);
+        final var available = Screen.getPrimary().getVisualBounds();
+        primaryStage.setScene(keyMonitor(new Scene(gameView,
+                Math.min(950, available.getWidth() - 40),
+                Math.min(850, available.getHeight() - 40))));
         primaryStage.show();
         checkUpdate(primaryStage);
         System.out.printf("启动完成耗时 = %dms%n", System.currentTimeMillis() - BOOT_TIME);

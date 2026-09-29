@@ -720,6 +720,7 @@ public class GameOverAnimation implements GameTimer {
                 }
             }
         }
+        gameWorld.publishSettledCells();
         gameWorld.startOrPauseGame();
         // 清除消除行数
         gameWorld.lines.set(0);

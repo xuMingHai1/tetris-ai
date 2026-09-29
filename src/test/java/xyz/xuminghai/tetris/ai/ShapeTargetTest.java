@@ -6,6 +6,7 @@
 package xyz.xuminghai.tetris.ai;
 
 import org.junit.jupiter.api.Test;
+import xyz.xuminghai.tetris.core.BoardPosition;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -13,6 +14,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShapeTargetTest {
+
+    @Test
+    void exposesTheSameRequiredCellsForTheVisualTarget() {
+        var cells = ShapeTarget.HEART.requiredLocalCells();
+
+        assertEquals(ShapeTarget.HEART.requiredCells(), cells.size());
+        assertTrue(cells.contains(new BoardPosition(0, 1)));
+        assertTrue(cells.contains(new BoardPosition(5, 3)));
+        assertFalse(cells.contains(new BoardPosition(0, 0)));
+        assertFalse(cells.contains(new BoardPosition(6, 3)));
+    }
 
     @Test
     void evaluatesCleanHeartAboveSupportZone() {
