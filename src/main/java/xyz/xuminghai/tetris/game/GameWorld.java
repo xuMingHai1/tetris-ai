@@ -1400,6 +1400,12 @@ public final class GameWorld {
         if (aiPlaybackIndex == aiPlaybackActions.size()) {
             cancelAiPlayback("completed");
         }
+        else if (action == AiAction.SOFT_DROP
+                && aiPlaybackActions.get(aiPlaybackIndex) == AiAction.HARD_DROP) {
+            // The final planned row has already moved. Let the terminal drop lock the piece
+            // before the next gravity pulse can replace it during an otherwise idle delay.
+            advanceAiPlayback();
+        }
         else {
             scheduleAiPlayback(action == AiAction.SOFT_DROP
                     ? AI_DROP_INTERVAL_MS : AI_CONTROL_INTERVAL_MS);
