@@ -60,6 +60,8 @@ class AiDecisionTraceSummaryTest(unittest.TestCase):
             "fallback_ms=0.000\n",
             "AI_DECISION outcome=callback elapsed_ms=4.000 fx_queue_ms=0.100 "
             "fallback_ms=0.000\n",
+            "AI_PLAYBACK_BLOCKED action=ROTATE_CLOCKWISE piece=L index=1 "
+            "plan=[ROTATE_CLOCKWISE, ROTATE_CLOCKWISE, HARD_DROP] cells=[]\n",
             "AI_PLAYBACK outcome=completed elapsed_ms=240.000 controls=4 "
             "executed=4 drop_rows=12\n",
             "AI_PLAYBACK outcome=blocked elapsed_ms=90.000 controls=5 "

@@ -640,6 +640,7 @@ import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.ai.TetrisAgent;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.BoardRules;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.core.PieceGenerator;
 import xyz.xuminghai.tetris.core.Tetris;
@@ -1063,6 +1064,17 @@ public final class GameWorld {
             if (previousCells != null) {
                 gameGrid.clearCells(previousCells);
             }
+            if (cells.length == 0
+                    && Arrays.stream(tetris.getCells()).allMatch(cell -> cell.getRow() < 0)
+                    && BoardRules.canPlace(gameGrid.occupiedSnapshot(null), gameGrid.getRows(),
+                            gameGrid.getCols(), Arrays.stream(tetris.getCells())
+                                    .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
+                                    .toList())) {
+                // A legal rotation can leave all four cells above the visible board. The grid has
+                // nothing to save yet, but the live piece and its rotation state must still advance.
+                currentCells.set(cells);
+                return true;
+            }
             if (gameGrid.saveCellsData(cells)) {
                 if (origin == InputOrigin.PLAYER && audioEnabled) {
                     switch (action) {
@@ -1074,6 +1086,13 @@ public final class GameWorld {
                 return true;
             }
 
+            // Rotation methods also advance internal orientation. Undo that state when the grid
+            // rejects the move; restoring coordinates alone would corrupt the next AI snapshot.
+            switch (action) {
+                case ROTATE_CLOCKWISE -> tetris.rotateCounterClockwise();
+                case ROTATE_COUNTER_CLOCKWISE -> tetris.rotateClockwise();
+                default -> { }
+            }
             tetris.setCells(copyCells);
             if (previousCells != null) {
                 gameGrid.saveCellsData(previousCells);
