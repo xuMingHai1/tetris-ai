@@ -626,6 +626,7 @@
 
 package xyz.xuminghai.tetris.game;
 
+import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.beans.property.*;
 import javafx.scene.input.KeyCode;
@@ -661,6 +662,8 @@ import java.util.function.Function;
 public final class GameWorld {
 
     private static final int MAX_LEVEL = 30;
+    private static final int AI_CONTROL_INTERVAL_MS = 45;
+    private static final int AI_DROP_INTERVAL_MS = 20;
 
     private final PieceGenerator pieceGenerator = new BagPieceGenerator();
 
@@ -681,6 +684,12 @@ public final class GameWorld {
     private GameSnapshot pendingAiSnapshot;
     private Tetris pendingAiTetris;
     private long pendingAiSubmittedAt;
+
+    /** FX-thread playback for a decided plan; gravity and manual controls stay live. */
+    private PauseTransition aiPlaybackDelay;
+    private List<AiAction> aiPlaybackActions = List.of();
+    private int aiPlaybackIndex;
+    private Tetris aiPlaybackPiece;
 
     public GameWorld() {
         this(new HeuristicTetrisAgent());
@@ -825,7 +834,7 @@ public final class GameWorld {
                     .ifPresent(gameGrid::clearCells);
             if (gameGrid.saveCellsData(cells)) {
                 currentCells.set(gameGrid.checkCells(tetris.copy()));
-                if (spawned && aiEnabled.get()) {
+                if (aiEnabled.get() && pendingAiDecision == null && aiPlaybackPiece == null) {
                     requestAiMove(tetris);
                 }
             }
@@ -938,6 +947,7 @@ public final class GameWorld {
      */
     public void toggleAi() {
         cancelPendingAiDecision();
+        cancelAiPlayback();
         aiEnabled.set(!aiEnabled.get());
     }
 
@@ -982,6 +992,7 @@ public final class GameWorld {
         final Optional<Boolean> keyLocked = Platform.isKeyLocked(KeyCode.CAPS);
         if (gameActive) {
             cancelPendingAiDecision();
+            cancelAiPlayback();
             keyLocked.ifPresent(b -> {
                 if (b) {
                     robot.keyType(KeyCode.CAPS);
@@ -1028,6 +1039,7 @@ public final class GameWorld {
         if (playAudio) {
             // Manual input wins over an in-flight remote decision for the same piece.
             cancelPendingAiDecision();
+            cancelAiPlayback();
         }
         final Tetris tetris = currentTetris.get();
         if (tetris != null) {
@@ -1142,7 +1154,7 @@ public final class GameWorld {
             System.err.printf("AI decision failed: %s%n", failure.getMessage());
             return;
         }
-        applyAiPlan(plan);
+        playAiPlan(plan);
     }
 
     /**
@@ -1167,7 +1179,7 @@ public final class GameWorld {
             try {
                 AiPlan plan = result.join();
                 clearPendingAiDecision();
-                applyAiPlan(plan);
+                applyAiPlanBeforeGravity(plan);
                 traceAiDecision("gravity-ready", submittedAt, deadlineAt, 0L, 0L);
             }
             catch (RuntimeException failure) {
@@ -1183,7 +1195,7 @@ public final class GameWorld {
             AiPlan fallbackPlan = aiDecisionExecutor.fallbackNow(snapshot);
             long fallbackNanos = traceAiDecisions ? System.nanoTime() - deadlineAt : 0L;
             clearPendingAiDecision();
-            applyAiPlan(fallbackPlan);
+            applyAiPlanBeforeGravity(fallbackPlan);
             traceAiDecision("gravity-fallback", submittedAt, deadlineAt, 0L, fallbackNanos);
         }
         catch (RuntimeException failure) {
@@ -1253,19 +1265,93 @@ public final class GameWorld {
                 TetrominoType.from(nextTetris.get()));
     }
 
-    /**
-     * Executes an AI plan against the live model in order.
-     *
-     * <p>Every non-hard-drop action must succeed or the remainder of the plan is abandoned. Hard
-     * drop repeatedly applies the existing downward movement until collision; lock, row clearing
-     * and next-piece lifecycle remain owned by the normal gravity path.</p>
-     */
-    private void applyAiPlan(AiPlan plan) {
+    /** Plays controls on the FX thread at a visible pace while regular gravity remains active. */
+    private void playAiPlan(AiPlan plan) {
+        cancelAiPlayback();
+        aiPlaybackActions = plan.actions();
+        aiPlaybackPiece = currentTetris.get();
+        aiPlaybackIndex = 0;
+        if (aiPlaybackPiece != null && !aiPlaybackActions.isEmpty()) {
+            advanceAiPlayback();
+        }
+        else {
+            cancelAiPlayback();
+        }
+    }
+
+    /** Preserve the deadline contract for decisions first resolved inside a gravity tick. */
+    private void applyAiPlanBeforeGravity(AiPlan plan) {
+        cancelAiPlayback();
         for (AiAction action : plan.actions()) {
-            if (!applyAiAction(action)) {
+            if (action == AiAction.HARD_DROP) {
+                while (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
+                    // Complete the fallback before the current gravity tick mutates the piece.
+                }
+            }
+            else if (!applyAiAction(action)) {
                 return;
             }
         }
+    }
+
+    private void advanceAiPlayback() {
+        if (!gameActive || !aiEnabled.get() || currentTetris.get() != aiPlaybackPiece) {
+            cancelAiPlayback();
+            return;
+        }
+
+        AiAction action = aiPlaybackActions.get(aiPlaybackIndex);
+        if (action == AiAction.HARD_DROP) {
+            if (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
+                scheduleAiPlayback(AI_DROP_INTERVAL_MS);
+            }
+            else {
+                cancelAiPlayback();
+                // The existing gravity path owns lock, row clearing, and the next-piece lifecycle.
+                gameTimeLine.advanceNow();
+            }
+            return;
+        }
+
+        if (!applyAiAction(action)) {
+            // Gravity may have moved the piece since planning. Replan from its current live cells.
+            Tetris piece = aiPlaybackPiece;
+            cancelAiPlayback();
+            if (gameActive && aiEnabled.get() && currentTetris.get() == piece) {
+                requestAiMove(piece);
+            }
+            return;
+        }
+
+        aiPlaybackIndex++;
+        if (aiPlaybackIndex == aiPlaybackActions.size()) {
+            cancelAiPlayback();
+        }
+        else {
+            scheduleAiPlayback(AI_CONTROL_INTERVAL_MS);
+        }
+    }
+
+    private void scheduleAiPlayback(int delayMillis) {
+        PauseTransition delay = new PauseTransition(javafx.util.Duration.millis(delayMillis));
+        aiPlaybackDelay = delay;
+        delay.setOnFinished(_ -> {
+            if (aiPlaybackDelay == delay) {
+                aiPlaybackDelay = null;
+                advanceAiPlayback();
+            }
+        });
+        delay.play();
+    }
+
+    private void cancelAiPlayback() {
+        if (aiPlaybackDelay != null) {
+            aiPlaybackDelay.stop();
+            aiPlaybackDelay = null;
+        }
+        aiPlaybackActions = List.of();
+        aiPlaybackIndex = 0;
+        aiPlaybackPiece = null;
     }
 
     private boolean applyAiAction(AiAction action) {
@@ -1277,12 +1363,7 @@ public final class GameWorld {
             case ROTATE_COUNTER_CLOCKWISE ->
                     tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, false);
             case SOFT_DROP -> tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false);
-            case HARD_DROP -> {
-                while (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
-                    // Keep descending until the next row would collide.
-                }
-                yield true;
-            }
+            case HARD_DROP -> throw new IllegalStateException("hard drop is played one row at a time");
         };
     }
 

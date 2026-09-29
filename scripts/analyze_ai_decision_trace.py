@@ -65,11 +65,11 @@ def summarize(decisions):
     for outcome in OUTCOMES:
         print(f"  {outcome}: {counts[outcome]}")
     if completed:
-        print(f"Gravity fallback among applied decisions: "
+        print(f"Gravity fallback among accepted decisions: "
               f"{counts['gravity-fallback']}/{completed} "
               f"({100 * counts['gravity-fallback'] / completed:.2f}%)")
     else:
-        print("Gravity fallback among applied decisions: n/a")
+        print("Gravity fallback among accepted decisions: n/a")
     for outcome in ("callback", "gravity-ready", "gravity-fallback"):
         print(f"{outcome} elapsed: "
               f"{timing([d.elapsed_ms for d in decisions if d.outcome == outcome])}")

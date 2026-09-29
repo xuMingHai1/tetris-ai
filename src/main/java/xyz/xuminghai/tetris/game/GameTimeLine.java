@@ -662,7 +662,18 @@ public class GameTimeLine extends AnimationTimer {
     }
 
     void setGameAnimation(GameTimer gameAnimation) {
+        if (this.gameAnimation != null && gameAnimation == null) {
+            // Spawn the next piece on the frame after the lock/clear animation finishes.
+            lastMainLineHandleTime = System.nanoTime()
+                    - TimeUnit.MILLISECONDS.toNanos((long) Math.max(0, pulse));
+        }
         this.gameAnimation = gameAnimation;
+    }
+
+    /** Locks a completed hard drop through the ordinary game path and restarts the gravity clock. */
+    void advanceNow() {
+        lastMainLineHandleTime = System.nanoTime();
+        gameMainLine.run();
     }
 
     void setKeyCompensateTimer(GameTimer keyCompensateTimer) {
