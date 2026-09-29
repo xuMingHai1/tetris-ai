@@ -1029,14 +1029,21 @@ public final class GameWorld {
         ROTATE_COUNTER_CLOCKWISE
     }
 
+    private enum InputOrigin {
+        PLAYER,
+        AI
+    }
+
     /**
      * 方块行为
      *
      * @param action   行为
      * @param function 行为函数
+     * @param origin 来源；人工输入优先并打断尚未完成的 AI 动作
      */
-    private boolean tetrisAction(ActionEnum action, Function<Tetris, Cell[]> function, boolean playAudio) {
-        if (playAudio) {
+    private boolean tetrisAction(ActionEnum action, Function<Tetris, Cell[]> function,
+            InputOrigin origin) {
+        if (origin == InputOrigin.PLAYER) {
             // Manual input wins over an in-flight remote decision for the same piece.
             cancelPendingAiDecision();
             cancelAiPlayback();
@@ -1054,7 +1061,7 @@ public final class GameWorld {
                 gameGrid.clearCells(previousCells);
             }
             if (gameGrid.saveCellsData(cells)) {
-                if (playAudio && audioEnabled) {
+                if (origin == InputOrigin.PLAYER && audioEnabled) {
                     switch (action) {
                         case DOWN_MOVE, LEFT_MOVE, RIGHT_MOVE -> AudioManager.getMoveAudioClip().play();
                         case ROTATE_CLOCKWISE, ROTATE_COUNTER_CLOCKWISE -> AudioManager.getRotateAudioClip().play();
@@ -1076,35 +1083,56 @@ public final class GameWorld {
      * 向下移动
      */
     void downMove() {
-        tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, true);
+        downMove(InputOrigin.PLAYER);
+    }
+
+    private boolean downMove(InputOrigin origin) {
+        return tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, origin);
     }
 
     /**
      * 向左移动
      */
     void leftMove() {
-        tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, true);
+        leftMove(InputOrigin.PLAYER);
+    }
+
+    private boolean leftMove(InputOrigin origin) {
+        return tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, origin);
     }
 
     /**
      * 向右移动
      */
     void rightMove() {
-        tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, true);
+        rightMove(InputOrigin.PLAYER);
+    }
+
+    private boolean rightMove(InputOrigin origin) {
+        return tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, origin);
     }
 
     /**
      * 顺时针旋转
      */
     public void rotateClockwise() {
-        tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, true);
+        rotateClockwise(InputOrigin.PLAYER);
+    }
+
+    private boolean rotateClockwise(InputOrigin origin) {
+        return tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, origin);
     }
 
     /**
      * 逆时针旋转
      */
     public void rotateCounterClockwise() {
-        tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, true);
+        rotateCounterClockwise(InputOrigin.PLAYER);
+    }
+
+    private boolean rotateCounterClockwise(InputOrigin origin) {
+        return tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE,
+                Tetris::rotateCounterClockwise, origin);
     }
 
     /**
@@ -1284,7 +1312,7 @@ public final class GameWorld {
         cancelAiPlayback();
         for (AiAction action : plan.actions()) {
             if (action == AiAction.HARD_DROP) {
-                while (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
+                while (downMove(InputOrigin.AI)) {
                     // Complete the fallback before the current gravity tick mutates the piece.
                 }
             }
@@ -1302,7 +1330,7 @@ public final class GameWorld {
 
         AiAction action = aiPlaybackActions.get(aiPlaybackIndex);
         if (action == AiAction.HARD_DROP) {
-            if (tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false)) {
+            if (downMove(InputOrigin.AI)) {
                 scheduleAiPlayback(AI_DROP_INTERVAL_MS);
             }
             else {
@@ -1356,13 +1384,11 @@ public final class GameWorld {
 
     private boolean applyAiAction(AiAction action) {
         return switch (action) {
-            case LEFT -> tetrisAction(ActionEnum.LEFT_MOVE, Tetris::leftMove, false);
-            case RIGHT -> tetrisAction(ActionEnum.RIGHT_MOVE, Tetris::rightMove, false);
-            case ROTATE_CLOCKWISE ->
-                    tetrisAction(ActionEnum.ROTATE_CLOCKWISE, Tetris::rotateClockwise, false);
-            case ROTATE_COUNTER_CLOCKWISE ->
-                    tetrisAction(ActionEnum.ROTATE_COUNTER_CLOCKWISE, Tetris::rotateCounterClockwise, false);
-            case SOFT_DROP -> tetrisAction(ActionEnum.DOWN_MOVE, Tetris::downMove, false);
+            case LEFT -> leftMove(InputOrigin.AI);
+            case RIGHT -> rightMove(InputOrigin.AI);
+            case ROTATE_CLOCKWISE -> rotateClockwise(InputOrigin.AI);
+            case ROTATE_COUNTER_CLOCKWISE -> rotateCounterClockwise(InputOrigin.AI);
+            case SOFT_DROP -> downMove(InputOrigin.AI);
             case HARD_DROP -> throw new IllegalStateException("hard drop is played one row at a time");
         };
     }

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize the opt-in AI_DECISION lines emitted by the desktop game."""
+"""Summarize desktop AI decision deadlines and computed preview rescue observations."""
 
 import argparse
 from collections import Counter
@@ -18,6 +18,12 @@ TRACE = re.compile(
     r"AI_DECISION outcome=([a-z-]+) elapsed_ms=([0-9]+(?:\.[0-9]+)?) "
     r"fx_queue_ms=(-?[0-9]+(?:\.[0-9]+)?) fallback_ms=([0-9]+(?:\.[0-9]+)?)$"
 )
+RESCUE_TRACE = re.compile(
+    r"AI_PREVIEW_RESCUE rank1_evaluated=(true|false) "
+    r"preview_unrecoverable=(true|false) replaced=(true|false) "
+    r"replacement_rank=(\d+) candidates_probed=(\d+) "
+    r"detection_ms=([0-9]+(?:\.[0-9]+)?) search_ms=([0-9]+(?:\.[0-9]+)?)$"
+)
 
 
 @dataclass(frozen=True)
@@ -28,9 +34,44 @@ class Decision:
     fallback_ms: float
 
 
-def parse(lines):
+@dataclass(frozen=True)
+class Rescue:
+    rank1_evaluated: bool
+    preview_unrecoverable: bool
+    replaced: bool
+    replacement_rank: int
+    candidates_probed: int
+    detection_ms: float
+    search_ms: float
+
+
+@dataclass(frozen=True)
+class Capture:
+    decisions: list[Decision]
+    rescues: list[Rescue]
+
+
+def parse_capture(lines):
     decisions = []
+    rescues = []
     for number, line in enumerate(lines, start=1):
+        if "AI_PREVIEW_RESCUE" in line:
+            match = RESCUE_TRACE.search(line.strip())
+            if match is None:
+                raise ValueError(f"malformed AI_PREVIEW_RESCUE at line {number}")
+            rank1, unrecoverable, replaced = (value == "true" for value in match.groups()[:3])
+            rank, probed = map(int, match.groups()[3:5])
+            detection, search = map(float, match.groups()[5:])
+            if ((not rank1 and (unrecoverable or detection != 0))
+                    or (not unrecoverable and (replaced or rank != 0 or probed != 0
+                                               or search != 0))
+                    or (replaced and (not unrecoverable or rank < 2 or probed != rank - 1))
+                    or (not replaced and rank != 0)
+                    or not all(map(math.isfinite, (detection, search)))):
+                raise ValueError(f"invalid AI_PREVIEW_RESCUE at line {number}")
+            rescues.append(Rescue(rank1, unrecoverable, replaced, rank, probed,
+                                  detection, search))
+            continue
         if "AI_DECISION" not in line:
             continue
         match = TRACE.search(line.strip())
@@ -47,7 +88,12 @@ def parse(lines):
         decisions.append(Decision(outcome, elapsed, queue, fallback))
     if not decisions:
         raise ValueError("no AI_DECISION lines found; enable TETRIS_AI_DECISION_TRACE=true")
-    return decisions
+    return Capture(decisions, rescues)
+
+
+def parse(lines):
+    """Preserve the decision-only reader for existing log consumers."""
+    return parse_capture(lines).decisions
 
 
 def timing(values):
@@ -58,7 +104,7 @@ def timing(values):
     return f"mean={statistics.fmean(ordered):.3f} p95={p95:.3f} max={ordered[-1]:.3f} ms"
 
 
-def summarize(decisions):
+def summarize(decisions, rescues=()):
     counts = Counter(decision.outcome for decision in decisions)
     completed = sum(counts[outcome] for outcome in ("callback", "gravity-ready", "gravity-fallback"))
     print(f"Requests: {len(decisions)}")
@@ -77,6 +123,20 @@ def summarize(decisions):
           + timing([d.fx_queue_ms for d in decisions if d.outcome == "callback"]))
     print("Gravity fallback computation: "
           + timing([d.fallback_ms for d in decisions if d.outcome == "gravity-fallback"]))
+    if not rescues:
+        print("Preview rescue observations: unavailable")
+        return
+    rank1 = sum(o.rank1_evaluated for o in rescues)
+    unrecoverable = sum(o.preview_unrecoverable for o in rescues)
+    replaced = sum(o.replaced for o in rescues)
+    print(f"Computed preview rescue plans: {len(rescues)} (may include discarded decisions)")
+    print(f"  rank 1 evaluated: {rank1}")
+    print(f"  preview unrecoverable: {unrecoverable}")
+    print(f"  replacement found: {replaced}")
+    print("Preview detection: "
+          + timing([o.detection_ms for o in rescues if o.rank1_evaluated]))
+    print("Preview replacement search: "
+          + timing([o.search_ms for o in rescues if o.preview_unrecoverable]))
 
 
 def main():
@@ -85,11 +145,11 @@ def main():
     args = argument_parser.parse_args()
     try:
         if str(args.log) == "-":
-            decisions = parse(sys.stdin)
+            capture = parse_capture(sys.stdin)
         else:
             with args.log.open(encoding="utf-8", errors="replace") as lines:
-                decisions = parse(lines)
-        summarize(decisions)
+                capture = parse_capture(lines)
+        summarize(capture.decisions, capture.rescues)
     except (OSError, UnicodeError, ValueError) as failure:
         argument_parser.exit(2, f"error: {failure}\n")
 
