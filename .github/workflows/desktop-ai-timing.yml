@@ -11,7 +11,12 @@ on:
   pull_request:
     paths:
       - .github/workflows/desktop-ai-timing.yml
+      - pom.xml
       - src/main/java/xyz/xuminghai/tetris/DesktopAiTimingApplication.java
+      - src/main/java/xyz/xuminghai/tetris/ai/*.java
+      - src/main/java/xyz/xuminghai/tetris/core/**
+      - src/main/java/xyz/xuminghai/tetris/game/**
+      - src/main/java/xyz/xuminghai/tetris/view/**
       - scripts/analyze_ai_decision_trace.py
 
 permissions:
@@ -43,8 +48,8 @@ jobs:
       - name: Capture JavaFX timing
         shell: bash
         env:
-          TRACE_SECONDS: ${{ github.event_name == 'pull_request' && '12' || inputs.seconds }}
-          TETRIS_AI_TRACE_SECONDS: ${{ github.event_name == 'pull_request' && '12' || inputs.seconds }}
+          TRACE_SECONDS: ${{ github.event_name == 'pull_request' && '120' || inputs.seconds }}
+          TETRIS_AI_TRACE_SECONDS: ${{ github.event_name == 'pull_request' && '120' || inputs.seconds }}
           TETRIS_AI_AGENT: action
           TETRIS_AI_OBJECTIVE: build-shape
           TETRIS_AI_PREVIEW_RESCUE: 'true'
@@ -61,6 +66,20 @@ jobs:
             compile javafx:run > "$RUNNER_TEMP/ai-decision.log" 2>&1
           python3 scripts/analyze_ai_decision_trace.py "$RUNNER_TEMP/ai-decision.log" \
             | tee "$RUNNER_TEMP/ai-decision-summary.txt"
+
+      - name: Publish timing summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo '## Desktop AI Timing'
+            echo
+            echo '~~~text'
+            cat "$RUNNER_TEMP/ai-decision-summary.txt"
+            echo '~~~'
+            echo
+            echo 'Headless Linux runner observation; see the artifact for the raw trace.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload desktop timing evidence
         if: always()
