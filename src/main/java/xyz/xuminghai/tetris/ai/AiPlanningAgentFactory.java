@@ -8,6 +8,7 @@ package xyz.xuminghai.tetris.ai;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * Selects the application-level action planning implementation from environment configuration.
@@ -27,8 +28,21 @@ public final class AiPlanningAgentFactory {
         return from(System.getenv());
     }
 
+    /** Attaches preview-rescue observations when that opt-in planner is selected. */
+    public static AiPlanningAgent fromEnvironment(
+            Consumer<PreviewRescueActionPlanningAgent.Observation> observer) {
+        return from(System.getenv(), observer);
+    }
+
     static AiPlanningAgent from(Map<String, String> environment) {
+        return from(environment, ignored -> {
+        });
+    }
+
+    static AiPlanningAgent from(Map<String, String> environment,
+            Consumer<PreviewRescueActionPlanningAgent.Observation> observer) {
         Objects.requireNonNull(environment, "environment");
+        Objects.requireNonNull(observer, "observer");
         String configured = environment
                 .getOrDefault(TetrisAgentFactory.AGENT_ENV, "heuristic")
                 .trim()
@@ -65,7 +79,7 @@ public final class AiPlanningAgentFactory {
                 case SURVIVAL -> new DeterministicActionPlanningAgent();
                 case TUCK_HUNTER -> new TuckHunterActionPlanningAgent();
                 case BUILD_SHAPE -> previewRescue
-                        ? new PreviewRescueActionPlanningAgent()
+                        ? new PreviewRescueActionPlanningAgent(observer)
                         : new BuildShapeActionPlanningAgent();
             };
             case "jev-action" ->

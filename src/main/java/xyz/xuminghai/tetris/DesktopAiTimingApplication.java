@@ -12,8 +12,11 @@ import javafx.scene.Scene;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
+import xyz.xuminghai.tetris.ai.PreviewRescueActionPlanningAgent;
 import xyz.xuminghai.tetris.game.GameWorld;
 import xyz.xuminghai.tetris.view.GameView;
+
+import java.util.Locale;
 
 /** Runs the ordinary desktop world and view for a bounded JavaFX timing capture. */
 public final class DesktopAiTimingApplication extends Application {
@@ -30,7 +33,10 @@ public final class DesktopAiTimingApplication extends Application {
         if (seconds < 1 || seconds > 900) {
             throw new IllegalArgumentException(DURATION_ENV + " must be between 1 and 900");
         }
-        GameWorld world = new GameWorld(AiPlanningAgentFactory.fromEnvironment(), false);
+        // Capture computed planner decisions; the factory still enforces the runtime configuration.
+        GameWorld world = new GameWorld(
+                AiPlanningAgentFactory.fromEnvironment(
+                        DesktopAiTimingApplication::tracePreviewRescue), false);
         stage.setScene(new Scene(new GameView(world, getHostServices())));
         stage.show();
 
@@ -47,5 +53,15 @@ public final class DesktopAiTimingApplication extends Application {
             Platform.exit();
         });
         capture.play();
+    }
+
+    private static void tracePreviewRescue(PreviewRescueActionPlanningAgent.Observation o) {
+        System.out.printf(Locale.ROOT,
+                "AI_PREVIEW_RESCUE rank1_evaluated=%s preview_unrecoverable=%s "
+                        + "replaced=%s replacement_rank=%d candidates_probed=%d "
+                        + "detection_ms=%.3f search_ms=%.3f%n",
+                o.rank1Evaluated(), o.previewUnrecoverable(), o.replaced(),
+                o.replacementRank(), o.candidatesProbed(),
+                o.detectionNanos() / 1_000_000.0, o.searchNanos() / 1_000_000.0);
     }
 }

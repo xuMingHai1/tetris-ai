@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 from io import StringIO
 import unittest
 
-from analyze_ai_decision_trace import parse, summarize, timing
+from analyze_ai_decision_trace import parse, parse_capture, summarize, timing
 
 
 class AiDecisionTraceSummaryTest(unittest.TestCase):
@@ -30,6 +30,29 @@ class AiDecisionTraceSummaryTest(unittest.TestCase):
         self.assertEqual("mean=10.500 p95=19.000 max=20.000 ms", timing(range(1, 21)))
         with self.assertRaisesRegex(ValueError, "line 2"):
             parse(["unrelated\n", "AI_DECISION outcome=callback elapsed_ms=bad\n"])
+
+    def test_computed_rescue_observations_are_separate_from_applied_outcomes(self):
+        capture = parse_capture([
+            "AI_PREVIEW_RESCUE rank1_evaluated=true preview_unrecoverable=false "
+            "replaced=false replacement_rank=0 candidates_probed=0 "
+            "detection_ms=0.250 search_ms=0.000\n",
+            "AI_PREVIEW_RESCUE rank1_evaluated=true preview_unrecoverable=true "
+            "replaced=true replacement_rank=3 candidates_probed=2 "
+            "detection_ms=1.000 search_ms=5.000\n",
+            "AI_DECISION outcome=callback elapsed_ms=8.000 fx_queue_ms=0.500 "
+            "fallback_ms=0.000\n",
+        ])
+        output = StringIO()
+        with redirect_stdout(output):
+            summarize(capture.decisions, capture.rescues)
+        self.assertIn("Requests: 1", output.getvalue())
+        self.assertIn("Computed preview rescue plans: 2 (may include discarded decisions)",
+                      output.getvalue())
+        self.assertIn("replacement found: 1", output.getvalue())
+        self.assertIn("Preview replacement search: mean=5.000 p95=5.000 max=5.000 ms",
+                      output.getvalue())
+        with self.assertRaisesRegex(ValueError, "line 2"):
+            parse_capture(["unrelated\n", "AI_PREVIEW_RESCUE replaced=bad\n"])
 
 
 if __name__ == "__main__":
