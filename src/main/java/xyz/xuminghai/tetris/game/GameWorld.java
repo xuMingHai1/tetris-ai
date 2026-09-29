@@ -772,7 +772,7 @@ public final class GameWorld {
         {
             // 音效处理
             super.addListener((_, oldValue, newValue) -> {
-                if (gameActive && audioEnabled) {
+                if (gameActive && isAudioEnabled()) {
                     final int oldLevel = oldValue.intValue();
                     final int newLevel = newValue.intValue();
                     if (newLevel > oldLevel) {
@@ -785,6 +785,10 @@ public final class GameWorld {
             });
         }
     };
+
+    private boolean isAudioEnabled() {
+        return audioEnabled;
+    }
 
     /**
      * 分数
