@@ -4,7 +4,7 @@
 
 [![img.png](md_data/img.png)](https://www.bilibili.com/video/BV1Yx4y1S7dK)
 
-> 游戏截图
+> 历史游戏截图（UI V1 改版前）
 
 ![img1.png](md_data/img1.png)
 
