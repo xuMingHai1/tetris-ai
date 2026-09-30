@@ -215,7 +215,8 @@ public final class DashboardView extends BorderPane {
         VBox left = sidebar();
         VBox center = stage();
         VBox right = cockpit(hostServices);
-        if (viewportWidth < 740) {
+        // At the largest cell size, the board and fixed side panels need about 810 px.
+        if (viewportWidth < 820) {
             HBox game = new HBox(24, left, center);
             game.setAlignment(Pos.TOP_CENTER);
             VBox compact = new VBox(20, game, right);
