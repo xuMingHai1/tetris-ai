@@ -750,6 +750,8 @@ public final class GameWorld {
         this.audioEnabled = audioEnabled;
         this.aiDecisionExecutor = new AiDecisionExecutor(
                 aiAgent, AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()));
+        // The injected generator must be assigned before consuming the initial preview piece.
+        nextTetris.set(this.pieceGenerator.next());
         currentCells.addListener((_, _, _) -> updateGhostCells());
     }
 
@@ -932,7 +934,7 @@ public final class GameWorld {
      * 下一个方块
      */
     private final ObjectProperty<Tetris> nextTetris =
-            new SimpleObjectProperty<>(this, "nextTetris", pieceGenerator.next());
+            new SimpleObjectProperty<>(this, "nextTetris");
 
     /**
      * 当前单元格列表
