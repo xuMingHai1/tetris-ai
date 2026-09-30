@@ -15,6 +15,7 @@ import javafx.stage.Stage;
 import javafx.util.Duration;
 import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
 import xyz.xuminghai.tetris.ai.PreviewRescueActionPlanningAgent;
+import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.game.GameWorld;
 import xyz.xuminghai.tetris.view.DashboardView;
 
@@ -30,6 +31,7 @@ import java.util.Objects;
 public final class DesktopAiTimingApplication extends Application {
 
     private static final String DURATION_ENV = "TETRIS_AI_TRACE_SECONDS";
+    private static final String SEED_ENV = "TETRIS_AI_TRACE_SEED";
 
     private boolean awaitingRowShift;
     private boolean rowShiftCaptured;
@@ -44,10 +46,12 @@ public final class DesktopAiTimingApplication extends Application {
         if (seconds < 1 || seconds > 900) {
             throw new IllegalArgumentException(DURATION_ENV + " must be between 1 and 900");
         }
+        long seed = Long.parseLong(System.getenv().getOrDefault(SEED_ENV, "1000"));
         // Capture computed planner decisions; the factory still enforces the runtime configuration.
         GameWorld world = new GameWorld(
                 AiPlanningAgentFactory.fromEnvironment(
-                        DesktopAiTimingApplication::tracePreviewRescue), false);
+                        DesktopAiTimingApplication::tracePreviewRescue), false,
+                new BagPieceGenerator(seed));
         int width = Integer.parseInt(System.getenv().getOrDefault("TETRIS_UI_CAPTURE_WIDTH", "950"));
         int height = Integer.parseInt(System.getenv().getOrDefault("TETRIS_UI_CAPTURE_HEIGHT", "850"));
         Scene scene = new Scene(DashboardView.fromEnvironment(world, getHostServices(), width, height),
@@ -77,7 +81,7 @@ public final class DesktopAiTimingApplication extends Application {
             snapshot(scene, "ui-v1-ready.png");
             world.toggleAi();
             world.startOrPauseGame();
-            System.out.printf("AI_TRACE_SESSION seconds=%d%n", seconds);
+            System.out.printf(Locale.ROOT, "AI_TRACE_SESSION seconds=%d seed=%d%n", seconds, seed);
 
             PauseTransition playing = new PauseTransition(Duration.seconds(2));
             playing.setOnFinished(_ -> snapshot(scene, "ui-v1-playing.png"));

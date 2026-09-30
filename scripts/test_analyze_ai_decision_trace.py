@@ -8,6 +8,32 @@ from analyze_ai_decision_trace import parse, parse_capture, summarize, timing
 
 
 class AiDecisionTraceSummaryTest(unittest.TestCase):
+    def test_session_seed_is_reported_and_old_logs_remain_readable(self):
+        decision = "AI_DECISION outcome=callback elapsed_ms=4.000 fx_queue_ms=1.000 fallback_ms=0.000\n"
+        for seed in (1000, -(2**63), 2**63 - 1):
+            capture = parse_capture([f"AI_TRACE_SESSION seconds=120 seed={seed}\n", decision])
+            output = StringIO()
+            with redirect_stdout(output):
+                summarize(capture.decisions, session=capture.session)
+            self.assertIn(f"7-bag seed: {seed}", output.getvalue())
+            self.assertIn("Capture duration: 120 seconds", output.getvalue())
+        for lines in ([decision], ["AI_TRACE_SESSION seconds=120\n", decision]):
+            capture = parse_capture(lines)
+            output = StringIO()
+            with redirect_stdout(output):
+                summarize(capture.decisions, session=capture.session)
+            self.assertIn("7-bag seed: unavailable", output.getvalue())
+
+    def test_invalid_or_combined_sessions_fail_instead_of_mislabeling_evidence(self):
+        decision = "AI_DECISION outcome=callback elapsed_ms=4.000 fx_queue_ms=1.000 fallback_ms=0.000\n"
+        for session in ("seconds=120 seed=bad", "seconds=120 seed=9223372036854775808",
+                        "seconds=120 seed=-9223372036854775809", "seconds=0 seed=1000"):
+            with self.subTest(session=session), self.assertRaisesRegex(ValueError, "AI_TRACE_SESSION"):
+                parse_capture([f"AI_TRACE_SESSION {session}\n", decision])
+        with self.assertRaisesRegex(ValueError, "multiple AI_TRACE_SESSION"):
+            parse_capture(["AI_TRACE_SESSION seconds=120 seed=1000\n", decision,
+                           "AI_TRACE_SESSION seconds=120 seed=1001\n", decision])
+
     def test_excludes_cancellation_and_failure_from_deadline_denominator(self):
         lines = [
             "other console output\n",

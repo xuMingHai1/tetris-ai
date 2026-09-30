@@ -666,7 +666,7 @@ public final class GameWorld {
     private static final int AI_CONTROL_INTERVAL_MS = 45;
     private static final int AI_DROP_INTERVAL_MS = 20;
 
-    private final PieceGenerator pieceGenerator = new BagPieceGenerator();
+    private final PieceGenerator pieceGenerator;
 
     private final AiDecisionExecutor aiDecisionExecutor;
     private final boolean audioEnabled;
@@ -738,6 +738,15 @@ public final class GameWorld {
 
     /** Creates a world without audio for headless timing capture when {@code audioEnabled} is false. */
     public GameWorld(AiPlanningAgent aiAgent, boolean audioEnabled) {
+        this(aiAgent, audioEnabled, new BagPieceGenerator());
+    }
+
+    /**
+     * Supplies the piece sequence for repeatable desktop captures. Ordinary worlds retain their
+     * independent random 7-bag; the caller owns the supplied generator and must not share it.
+     */
+    public GameWorld(AiPlanningAgent aiAgent, boolean audioEnabled, PieceGenerator pieceGenerator) {
+        this.pieceGenerator = java.util.Objects.requireNonNull(pieceGenerator, "pieceGenerator");
         this.audioEnabled = audioEnabled;
         this.aiDecisionExecutor = new AiDecisionExecutor(
                 aiAgent, AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()));

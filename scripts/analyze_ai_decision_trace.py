@@ -32,6 +32,13 @@ PLAYBACK_TRACE = re.compile(
     r"AI_PLAYBACK outcome=([a-z-]+) elapsed_ms=([0-9]+(?:\.[0-9]+)?) "
     r"controls=(\d+) executed=(\d+) drop_rows=(\d+)$"
 )
+SESSION_TRACE = re.compile(r"AI_TRACE_SESSION seconds=(\d+)(?: seed=(-?\d+))?$")
+
+
+@dataclass(frozen=True)
+class Session:
+    seconds: int
+    seed: int | None
 
 
 @dataclass(frozen=True)
@@ -67,13 +74,27 @@ class Capture:
     decisions: list[Decision]
     rescues: list[Rescue]
     playbacks: list[Playback]
+    session: Session | None = None
 
 
 def parse_capture(lines):
     decisions = []
     rescues = []
     playbacks = []
+    session = None
     for number, line in enumerate(lines, start=1):
+        if "AI_TRACE_SESSION" in line:
+            match = SESSION_TRACE.search(line.strip())
+            if match is None:
+                raise ValueError(f"malformed AI_TRACE_SESSION at line {number}")
+            seconds = int(match.group(1))
+            seed = int(match.group(2)) if match.group(2) is not None else None
+            if not 1 <= seconds <= 900 or (seed is not None and not -(2**63) <= seed < 2**63):
+                raise ValueError(f"invalid AI_TRACE_SESSION at line {number}")
+            if session is not None:
+                raise ValueError(f"multiple AI_TRACE_SESSION records at line {number}")
+            session = Session(seconds, seed)
+            continue
         if "AI_PLAYBACK_BLOCKED " in line:
             continue
         if "AI_PLAYBACK" in line:
@@ -122,7 +143,7 @@ def parse_capture(lines):
         decisions.append(Decision(outcome, elapsed, queue, fallback))
     if not decisions:
         raise ValueError("no AI_DECISION lines found; enable TETRIS_AI_DECISION_TRACE=true")
-    return Capture(decisions, rescues, playbacks)
+    return Capture(decisions, rescues, playbacks, session)
 
 
 def parse(lines):
@@ -138,7 +159,10 @@ def timing(values):
     return f"mean={statistics.fmean(ordered):.3f} p95={p95:.3f} max={ordered[-1]:.3f} ms"
 
 
-def summarize(decisions, rescues=(), playbacks=()):
+def summarize(decisions, rescues=(), playbacks=(), session=None):
+    if session is not None:
+        print(f"Capture duration: {session.seconds} seconds")
+    print(f"7-bag seed: {session.seed if session is not None and session.seed is not None else 'unavailable'}")
     counts = Counter(decision.outcome for decision in decisions)
     completed = sum(counts[outcome] for outcome in ("callback", "gravity-ready", "gravity-fallback"))
     print(f"Requests: {len(decisions)}")
@@ -198,7 +222,7 @@ def main():
         else:
             with args.log.open(encoding="utf-8", errors="replace") as lines:
                 capture = parse_capture(lines)
-        summarize(capture.decisions, capture.rescues, capture.playbacks)
+        summarize(capture.decisions, capture.rescues, capture.playbacks, capture.session)
     except (OSError, UnicodeError, ValueError) as failure:
         argument_parser.exit(2, f"error: {failure}\n")
 
