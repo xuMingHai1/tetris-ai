@@ -717,6 +717,7 @@ public class RemoveRowsAnimation implements GameTimer {
                 }
                 // 移动上方行
                 moveUpperRow(rowIndexList);
+                gameWorld.publishSettledCells();
                 // 消除引用
                 gameWorld.clearCell.set(null);
                 gameWorld.renderCell.set(null);

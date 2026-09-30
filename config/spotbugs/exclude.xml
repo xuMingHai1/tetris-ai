@@ -27,6 +27,7 @@
             <Class name="xyz.xuminghai.tetris.game.GameOverAnimation"/>
             <Class name="xyz.xuminghai.tetris.game.TetrisLockAnimation"/>
             <Class name="xyz.xuminghai.tetris.view.GameView"/>
+            <Class name="xyz.xuminghai.tetris.view.DashboardView"/>
         </Or>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>

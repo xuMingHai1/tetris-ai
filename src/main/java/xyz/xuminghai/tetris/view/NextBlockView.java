@@ -627,9 +627,9 @@
 package xyz.xuminghai.tetris.view;
 
 import javafx.beans.property.ReadOnlyObjectProperty;
-import javafx.scene.paint.Color;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.core.Tetris;
+import xyz.xuminghai.tetris.core.TetrominoType;
 
 /**
  * 2024/1/29 12:22 星期一<br/>
@@ -652,8 +652,11 @@ public final class NextBlockView extends AbstractBlockView {
     }
 
     private void clearView() {
-        super.graphicsContext.setFill(Color.BLACK);
-        super.graphicsContext.fillRect(0.0, 0.0, super.getWidth(), super.getHeight());
+        for (int row = 0; row < getRows(); row++) {
+            for (int col = 0; col < getCols(); col++) {
+                super.clearCell(row, col);
+            }
+        }
     }
 
     private void fillTetris(Tetris tetris) {
@@ -664,7 +667,8 @@ public final class NextBlockView extends AbstractBlockView {
             cells[i] = new Cell(cell.getRow() + 3, cell.getCol() - 3, cell.getColor());
         }
         for (Cell cell : cells) {
-            super.fillCell(cell.getRow(), cell.getCol(), cell.getColor());
+            super.fillCell(cell.getRow(), cell.getCol(),
+                    BlockPalette.color(TetrominoType.from(tetris)));
         }
     }
 

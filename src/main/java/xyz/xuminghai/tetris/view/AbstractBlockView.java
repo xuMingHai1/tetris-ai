@@ -650,17 +650,28 @@ public sealed abstract class AbstractBlockView extends Canvas
     private final double side, border, arc;
 
     public AbstractBlockView(int rows, int cols) {
+        this(rows, cols, 25.0);
+    }
+
+    protected AbstractBlockView(int rows, int cols, double side) {
         this.rows = rows;
         this.cols = cols;
-        this.side = 30.0;
-        this.border = 3.0;
-        this.arc = side * 0.15;
+        this.side = side;
+        this.border = 1.0;
+        this.arc = 2.0;
         this.graphicsContext = super.getGraphicsContext2D();
         // 列是x轴，行是y轴
         super.setWidth(cols * side + cols * border + border);
         super.setHeight(rows * side + rows * border + border);
-        graphicsContext.fillRect(0.0, 0.0,
-                super.getHeight(), super.getHeight());
+        graphicsContext.setFill(Color.web("#e0e6ef"));
+        graphicsContext.fillRect(0.0, 0.0, super.getWidth(), super.getHeight());
+        graphicsContext.setFill(Color.web("#ebeff5"));
+        for (int row = 0; row < rows; row++) {
+            for (int col = 0; col < cols; col++) {
+                graphicsContext.fillRect(border + col * (side + border),
+                        border + row * (side + border), side, side);
+            }
+        }
     }
 
     /**
@@ -695,6 +706,8 @@ public sealed abstract class AbstractBlockView extends Canvas
         double x = computeX(col), y = computeY(row);
         graphicsContext.setFill(paint);
         graphicsContext.fillRoundRect(x, y, side, side, arc, arc);
+        graphicsContext.setFill(Color.rgb(255, 255, 255, 0.28));
+        graphicsContext.fillRect(x + 2, y + 1, side - 4, 1);
     }
 
     private void validate(int row, int col) {
@@ -714,7 +727,7 @@ public sealed abstract class AbstractBlockView extends Canvas
     public final void clearCell(int row, int col) {
         validate(row, col);
         final double x = computeX(col), y = computeY(row);
-        graphicsContext.setFill(Color.BLACK);
+        graphicsContext.setFill(Color.web("#ebeff5"));
         graphicsContext.fillRect(x, y, side, side);
     }
 
