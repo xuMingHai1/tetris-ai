@@ -8,6 +8,11 @@ on:
         required: true
         default: 120
         type: number
+      seed:
+        description: Signed 64-bit 7-bag seed (same sequence, timing still varies)
+        required: true
+        default: '1000'
+        type: string
   pull_request:
     paths:
       - .github/workflows/desktop-ai-timing.yml
@@ -50,6 +55,7 @@ jobs:
         env:
           TRACE_SECONDS: ${{ github.event_name == 'pull_request' && '120' || inputs.seconds }}
           TETRIS_AI_TRACE_SECONDS: ${{ github.event_name == 'pull_request' && '120' || inputs.seconds }}
+          TETRIS_AI_TRACE_SEED: ${{ github.event_name == 'pull_request' && '1000' || inputs.seed }}
           TETRIS_AI_AGENT: action
           TETRIS_AI_OBJECTIVE: build-shape
           TETRIS_AI_PREVIEW_RESCUE: 'true'

@@ -151,7 +151,7 @@ TETRIS_AI_PREVIEW_RESCUE=true \
 
 桌面实测可额外设置 `TETRIS_AI_DECISION_TRACE=true`。控制台每个请求输出一行 `AI_DECISION`：`callback` 表示 JavaFX 回调在重力前接收计划并开始逐步播放，`gravity-ready` 表示结果在 tick 到来时已完成，`gravity-fallback` 表示 tick 到来时主决策仍未完成并使用本地回退；`cancelled` / `failed` / `fallback-failed` 也会记录。这些 outcome 表示计划被接收或回退，不保证整串动作最终完成。`elapsed_ms` 从提交到 JavaFX 处理或重力 tick，`fx_queue_ms` 在回调处理（含回调失败）时可用，其他路径为 `-1`，`fallback_ms` 是 tick 上同步回退的计算耗时。默认关闭；打印本身会影响 JavaFX 线程时序，观察值不能直接当作无诊断开销下的性能保证。
 
-将开启诊断的一次桌面运行输出保存为日志后，可用 `python3 scripts/analyze_ai_decision_trace.py ai-decision.log` 汇总各 outcome 数量、有效应用中的重力回退比例，以及完成时间、JavaFX 回调排队和同步回退耗时的 nearest-rank P95 / 最大值。Windows 可用 `py -3 scripts\analyze_ai_decision_trace.py ai-decision.log`。脚本忽略其他控制台行，遇到损坏的 `AI_DECISION` 行或没有诊断数据会报错。取消与失败单独计数，不进入回退比例分母。此汇总只是一次非固定随机序列的桌面观察，不能把不同游戏日志直接当成同 seed 策略收益对照。
+将开启诊断的一次桌面运行输出保存为日志后，可用 `python3 scripts/analyze_ai_decision_trace.py ai-decision.log` 汇总各 outcome 数量、有效应用中的重力回退比例，以及完成时间、JavaFX 回调排队和同步回退耗时的 nearest-rank P95 / 最大值。Windows 可用 `py -3 scripts\analyze_ai_decision_trace.py ai-decision.log`。脚本忽略其他控制台行，遇到损坏的 `AI_DECISION` 行或没有诊断数据会报错。取消与失败单独计数，不进入回退比例分母。普通桌面入口仍使用随机序列；专用采集入口使用固定 seed，并在摘要中报告。相同 seed 只保证方块序列相同，JavaFX 调度、重力竞争和采集结束位置仍可能不同，不能将单次日志差异直接解释为策略收益。
 
 Windows CMD 的一次采集示例（关闭游戏后再汇总）：
 
@@ -164,7 +164,9 @@ mvnw.cmd javafx:run > "%TEMP%\tetris-ai-decision.log" 2>&1
 py -3 scripts\analyze_ai_decision_trace.py "%TEMP%\tetris-ai-decision.log"
 ```
 
-同仓库 PR 修改生产 AI、游戏规则或 JavaFX 视图等相关路径时，GitHub Actions 的 **Desktop AI Timing** 会自动采集 120 秒，摘要写入 Actions 运行摘要，原始日志与汇总文件作为 artifact 保存 7 天；新提交会取消该 PR 上旧的采集任务。也可手动运行并指定 1–900 秒。工作流使用 JavaFX 的 headless 平台和生产 `GameWorld` / `GameView`，仅采集入口关闭音频，固定开启 BUILD_SHAPE 的 preview rescue。这只代表 self-hosted Linux runner 的 JavaFX 时钟和软件渲染环境，不能替代 Windows 桌面上的交互、音频或最终重力期限验证；较短的样本也未必遇到 preview 救援条件。
+同仓库 PR 修改生产 AI、游戏规则或 JavaFX 视图等相关路径时，GitHub Actions 的 **Desktop AI Timing** 会自动采集 120 秒，摘要写入 Actions 运行摘要，原始日志与汇总文件作为 artifact 保存 7 天；新提交会取消该 PR 上旧的采集任务。自动 PR 采集固定 7-bag seed `1000`；手动运行可指定 1–900 秒及 signed 64-bit `seed`。工作流使用 JavaFX 的 headless 平台和生产 `GameWorld` / `DashboardView`，仅采集入口关闭音频，固定开启 BUILD_SHAPE 的 preview rescue。这只代表 self-hosted Linux runner 的 JavaFX 时钟和软件渲染环境，不能替代 Windows 桌面上的交互、音频或最终重力期限验证；较短的样本也未必遇到 preview 救援条件。
+
+专用 `DesktopAiTimingApplication` 使用 `TETRIS_AI_TRACE_SEED`（默认 `1000`）创建独立的 `BagPieceGenerator`，通过 `GameWorld` 构造器注入。日志 `AI_TRACE_SESSION seconds=… seed=…` 和 Actions 摘要均保留实际 seed；旧日志缺失 seed 时显示 `unavailable`，损坏或拼接多个 session 的日志会报错。Windows 可设置 `TETRIS_AI_TRACE_SEED=1000`、`TETRIS_AI_TRACE_SECONDS=120`，并用 `mvnw.cmd -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.DesktopAiTimingApplication javafx:run` 启动自动限时采集（同时保留上述 AI 与诊断环境变量）。该 seed 只影响专用采集入口，普通游戏继续随机生成方块。
 
 采集入口还会输出 `AI_PREVIEW_RESCUE`，汇总 rank-1 检查、已知下一块不可恢复、找到替代动作的次数，以及检查和搜索耗时。这些是 AI 工作线程**算出的计划**；被重力 tick 废弃或取消的计划也可能计入，不能用它代替 `AI_DECISION` 的实际应用结果。旧日志没有此行时汇总显示 `unavailable`，不推断为零次救援。
 
