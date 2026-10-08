@@ -4,13 +4,13 @@
 
 [![img.png](md_data/img.png)](https://www.bilibili.com/video/BV1Yx4y1S7dK)
 
-> 游戏截图
+> 历史游戏截图（UI V1 改版前）
 
 ![img1.png](md_data/img1.png)
 
 ## 开发环境
 
-界面改版的开发交接见 [UI V1：棋盘 + AI 驾驶舱](docs/design/ui-v1/README.md)，包含已确认的设计预览、视觉规范和实现差异；当前运行界面尚未应用该设计。
+当前运行界面已采用 UI V1 三栏布局。设计预览、视觉规范及与生产行为的差异见 [UI V1：棋盘 + AI 驾驶舱](docs/design/ui-v1/README.md)。
 
 - JDK 27
 - JavaFX 27
