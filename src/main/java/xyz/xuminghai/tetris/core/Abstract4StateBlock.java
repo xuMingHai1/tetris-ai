@@ -636,6 +636,11 @@ sealed abstract class Abstract4StateBlock extends AbstractBlock
 
     private byte state = 1;
 
+    @Override
+    public int rotationState() {
+        return state - 1;
+    }
+
     protected Abstract4StateBlock(Cell[] cells) {
         super(cells);
     }

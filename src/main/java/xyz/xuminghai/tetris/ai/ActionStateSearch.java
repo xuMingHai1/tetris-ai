@@ -9,7 +9,6 @@ import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.BoardRules;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.core.Tetris;
-import xyz.xuminghai.tetris.core.TetrisFactory;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -22,7 +21,7 @@ import java.util.Set;
  * Deterministically explores piece states reachable through the action-native control vocabulary.
  *
  * <p>The search reuses the core tetromino transformations and {@link BoardRules} collision checks.
- * Each candidate path is replayed from the captured spawn snapshot so stateful rotation
+ * Each candidate path is replayed from the captured live snapshot so stateful rotation
  * implementations keep the same orientation sequence as the live piece.</p>
  */
 final class ActionStateSearch {
@@ -104,8 +103,8 @@ final class ActionStateSearch {
 
     /**
      * Replays one non-terminal action path using the same stateful tetromino implementation as the
-     * live game. The current runtime asks the AI immediately after spawn's first gravity step, so
-     * the snapshot is the initial orientation expected by the newly created tetromino.
+     * live game. Restoring the captured orientation also supports replanning a partially played
+     * piece, which need not be in its factory orientation.
      *
      * @return resulting cells, or {@code null} when any intermediate action collides
      */
@@ -116,14 +115,7 @@ final class ActionStateSearch {
 
     private static List<BoardPosition> replay(
             GameSnapshot snapshot, boolean[][] occupied, List<AiAction> actions) {
-        Tetris tetris = TetrisFactory.create(snapshot.currentType());
-        Cell[] template = tetris.getCells();
-        Cell[] cells = new Cell[template.length];
-        for (int i = 0; i < cells.length; i++) {
-            BoardPosition position = snapshot.currentCells().get(i);
-            cells[i] = new Cell(position.row(), position.col(), template[i].getColor());
-        }
-        tetris.setCells(cells);
+        Tetris tetris = snapshot.restoreCurrentPiece();
 
         List<BoardPosition> positions = positions(tetris);
         for (AiAction action : actions) {

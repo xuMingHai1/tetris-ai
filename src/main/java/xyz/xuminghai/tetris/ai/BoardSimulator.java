@@ -140,14 +140,7 @@ public final class BoardSimulator {
     private static List<BoardPosition> rotatedCells(
             GameSnapshot snapshot, boolean[][] occupied, int rotations) {
 
-        Tetris tetris = TetrisFactory.create(snapshot.currentType());
-        Cell[] template = tetris.getCells();
-        Cell[] cells = new Cell[template.length];
-        for (int i = 0; i < cells.length; i++) {
-            BoardPosition position = snapshot.currentCells().get(i);
-            cells[i] = new Cell(position.row(), position.col(), template[i].getColor());
-        }
-        tetris.setCells(cells);
+        Tetris tetris = snapshot.restoreCurrentPiece();
 
         List<BoardPosition> positions = positions(tetris);
         if (!BoardRules.canPlace(occupied, snapshot.rows(), snapshot.cols(), positions)) {

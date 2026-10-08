@@ -1397,6 +1397,7 @@ public final class GameWorld {
         return gameActive
                 && aiEnabled.get()
                 && currentTetris.get() == expectedTetris
+                && snapshot.currentRotation() == expectedTetris.rotationState()
                 && matchesSnapshotCells(snapshot, expectedTetris.getCells());
     }
 
@@ -1450,6 +1451,7 @@ public final class GameWorld {
                 Arrays.stream(cells)
                         .map(cell -> new BoardPosition(cell.getRow(), cell.getCol()))
                         .toList(),
+                tetris.rotationState(),
                 TetrominoType.from(nextTetris.get()));
     }
 

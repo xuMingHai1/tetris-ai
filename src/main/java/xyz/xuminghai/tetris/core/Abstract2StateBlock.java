@@ -636,6 +636,11 @@ sealed abstract class Abstract2StateBlock extends AbstractBlock
 
     private boolean state = true;
 
+    @Override
+    public int rotationState() {
+        return state ? 0 : 1;
+    }
+
     protected Abstract2StateBlock(Cell[] cells) {
         super(cells);
     }
