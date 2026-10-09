@@ -97,6 +97,8 @@ jobs:
                 ;;
               pom.xml)
                 build_changed=true
+                # POM-only changes can alter PIT gates, plugins, or tested dependencies.
+                java_changed=true
                 dependency_changed=true
                 packaging_changed=true
                 ;;
