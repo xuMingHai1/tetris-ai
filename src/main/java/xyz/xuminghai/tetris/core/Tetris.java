@@ -643,6 +643,14 @@ public interface Tetris {
     void setCells(Cell[] cells);
 
     /**
+     * Zero-based internal orientation, relative to factory spawn. Coordinates alone do not
+     * restore this state; snapshots must retain it to replay later rotations correctly.
+     */
+    default int rotationState() {
+        return 0;
+    }
+
+    /**
      * 复制一个全新的单元格列表
      *
      * @return 深拷贝
