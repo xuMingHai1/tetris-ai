@@ -160,9 +160,13 @@ survives at least one more placement in the one-shot comparison. The 5/5 helpful
 do not establish a learned eligibility discriminator. `PreviewRescuePairedApplication` instead
 runs fresh paired whole games on seeds 10000–10119 (120 × 1000), allowing this precise rescue on
 each qualifying decision and measuring availability, extra survival, games reaching the horizon,
-HEART construction, and scan cost. It reuses production reachability and SURVIVAL order and does
-not alter the desktop policy. A rescue can only extend the baseline at its first fatal preview,
-while the size of that extension and practical cost remain empirical questions.
+HEART construction, and scan cost. The later eligibility and latency comparisons use fresh
+seeds 11000–11119 and 12000–12119 respectively, comparing production baseline, STRICT
+(clear the frozen recovery warning), and PREVIEW_ONLY (restore preview reachability).
+PREVIEW_ONLY now uses the production opt-in planner described below; STRICT remains
+benchmark-only. These headless protocols do not establish JavaFX deadline or Windows timing
+guarantees, and preview reachability alone does not guarantee long-term survival or clean HEART
+construction.
 
 ## Runtime integration
 
@@ -174,19 +178,40 @@ Reachability changes are measured separately from strategy quality. The manual `
 
 `AiPlanValidator` is the structural guard between planning and live execution. Plans must be non-empty, are bounded to 64 actions, and may not contain actions after `HARD_DROP`. It deliberately does not simulate board legality; collision and reachability remain owned by the existing live game rules so validation does not create a second Tetris engine.
 
-The AI decision is requested only when a new piece is spawned. Existing manual input remains available. A valid current `AiMove` is converted to an `AiPlan`, whose actions are executed in order. Any invalid non-hard-drop action aborts the remaining plan. `HARD_DROP` immediately descends the piece until collision instead of waiting for gravity to traverse the remaining rows; the normal gravity tick still owns lock, row-clear and next-piece lifecycle processing.
+`GameWorld` requests a decision after a successful gravity move whenever AI is enabled and neither a decision nor playback is active (including spawn's initial gravity step), when play resumes with AI enabled on a live piece, and when callback playback is blocked on that same piece. Toggling AI on does not immediately request a decision; during active play it waits for the next successful gravity move. Manual input remains available. A placement `AiMove` is adapted to an `AiPlan`; both strategy contracts then use the existing movement, rotation and drop methods with AI input origin.
+
+There are two execution paths:
+
+- **Callback playback:** `completePendingAiDecision` accepts a current result on the JavaFX thread and `playAiPlan` starts visible, stepwise playback. Natural gravity continues. Horizontal moves and rotations schedule the next control after 45 ms; soft drops and each successful row of hard drop use 20 ms. A terminal `HARD_DROP` immediately following the final planned soft drop starts without an extra idle delay. Once hard drop cannot descend, playback completes and calls `gameTimeLine.advanceNow()` to enter the ordinary lock, row-clear animation and next-piece lifecycle immediately. If a soft drop is blocked and only drops remain through terminal hard drop, it likewise finishes as `gravity-landed` through that lifecycle. Other blocked actions cancel the remaining plan and request a new decision from the current live piece, including its captured orientation.
+- **Gravity-tick execution:** `resolvePendingAiBeforeAutomaticMove` consumes an already completed result, or invalidates an unfinished generation and computes local fallback from the unchanged snapshot. `applyAiPlanBeforeGravity` executes the entire plan synchronously; hard drop descends to collision without playback intervals. The enclosing gravity tick then owns lock, row clearing and spawn. An invalid non-hard-drop action stops this synchronous plan; it does not enter callback playback's immediate replan branch.
+
+The intervals above are current scheduling constants, not guaranteed wall-clock deadlines. Manual input, pause, disabling AI and closing the game cancel pending work and remaining playback. Playback also stops when its piece is replaced; each action still passes live collision checks.
 
 `TetrisAgent` and `AiPlanningAgent` remain synchronous strategy contracts, while `AiDecisionExecutor` owns runtime execution and normalizes both paths to validated `AiPlan` results. Each request runs on a virtual thread so a future remote agent cannot block the JavaFX application thread. If the configured primary agent throws, the executor evaluates the same immutable snapshot with the local `HeuristicTetrisAgent` fallback.
 
-Each submission advances a decision generation. Completion is marshalled back through `Platform.runLater` and is applied only when the request is still current, AI mode is still enabled, the game is active, the live falling piece is the exact piece that produced the snapshot, and its cell coordinates still exactly match the snapshot.
+Each submission advances a decision generation. Completion is marshalled back through `Platform.runLater` and is applied only when the request is still current, AI mode is still enabled, the game is active, the live falling piece is the exact piece that produced the snapshot, and its ordered cell coordinates and internal rotation state still exactly match the snapshot. `GameSnapshot.restoreCurrentPiece` restores orientation through core rotations before installing captured coordinates; this is required for partially played pieces, not only factory-orientation spawn snapshots.
 
 A remote decision owns the snapshot only until the next live-state mutation. Before the next automatic gravity tick changes the piece, `GameWorld` checks the pending decision. If it has not completed, the remote generation is invalidated and the local heuristic fallback is evaluated immediately against the still-unchanged snapshot, then the game continues. Manual movement cancels the pending remote decision instead, so player input always wins. This makes the gameplay tick, rather than an arbitrary HTTP timeout, the effective deadline for a remote decision.
 
 `GameWorld` accepts either the existing `TetrisAgent` placement contract or the new `AiPlanningAgent` action-native contract. Network/client details stay outside `GameWorld`. Placement agents follow `GameSnapshot -> TetrisAgent -> AiMove -> AiPlan`; action-native agents follow `GameSnapshot -> AiPlanningAgent -> AiPlan`. Both converge on the same `AiAction` execution boundary.
 
+### Preview rescue opt-in
+
+`AiPlanningAgentFactory` selects `PreviewRescueActionPlanningAgent` only when all three settings are present: `TETRIS_AI_AGENT=action`, `TETRIS_AI_OBJECTIVE=build-shape`, and `TETRIS_AI_PREVIEW_RESCUE=true`. Rescue is disabled by default; enabling it with another agent or objective is rejected. Ordinary `action` selects the objective-specific local planner (SURVIVAL, TUCK_HUNTER or BUILD_SHAPE).
+
+Every rescue decision starts with production BUILD_SHAPE. Only when that decision chose SURVIVAL rank 1 and the known preview has no visible action-native terminal landing after it does rescue scan alternatives from rank 2 in the same SURVIVAL order. It returns the first candidate restoring a preview landing, or the original BUILD_SHAPE plan if none exists. Missing preview, a non-rank-1 decision or a playable preview leaves the original plan intact. PREVIEW_ONLY does not require clearing the frozen recovery warning; that stronger STRICT criterion remains an independent benchmark arm. The rescue uses full action-native alternatives in this explicit opt-in path, without changing the ordinary BUILD_SHAPE top-5 objective/safety selection. Subsequent decisions start with ordinary BUILD_SHAPE again; executor generation, snapshot and gravity fallback checks still apply.
+
+### Diagnostic stages and validation limits
+
+With decision tracing enabled, `AI_DECISION` records the JavaFX-thread decision outcome (`callback`, `gravity-ready`, `gravity-fallback`, cancellation or failure), not completed playback. `AI_PLAYBACK` records only a started stepwise plan's completion or interruption; `completed` and `gravity-landed` count as completed playback. Plans still active when capture ends and synchronous gravity-tick plans are outside that playback denominator. `AI_PLAYBACK_BLOCKED` supplies the action and live cells for diagnosing a blocked plan and subsequent replan.
+
+The dedicated `DesktopAiTimingApplication` attaches an observer to the production rescue planner and emits `AI_PREVIEW_RESCUE` for computed rescue observations. Work can finish after cancellation or gravity fallback, so a computed replacement is not proof that its plan was applied on the JavaFX thread. These counts cannot substitute for `AI_DECISION` or `AI_PLAYBACK`; older logs without the observer are unavailable evidence, not zero rescues.
+
+Desktop AI Timing runs real `GameWorld` / `DashboardView` on the Linux runner with audio disabled and a seeded bag. Its raw trace and screenshots can reveal playback/replanning behavior, but neither a successful workflow nor a short capture proves Windows gravity deadlines, all interaction scenarios or DPI acceptance. Headless benchmark latency measures planner cost without JavaFX scheduling; real Windows interaction and display validation remain separate.
+
 ### Jev provider
 
-`AiPlanningAgentFactory` selects the desktop runtime strategy through the action-native contract and reads `TETRIS_AI_OBJECTIVE` for the local `action` planner. The default remains the placement heuristic through `AiPlanningAgent.fromPlacementAgent(...)`. `TETRIS_AI_AGENT=action` selects `DeterministicActionPlanningAgent`; `jev` preserves the placement-oriented Jev strategy through the adapter; `jev-action` explicitly selects `JevActionPlanningAgent`. Both Jev modes require `TYPESAFE_API_KEY`. `TetrisAgentFactory` remains the placement-strategy factory used by placement-oriented callers and benchmarks.
+`AiPlanningAgentFactory` selects the desktop runtime strategy through the action-native contract and reads `TETRIS_AI_OBJECTIVE` for the local `action` planner. The default remains the placement heuristic through `AiPlanningAgent.fromPlacementAgent(...)`. `TETRIS_AI_AGENT=action` with the default SURVIVAL objective selects `DeterministicActionPlanningAgent`; other local objectives and the rescue opt-in are described above. `jev` preserves the placement-oriented Jev strategy through the adapter; `jev-action` explicitly selects `JevActionPlanningAgent`. Both Jev modes require `TYPESAFE_API_KEY`. `TetrisAgentFactory` remains the placement-strategy factory used by placement-oriented callers and benchmarks.
 
 `NextPieceOutlook` is the shared deterministic preview evaluation consumed by the local look-ahead baseline and both Jev modes; it is not provider-specific. `JevTetrisAgent` keeps the original placement-oriented hybrid strategy: `BoardSimulator` generates every legal placement and the heuristic retains at most the top five candidates. `JevActionPlanningAgent` uses the same safety principle over `ActionPlanCandidates`: `ActionStateSearch` first proves each path reachable, the existing heuristic ranks the resulting boards, and only the top five `AiPlan` candidates are sent to Jev. Each action candidate includes the explicit action sequence, action count, objective board metrics, resulting board and deterministic next-piece outlook when available. Jev chooses only a caller-owned candidate id (`c0`, `c1`, ...); an unknown id is rejected so `AiDecisionExecutor` can fall back locally. The provider never invents movement legality.
 
