@@ -799,6 +799,10 @@
 
         <profile>
             <id>ci-mutation</id>
+            <properties>
+                <pit.mutationThreshold>95</pit.mutationThreshold>
+                <pit.coverageThreshold>95</pit.coverageThreshold>
+            </properties>
             <build>
                 <plugins>
                     <plugin>
@@ -806,6 +810,8 @@
                         <artifactId>pitest-maven</artifactId>
                         <version>${pitest-maven.version}</version>
                         <configuration>
+                            <mutationThreshold>${pit.mutationThreshold}</mutationThreshold>
+                            <coverageThreshold>${pit.coverageThreshold}</coverageThreshold>
                             <targetClasses>
                                 <param>xyz.xuminghai.tetris.core.*</param>
                             </targetClasses>

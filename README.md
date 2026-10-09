@@ -66,6 +66,9 @@ PIT mutation testing：
 ./mvnw --batch-mode --no-transfer-progress -Pci-mutation verify
 ```
 
+PIT 仅评估 `core` 包及其测试，mutation score 与 mutated-class line coverage 均要求至少 95%。
+当前基线、存活变异分类和验证边界见 [核心变异测试说明](docs/testing/core-mutation.md)。
+
 GitHub Actions 使用 self-hosted Linux x64 runner 执行构建、SpotBugs、Gitleaks、PIT 和依赖安全检查。
 
 本项目是开源的，不会写入和创建额外业务数据。
