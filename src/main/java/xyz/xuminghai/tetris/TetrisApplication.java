@@ -627,14 +627,10 @@
 package xyz.xuminghai.tetris;
 
 import javafx.application.Application;
-import javafx.collections.ObservableMap;
 import javafx.scene.Scene;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
 import javafx.scene.image.Image;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.KeyCodeCombination;
-import javafx.scene.input.KeyCombination;
 import javafx.stage.Stage;
 import javafx.stage.Screen;
 import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
@@ -686,8 +682,8 @@ public class TetrisApplication extends Application {
         final double sceneHeight = Math.min(850, available.getHeight() - 40);
         final DashboardView gameView = DashboardView.fromEnvironment(
                 gameWorld, getHostServices(), sceneWidth, sceneHeight);
-        primaryStage.setScene(keyMonitor(new Scene(gameView,
-                sceneWidth, sceneHeight)));
+        primaryStage.setScene(GameInputBindings.install(new Scene(gameView,
+                sceneWidth, sceneHeight), gameWorld, gameKeyCodeAction));
         // A release outside this window never reaches the Scene's key handler.
         primaryStage.focusedProperty().addListener((_, _, focused) -> {
             if (!focused) {
@@ -713,38 +709,6 @@ public class TetrisApplication extends Application {
     public void stop() {
         gameKeyCodeAction.resetInput();
         gameWorld.shutdown();
-    }
-
-
-    private Scene keyMonitor(Scene scene) {
-        // 移动按键键入
-        scene.setOnKeyPressed(event -> {
-            if (gameWorld.getGameActive()) {
-                gameKeyCodeAction.keyCodePressed(event.getCode());
-            }
-        });
-        // 移动按键释放
-        scene.setOnKeyReleased(event -> gameKeyCodeAction.keyCodeReleased(event.getCode()));
-
-        final ObservableMap<KeyCombination, Runnable> accelerators = scene.getAccelerators();
-        // 逆时针旋转
-        accelerators.put(new KeyCodeCombination(KeyCode.LEFT), () -> {
-            if (gameWorld.getGameActive()) {
-                gameWorld.rotateCounterClockwise();
-            }
-        });
-        // 顺时针旋转
-        accelerators.put(new KeyCodeCombination(KeyCode.RIGHT), () -> {
-            if (gameWorld.getGameActive()) {
-                gameWorld.rotateClockwise();
-            }
-        });
-        accelerators.put(new KeyCodeCombination(KeyCode.EQUALS), gameWorld::levelPlus);
-        accelerators.put(new KeyCodeCombination(KeyCode.MINUS), gameWorld::levelMinus);
-        accelerators.put(new KeyCodeCombination(KeyCode.SPACE), gameWorld::startOrPauseGame);
-        accelerators.put(new KeyCodeCombination(KeyCode.F2), gameWorld::toggleAi);
-        accelerators.put(new KeyCodeCombination(KeyCode.TAB, KeyCombination.CONTROL_DOWN), gameWorld::switchLanguage);
-        return scene;
     }
 
 
