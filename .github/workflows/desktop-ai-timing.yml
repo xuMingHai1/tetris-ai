@@ -72,10 +72,15 @@ jobs:
           for dimensions in 950x850 750x700 1024x950; do
             export TETRIS_UI_CAPTURE_WIDTH="${dimensions%x*}"
             export TETRIS_UI_CAPTURE_HEIGHT="${dimensions#*x}"
-            timeout 120 ./mvnw --batch-mode --no-transfer-progress \
+            if ! timeout 120 ./mvnw --batch-mode --no-transfer-progress \
               -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.UiInteractionApplication \
-              compile javafx:run > "$RUNNER_TEMP/ui-interaction-$dimensions.log" 2>&1
+              compile javafx:run > "$RUNNER_TEMP/ui-interaction-$dimensions.log" 2>&1; then
+              cat "$RUNNER_TEMP/ui-interaction-$dimensions.log"
+              exit 1
+            fi
             cat "$RUNNER_TEMP/ui-interaction-$dimensions.log"
+            grep -Eq '^UI_INTERACTION_RESULT failures=0 plan_updates=[0-9]+$' \
+              "$RUNNER_TEMP/ui-interaction-$dimensions.log"
           done
 
       - name: Capture JavaFX timing

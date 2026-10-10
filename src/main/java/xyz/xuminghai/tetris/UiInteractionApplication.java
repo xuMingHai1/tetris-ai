@@ -39,7 +39,7 @@ public final class UiInteractionApplication extends Application {
     private GameWorld world;
     private Scene scene;
     private GameKeyCodeAction input;
-    private int failures;
+    private static int failures;
     private double takeoverY;
     private double minimumY = Double.POSITIVE_INFINITY;
     private double maximumY = Double.NEGATIVE_INFINITY;
@@ -47,6 +47,7 @@ public final class UiInteractionApplication extends Application {
 
     public static void main(String[] args) {
         launch(args);
+        if (failures > 0) throw new IllegalStateException("UI interaction failures: " + failures);
     }
 
     @Override
@@ -186,11 +187,8 @@ public final class UiInteractionApplication extends Application {
             check(label(".ai-status").equals("AI paused"), "English paused AI status is truthful");
             System.out.printf(Locale.ROOT, "UI_INTERACTION_RESULT failures=%d plan_updates=%d%n",
                     failures, observedPlans);
-            input.resetInput();
-            world.shutdown();
             stage.close();
             Platform.exit();
-            if (failures > 0) System.exit(1);
         });
     }
 
@@ -246,10 +244,17 @@ public final class UiInteractionApplication extends Application {
                 action.run();
             }
             catch (RuntimeException exception) {
+                failures++;
                 exception.printStackTrace();
-                System.exit(1);
+                Platform.exit();
             }
         });
         pause.play();
+    }
+
+    @Override
+    public void stop() {
+        if (input != null) input.resetInput();
+        if (world != null) world.shutdown();
     }
 }
