@@ -9,8 +9,11 @@ import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
+import javafx.scene.text.Font;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
@@ -47,6 +50,11 @@ public final class DesktopAiTimingApplication extends Application {
             throw new IllegalArgumentException(DURATION_ENV + " must be between 1 and 900");
         }
         long seed = Long.parseLong(System.getenv().getOrDefault(SEED_ENV, "1000"));
+        String captureFont = System.getenv("TETRIS_UI_CAPTURE_FONT");
+        if (captureFont != null && !captureFont.isBlank()
+                && Font.loadFont(Path.of(captureFont).toUri().toString(), 14) == null) {
+            throw new IllegalArgumentException("Unable to load TETRIS_UI_CAPTURE_FONT");
+        }
         // Capture computed planner decisions; the factory still enforces the runtime configuration.
         GameWorld world = new GameWorld(
                 AiPlanningAgentFactory.fromEnvironment(
@@ -58,6 +66,13 @@ public final class DesktopAiTimingApplication extends Application {
                 width, height);
         stage.setScene(scene);
         stage.show();
+        String reducedMotion = System.getenv().getOrDefault("TETRIS_UI_CAPTURE_REDUCED_MOTION", "false");
+        if (!reducedMotion.equals("true") && !reducedMotion.equals("false")) {
+            throw new IllegalArgumentException("TETRIS_UI_CAPTURE_REDUCED_MOTION must be true or false");
+        }
+        if (Boolean.parseBoolean(reducedMotion)) {
+            ((CheckBox) scene.lookup("#reduced-motion")).fire();
+        }
 
         if (System.getenv("TETRIS_UI_SCREENSHOT_DIR") != null) {
             world.linesProperty().addListener((_, oldLines, newLines) -> {
@@ -92,6 +107,14 @@ public final class DesktopAiTimingApplication extends Application {
                 if (world.getGameActive()) {
                     world.startOrPauseGame();
                 }
+                if (!world.gameOverDisplayProperty().get()) snapshot(scene, "ui-v1-paused.png");
+                if (world.aiEnabledProperty().get()) world.toggleAi();
+                snapshot(scene, "ui-v1-manual.png");
+                ScrollPane mainScroll = (ScrollPane) scene.lookup(".main-scroll");
+                mainScroll.setVvalue(1);
+                scene.getRoot().layout();
+                snapshot(scene, "ui-v1-bottom.png");
+                world.shutdown();
                 stage.close();
                 Platform.exit();
             });

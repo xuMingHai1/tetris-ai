@@ -640,7 +640,10 @@ import xyz.xuminghai.tetris.core.TetrominoType;
 public final class NextBlockView extends AbstractBlockView {
 
     public NextBlockView(ReadOnlyObjectProperty<Tetris> nextTetris) {
-        super(4, 4);
+        super(2, 4, 15);
+        setWidth(68);
+        setHeight(32);
+        clearView();
         final Tetris tetris = nextTetris.get();
         if (tetris != null) {
             fillTetris(tetris);
@@ -652,23 +655,26 @@ public final class NextBlockView extends AbstractBlockView {
     }
 
     private void clearView() {
-        for (int row = 0; row < getRows(); row++) {
-            for (int col = 0; col < getCols(); col++) {
-                super.clearCell(row, col);
-            }
-        }
+        // A compact silhouette, rather than a second gridded board, matches the V1 preview card.
+        graphicsContext.clearRect(0, 0, getWidth(), getHeight());
     }
 
     private void fillTetris(Tetris tetris) {
+        if (tetris == null) return;
         final Cell[] nextCells = tetris.getCells();
-        final Cell[] cells = new Cell[nextCells.length];
-        for (int i = 0; i < nextCells.length; i++) {
-            final Cell cell = nextCells[i];
-            cells[i] = new Cell(cell.getRow() + 3, cell.getCol() - 3, cell.getColor());
-        }
-        for (Cell cell : cells) {
-            super.fillCell(cell.getRow(), cell.getCol(),
-                    BlockPalette.color(TetrominoType.from(tetris)));
+        int minRow = java.util.Arrays.stream(nextCells).mapToInt(Cell::getRow).min().orElse(0);
+        int maxRow = java.util.Arrays.stream(nextCells).mapToInt(Cell::getRow).max().orElse(0);
+        int minCol = java.util.Arrays.stream(nextCells).mapToInt(Cell::getCol).min().orElse(0);
+        int maxCol = java.util.Arrays.stream(nextCells).mapToInt(Cell::getCol).max().orElse(0);
+        double left = (getWidth() - ((maxCol - minCol + 1) * 16 - 1)) / 2;
+        double top = (getHeight() - ((maxRow - minRow + 1) * 16 - 1)) / 2;
+        for (Cell cell : nextCells) {
+            double x = left + (cell.getCol() - minCol) * 16;
+            double y = top + (cell.getRow() - minRow) * 16;
+            graphicsContext.setFill(BlockPalette.color(TetrominoType.from(tetris)));
+            graphicsContext.fillRoundRect(x, y, 15, 15, 2, 2);
+            graphicsContext.setFill(javafx.scene.paint.Color.rgb(255, 255, 255, 0.28));
+            graphicsContext.fillRect(x + 2, y + 1, 11, 1);
         }
     }
 

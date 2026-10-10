@@ -653,6 +653,11 @@ public final class GameContextView extends AbstractBlockView {
     }
 
     GameContextView(GameWorld gameWorld, int cellSide) {
+        this(gameWorld, cellSide, false);
+    }
+
+    /** The dashboard can draw the falling piece separately without moving the settled board. */
+    GameContextView(GameWorld gameWorld, int cellSide, boolean separateFallingPiece) {
         super(gameWorld.getRows(), gameWorld.getCols(), cellSide);
         gameWorld.currentCellsProperty().addListener((_, oldValue, newValue) -> {
             if (oldValue != null && newValue != null) {
@@ -667,7 +672,15 @@ public final class GameContextView extends AbstractBlockView {
                         displayColors.putIfAbsent(cell.getColor(), displayColor);
                     }
                 }
-                for (Cell cell : newValue) {
+                if (!separateFallingPiece) {
+                    for (Cell cell : newValue) {
+                        super.fillCell(cell.getRow(), cell.getCol(), displayColor(cell));
+                    }
+                }
+            }
+            else if (separateFallingPiece && oldValue != null) {
+                // At lock the same published cells become settled; retain them under the overlay.
+                for (Cell cell : oldValue) {
                     super.fillCell(cell.getRow(), cell.getCol(), displayColor(cell));
                 }
             }
