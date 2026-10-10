@@ -9,8 +9,12 @@ import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.scene.Scene;
+import javafx.scene.control.CheckBox;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TitledPane;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
+import javafx.scene.text.Font;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
@@ -35,6 +39,8 @@ public final class DesktopAiTimingApplication extends Application {
 
     private boolean awaitingRowShift;
     private boolean rowShiftCaptured;
+    private boolean moveCaptured;
+    private boolean landingCaptured;
 
     public static void main(String[] args) {
         launch(args);
@@ -47,6 +53,11 @@ public final class DesktopAiTimingApplication extends Application {
             throw new IllegalArgumentException(DURATION_ENV + " must be between 1 and 900");
         }
         long seed = Long.parseLong(System.getenv().getOrDefault(SEED_ENV, "1000"));
+        String captureFont = System.getenv("TETRIS_UI_CAPTURE_FONT");
+        if (captureFont != null && !captureFont.isBlank()
+                && Font.loadFont(Path.of(captureFont).toUri().toString(), 14) == null) {
+            throw new IllegalArgumentException("Unable to load TETRIS_UI_CAPTURE_FONT");
+        }
         // Capture computed planner decisions; the factory still enforces the runtime configuration.
         GameWorld world = new GameWorld(
                 AiPlanningAgentFactory.fromEnvironment(
@@ -58,8 +69,31 @@ public final class DesktopAiTimingApplication extends Application {
                 width, height);
         stage.setScene(scene);
         stage.show();
+        String reducedMotion = System.getenv().getOrDefault("TETRIS_UI_CAPTURE_REDUCED_MOTION", "false");
+        if (!reducedMotion.equals("true") && !reducedMotion.equals("false")) {
+            throw new IllegalArgumentException("TETRIS_UI_CAPTURE_REDUCED_MOTION must be true or false");
+        }
+        if (Boolean.parseBoolean(reducedMotion)) {
+            ((CheckBox) scene.lookup("#reduced-motion")).fire();
+        }
 
         if (System.getenv("TETRIS_UI_SCREENSHOT_DIR") != null) {
+            world.currentCellsProperty().addListener((_, before, after) -> {
+                if (!moveCaptured && before != null && after != null && before.length == after.length
+                        && before.length > 0 && before[0].getRow() == after[0].getRow()
+                        && before[0].getCol() != after[0].getCol()) {
+                    moveCaptured = true;
+                    PauseTransition midway = new PauseTransition(Duration.millis(15));
+                    midway.setOnFinished(_ -> snapshot(scene, "ui-v1-move.png"));
+                    midway.play();
+                }
+                if (!landingCaptured && before != null && before.length == 4 && after == null) {
+                    landingCaptured = true;
+                    PauseTransition midway = new PauseTransition(Duration.millis(55));
+                    midway.setOnFinished(_ -> snapshot(scene, "ui-v1-landing.png"));
+                    midway.play();
+                }
+            });
             world.linesProperty().addListener((_, oldLines, newLines) -> {
                 if (!rowShiftCaptured && newLines.intValue() > oldLines.intValue()) {
                     awaitingRowShift = true;
@@ -92,8 +126,25 @@ public final class DesktopAiTimingApplication extends Application {
                 if (world.getGameActive()) {
                     world.startOrPauseGame();
                 }
-                stage.close();
-                Platform.exit();
+                if (!world.gameOverDisplayProperty().get()) snapshot(scene, "ui-v1-paused.png");
+                if (world.aiEnabledProperty().get()) world.toggleAi();
+                snapshot(scene, "ui-v1-manual.png");
+                TitledPane shortcuts = (TitledPane) scene.lookup(".shortcuts");
+                shortcuts.setAnimated(false);
+                shortcuts.setExpanded(true);
+                ScrollPane mainScroll = (ScrollPane) scene.lookup(".main-scroll");
+                scene.getRoot().applyCss();
+                scene.getRoot().layout();
+                // Expanding changes the scroll extent; wait for the skin to lay it out first.
+                PauseTransition expanded = new PauseTransition(Duration.millis(80));
+                expanded.setOnFinished(_ -> {
+                    mainScroll.setVvalue(1);
+                    snapshot(scene, "ui-v1-bottom.png");
+                    world.shutdown();
+                    stage.close();
+                    Platform.exit();
+                });
+                expanded.play();
             });
             capture.play();
         });

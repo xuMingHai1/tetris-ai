@@ -22,6 +22,7 @@ on:
       - src/main/java/xyz/xuminghai/tetris/core/**
       - src/main/java/xyz/xuminghai/tetris/game/**
       - src/main/java/xyz/xuminghai/tetris/view/**
+      - src/main/resources/css/**
       - scripts/analyze_ai_decision_trace.py
 
 permissions:
@@ -50,6 +51,14 @@ jobs:
           java-version: '27'
           cache: maven
 
+      - name: Load capture-only Chinese font
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 120 \
+            https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf \
+            --output "$RUNNER_TEMP/NotoSansCJKsc-Regular.otf"
+
       - name: Capture JavaFX timing
         shell: bash
         env:
@@ -61,6 +70,7 @@ jobs:
           TETRIS_AI_PREVIEW_RESCUE: 'true'
           TETRIS_AI_DECISION_TRACE: 'true'
           TETRIS_UI_SCREENSHOT_DIR: ${{ runner.temp }}
+          TETRIS_UI_CAPTURE_FONT: ${{ runner.temp }}/NotoSansCJKsc-Regular.otf
           JAVA_TOOL_OPTIONS: -Dglass.platform=headless -Dprism.order=sw
         run: |
           set -euo pipefail
@@ -73,6 +83,26 @@ jobs:
             compile javafx:run > "$RUNNER_TEMP/ai-decision.log" 2>&1
           python3 scripts/analyze_ai_decision_trace.py "$RUNNER_TEMP/ai-decision.log" \
             | tee "$RUNNER_TEMP/ai-decision-summary.txt"
+
+      - name: Capture compact UI with reduced motion
+        shell: bash
+        env:
+          TETRIS_AI_TRACE_SECONDS: '8'
+          TETRIS_AI_TRACE_SEED: '1000'
+          TETRIS_AI_AGENT: action
+          TETRIS_AI_OBJECTIVE: build-shape
+          TETRIS_AI_PREVIEW_RESCUE: 'true'
+          TETRIS_UI_CAPTURE_WIDTH: '750'
+          TETRIS_UI_CAPTURE_HEIGHT: '700'
+          TETRIS_UI_CAPTURE_REDUCED_MOTION: 'true'
+          TETRIS_UI_SCREENSHOT_DIR: ${{ runner.temp }}/ui-compact
+          TETRIS_UI_CAPTURE_FONT: ${{ runner.temp }}/NotoSansCJKsc-Regular.otf
+          JAVA_TOOL_OPTIONS: -Dglass.platform=headless -Dprism.order=sw
+        run: |
+          set -euo pipefail
+          timeout 120 ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.DesktopAiTimingApplication \
+            javafx:run > "$RUNNER_TEMP/ui-compact.log" 2>&1
 
       - name: Publish timing summary
         if: success()
@@ -88,6 +118,25 @@ jobs:
             echo 'Headless Linux runner observation; see the artifact for the raw trace.'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Capture reference-size UI
+        shell: bash
+        env:
+          TETRIS_AI_TRACE_SECONDS: '8'
+          TETRIS_AI_TRACE_SEED: '1000'
+          TETRIS_AI_AGENT: action
+          TETRIS_AI_OBJECTIVE: build-shape
+          TETRIS_AI_PREVIEW_RESCUE: 'true'
+          TETRIS_UI_CAPTURE_WIDTH: '1024'
+          TETRIS_UI_CAPTURE_HEIGHT: '950'
+          TETRIS_UI_SCREENSHOT_DIR: ${{ runner.temp }}/ui-reference
+          TETRIS_UI_CAPTURE_FONT: ${{ runner.temp }}/NotoSansCJKsc-Regular.otf
+          JAVA_TOOL_OPTIONS: -Dglass.platform=headless -Dprism.order=sw
+        run: |
+          set -euo pipefail
+          timeout 120 ./mvnw --batch-mode --no-transfer-progress \
+            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.DesktopAiTimingApplication \
+            javafx:run > "$RUNNER_TEMP/ui-reference.log" 2>&1
+
       - name: Upload desktop timing evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,5 +148,14 @@ jobs:
             ${{ runner.temp }}/ui-v1-ready.png
             ${{ runner.temp }}/ui-v1-playing.png
             ${{ runner.temp }}/ui-v1-row-shift.png
+            ${{ runner.temp }}/ui-v1-paused.png
+            ${{ runner.temp }}/ui-v1-manual.png
+            ${{ runner.temp }}/ui-v1-bottom.png
+            ${{ runner.temp }}/ui-v1-move.png
+            ${{ runner.temp }}/ui-v1-landing.png
+            ${{ runner.temp }}/ui-compact.log
+            ${{ runner.temp }}/ui-compact/*.png
+            ${{ runner.temp }}/ui-reference.log
+            ${{ runner.temp }}/ui-reference/*.png
           if-no-files-found: ignore
           retention-days: 7
