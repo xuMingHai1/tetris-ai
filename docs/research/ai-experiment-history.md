@@ -82,7 +82,7 @@ each qualifying decision and measuring availability, extra survival, games reach
 HEART construction, and scan cost. The later eligibility and latency comparisons use fresh
 seeds 11000–11119 and 12000–12119 respectively, comparing production baseline, STRICT
 (clear the frozen recovery warning), and PREVIEW_ONLY (restore preview reachability).
-PREVIEW_ONLY now uses the production opt-in planner described below; STRICT remains
+PREVIEW_ONLY now uses the production opt-in planner described in [Preview rescue opt-in](../architecture/ai-engine.md#preview-rescue-opt-in); STRICT remains
 benchmark-only. These headless protocols do not establish JavaFX deadline or Windows timing
 guarantees, and preview reachability alone does not guarantee long-term survival or clean HEART
 construction.
