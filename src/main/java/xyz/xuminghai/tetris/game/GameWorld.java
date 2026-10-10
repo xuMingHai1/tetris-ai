@@ -767,24 +767,32 @@ public final class GameWorld {
     /**
      * 消掉的行数
      */
-    final IntegerProperty lines = new SimpleIntegerProperty(this, "lines") {
+    final IntegerProperty lines = createLinesProperty(this, this::levelPlus);
 
-        /**
-         *  当前行等级
-         */
-        private int currentLineLevel;
+    /**
+     * Keeps automatic ten-line progress independent of manual level changes. The same property
+     * can be exercised without constructing a live world (which requires the JavaFX Robot).
+     */
+    static IntegerProperty createLinesProperty(Object bean, Runnable levelPlus) {
+        return new SimpleIntegerProperty(bean, "lines") {
+            private int currentLineLevel;
 
-        @Override
-        protected void invalidated() {
-            // 每消除10行进行升级
-            final int levelNum = super.get() / 10;
-            if (levelNum > currentLineLevel) {
-                // 计算等级，排除自定义等级
-                levelPlus();
-                currentLineLevel = levelNum;
+            @Override
+            protected void invalidated() {
+                final int clearedLines = super.get();
+                if (clearedLines == 0) {
+                    // GameOverAnimation resets lines to zero before the next game.
+                    currentLineLevel = 0;
+                    return;
+                }
+                final int levelNum = clearedLines / 10;
+                if (levelNum > currentLineLevel) {
+                    levelPlus.run();
+                    currentLineLevel = levelNum;
+                }
             }
-        }
-    };
+        };
+    }
 
     /**
      * 等级
