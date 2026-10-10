@@ -78,7 +78,7 @@ public final class UiInteractionApplication extends Application {
             press(KeyCode.SPACE);
             check(!world.getGameActive(), "Space pauses after clicking start");
             if (world.getGameActive()) world.startOrPauseGame();
-            Button plus = scene.lookupAll(".stepper-button").stream()
+            Button plus = scene.getRoot().lookupAll(".stepper-button").stream()
                     .map(Button.class::cast).filter(button -> button.getText().equals("+"))
                     .findFirst().orElseThrow();
             plus.requestFocus();

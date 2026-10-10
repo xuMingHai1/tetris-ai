@@ -533,7 +533,7 @@ public final class DashboardView extends BorderPane {
                 : over ? (zh ? "重新开始" : "Restart")
                 : everStarted ? (zh ? "继续" : "Resume") : (zh ? "开始游戏" : "Start game"));
         takeoverButton.setText(enabled ? (zh ? "接管游戏 · 手动" : "Take over · manual")
-                : (zh ? "交给已配置 AI" : "Enable configured AI"));
+                : (zh ? "交给 AI 操作" : "Let AI play"));
 
         overlay.setVisible(!active);
         overlayTitle.setText(over ? (zh ? "游戏结束" : "Game over")
