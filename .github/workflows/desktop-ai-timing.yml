@@ -66,12 +66,17 @@ jobs:
         shell: bash
         env:
           JAVA_TOOL_OPTIONS: -Dglass.platform=headless -Dprism.order=sw
+          TETRIS_UI_CAPTURE_FONT: ${{ runner.temp }}/NotoSansCJKsc-Regular.otf
         run: |
           set -euo pipefail
-          timeout 120 ./mvnw --batch-mode --no-transfer-progress \
-            -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.UiInteractionApplication \
-            compile javafx:run > "$RUNNER_TEMP/ui-interaction.log" 2>&1
-          cat "$RUNNER_TEMP/ui-interaction.log"
+          for dimensions in 950x850 750x700 1024x950; do
+            export TETRIS_UI_CAPTURE_WIDTH="${dimensions%x*}"
+            export TETRIS_UI_CAPTURE_HEIGHT="${dimensions#*x}"
+            timeout 120 ./mvnw --batch-mode --no-transfer-progress \
+              -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.UiInteractionApplication \
+              compile javafx:run > "$RUNNER_TEMP/ui-interaction-$dimensions.log" 2>&1
+            cat "$RUNNER_TEMP/ui-interaction-$dimensions.log"
+          done
 
       - name: Capture JavaFX timing
         shell: bash
@@ -158,7 +163,7 @@ jobs:
           name: desktop-ai-timing-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/ai-decision.log
-            ${{ runner.temp }}/ui-interaction.log
+            ${{ runner.temp }}/ui-interaction*.log
             ${{ runner.temp }}/ai-decision-summary.txt
             ${{ runner.temp }}/ui-v1-ready.png
             ${{ runner.temp }}/ui-v1-playing.png

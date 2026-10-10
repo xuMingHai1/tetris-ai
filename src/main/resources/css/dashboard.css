@@ -66,6 +66,7 @@
     -fx-effect: dropshadow(gaussian, #253c5909, 14, 0, 0, 4);
 }
 .board-overlay { -fx-background-color: #f7f9fced; }
+.board-frame:focused { -fx-border-color: #627ba9; }
 .overlay-title { -fx-font-size: 23px; -fx-font-weight: 600; -fx-text-fill: #4d6897; }
 .overlay-message { -fx-font-size: 11px; -fx-text-fill: #6c7a8f; }
 .primary-button {

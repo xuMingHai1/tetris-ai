@@ -24,7 +24,7 @@ GitHub 当前 default branch 是源码事实来源，不假设主分支名称固
 - `xyz.xuminghai.tetris.game`：游戏规则和运行状态，包括网格、计分、等级、时间线、输入动作和动画协作。规则变化应优先在这里表达，不把规则复制到 View。
 - `xyz.xuminghai.tetris.view`：JavaFX 展示层。负责观察状态并渲染，不应成为游戏规则的第二事实来源。
 - `xyz.xuminghai.tetris.util`：音频和版本等辅助能力。不要把业务规则沉淀为通用 util。
-- `TetrisApplication`：JavaFX 应用启动和顶层输入装配。保持 bootstrap 职责，不把核心游戏算法堆积到入口类。
+- `TetrisApplication` / `GameInputBindings`：JavaFX 应用启动和顶层输入装配。保持 bootstrap 职责，不把核心游戏算法堆积到入口类。
 - `src/main/resources`：CSS、图片、国际化、音频等运行资源。WAV/MIDI/图片按二进制资源处理。
 
 AI 已通过 `GameSnapshot -> TetrisAgent -> AiMove` 建立最小边界。新增搜索深度、look-ahead 或其他算法时应复用该状态/动作契约，不把 JavaFX runtime 引入搜索路径，也不提前建立通用 Agent/Plugin/DSL 框架。
@@ -94,6 +94,7 @@ GitHub Actions 使用 `[self-hosted, linux, x64]`。
 
 `Desktop AI Timing` 对同仓库、以 default branch 为目标且修改生产 AI / 游戏运行相关路径的 PR 自动进行 120 秒 JavaFX headless 采集；新的 revision 取消旧 run。它运行真实 `GameWorld` / `DashboardView`，在专用采集入口关闭音频，开启 AI 决策诊断，并上传原始日志、汇总、就绪／运行截图以及首次有上方格下移的消行中途截图（若发生）。自动 PR 固定 7-bag seed `1000`；手动 `workflow_dispatch` 可指定 1–900 秒及 signed 64-bit seed。专用入口通过 `GameWorld` 构造器注入独立的 `BagPieceGenerator`，`TETRIS_AI_TRACE_SEED` 默认 `1000`，seed 写入 `AI_TRACE_SESSION` 和解析摘要；普通游戏仍随机。相同 seed 保证方块序列，不保证 JavaFX 时序或最终轨迹相同。runner 的软件渲染和时钟只提供 Linux 观察值，不能视为 Windows 桌面重力 deadline 或显示缩放的保证。
 该采集入口通过生产 `PreviewRescueActionPlanningAgent` 的 observer 记录 computed preview rescue；其计数可能包含已取消或重力回退后丢弃的计划，必须与 JavaFX 线程输出的实际 `AI_DECISION` outcome 区分。无 `AI_PREVIEW_RESCUE` 行的旧日志代表不可得，不代表 0 次。
+采集前，专用 `UiInteractionApplication` 通过与普通入口共用的 `GameInputBindings` 验证真实 JavaFX control skin / Scene 按键分发、焦点恢复、按住快捷键、暂停提示和 AI 计划更新时的按钮位置，分别覆盖 950×850、750×700、1024×950。此检查使用独立 seeded world、关闭音频，失败直接阻止采集；事件分发检查不能替代操作系统实际键盘、输入法或屏幕缩放验证。
 UI 采集还保存移动／落地中途、暂停（若未结束）、手动与展开快捷键后的底部截图，并用 750×700、减少动效和 1024×950 参考尺寸做独立短采集。固定版本的中文字体只加载到专用采集入口，普通应用继续使用系统字体；短采集日志不合并进 120 秒 AI timing 汇总。CSS 变更也触发此流程。
 `AI_PLAYBACK` 仅在逐步播放计划到达终态时记录完成或打断原因；它与计划接收时的 `AI_DECISION` 是两个阶段。软下落与逐格硬下落同为 20 毫秒间隔，但最后一个软下落之后的终结 `HARD_DROP` 不再空等下一间隔，直接按正常路径锁定；重力先触底且剩余只有下落动作时记录 `gravity-landed` 并走正常锁定，它与 `completed` 一起计入完成比例。采集末尾未结束的播放和重力 tick 内同步执行的计划均不进入播放完成率分母。
 
