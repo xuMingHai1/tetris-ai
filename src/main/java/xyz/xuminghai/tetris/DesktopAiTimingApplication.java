@@ -11,6 +11,7 @@ import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TitledPane;
 import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 import javafx.scene.text.Font;
@@ -38,6 +39,8 @@ public final class DesktopAiTimingApplication extends Application {
 
     private boolean awaitingRowShift;
     private boolean rowShiftCaptured;
+    private boolean moveCaptured;
+    private boolean landingCaptured;
 
     public static void main(String[] args) {
         launch(args);
@@ -75,6 +78,22 @@ public final class DesktopAiTimingApplication extends Application {
         }
 
         if (System.getenv("TETRIS_UI_SCREENSHOT_DIR") != null) {
+            world.currentCellsProperty().addListener((_, before, after) -> {
+                if (!moveCaptured && before != null && after != null && before.length == after.length
+                        && before.length > 0 && before[0].getRow() == after[0].getRow()
+                        && before[0].getCol() != after[0].getCol()) {
+                    moveCaptured = true;
+                    PauseTransition midway = new PauseTransition(Duration.millis(15));
+                    midway.setOnFinished(_ -> snapshot(scene, "ui-v1-move.png"));
+                    midway.play();
+                }
+                if (!landingCaptured && before != null && before.length == 4 && after == null) {
+                    landingCaptured = true;
+                    PauseTransition midway = new PauseTransition(Duration.millis(55));
+                    midway.setOnFinished(_ -> snapshot(scene, "ui-v1-landing.png"));
+                    midway.play();
+                }
+            });
             world.linesProperty().addListener((_, oldLines, newLines) -> {
                 if (!rowShiftCaptured && newLines.intValue() > oldLines.intValue()) {
                     awaitingRowShift = true;
@@ -110,8 +129,12 @@ public final class DesktopAiTimingApplication extends Application {
                 if (!world.gameOverDisplayProperty().get()) snapshot(scene, "ui-v1-paused.png");
                 if (world.aiEnabledProperty().get()) world.toggleAi();
                 snapshot(scene, "ui-v1-manual.png");
+                TitledPane shortcuts = (TitledPane) scene.lookup(".shortcuts");
+                shortcuts.setAnimated(false);
+                shortcuts.setExpanded(true);
                 ScrollPane mainScroll = (ScrollPane) scene.lookup(".main-scroll");
                 mainScroll.setVvalue(1);
+                scene.getRoot().applyCss();
                 scene.getRoot().layout();
                 snapshot(scene, "ui-v1-bottom.png");
                 world.shutdown();

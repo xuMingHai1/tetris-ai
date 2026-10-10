@@ -138,3 +138,14 @@
 .dashboard .scroll-bar .increment-button, .dashboard .scroll-bar .decrement-button { -fx-padding: 0; -fx-background-color: transparent; }
 .dashboard .scroll-bar .increment-arrow, .dashboard .scroll-bar .decrement-arrow { -fx-shape: ""; -fx-padding: 0; }
 .button:focused, .hyperlink:focused, .titled-pane:focused > .title { -fx-border-color: #627ba9; -fx-border-width: 2; }
+
+/* Keep the board controls and cockpit reachable on shorter logical desktop viewports. */
+.compact-height .top-bar { -fx-padding: 15 28; }
+.compact-height .toolbar { -fx-padding: 18 28 6 28; }
+.compact-height .page-title { -fx-font-size: 21px; }
+.compact-height .main-content { -fx-padding: 16 28 18 28; }
+.compact-height .footer { -fx-padding: 10 28; }
+.compact-height .cockpit-head { -fx-padding: 15 19 12 19; }
+.compact-height .cockpit-body { -fx-padding: 14 19; -fx-spacing: 9; }
+.compact-height .cockpit-section { -fx-padding: 14 0 0 0; }
+.compact-height .creative-pane > .title { -fx-padding: 11 19; }

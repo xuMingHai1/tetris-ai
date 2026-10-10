@@ -125,8 +125,10 @@ public final class DashboardView extends BorderPane {
         // Reserve space for the reference header, controls and footer before sizing the board.
         int cellSide = Math.max(16, Math.min(25,
                 (int) Math.floor((viewportHeight - 360) / world.getRows()) - 1));
-        return new DashboardView(world, hostServices, agentLabel, objective,
+        DashboardView view = new DashboardView(world, hostServices, agentLabel, objective,
                 cellSide, viewportWidth);
+        if (viewportHeight < 900) view.getStyleClass().add("compact-height");
+        return view;
     }
 
     public DashboardView(GameWorld world, HostServices hostServices,
@@ -410,7 +412,22 @@ public final class DashboardView extends BorderPane {
         plus.setOnAction(_ -> world.levelPlus());
         HBox levelControls = new HBox(8, minus, plus);
         levelControls.getStyleClass().add("level-controls");
-        VBox right = new VBox(15, card, shortcuts, levelControls);
+        HBox auxiliary = new HBox(10, shortcuts, levelControls);
+        auxiliary.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(shortcuts, Priority.ALWAYS);
+        shortcuts.setMaxWidth(Double.MAX_VALUE);
+        // Expanded keyboard notes need the full panel width; collapsed controls share one row.
+        VBox right = new VBox(15, card, auxiliary);
+        shortcuts.expandedProperty().addListener((_, _, expanded) -> {
+            if (expanded) {
+                auxiliary.getChildren().remove(shortcuts);
+                right.getChildren().add(1, shortcuts);
+            }
+            else {
+                right.getChildren().remove(shortcuts);
+                auxiliary.getChildren().addFirst(shortcuts);
+            }
+        });
         right.getStyleClass().add("right-panel");
         right.setPrefWidth(260);
         right.setMinWidth(260);
@@ -492,17 +509,19 @@ public final class DashboardView extends BorderPane {
                 : (zh ? "准备就绪" : "Ready"));
 
         String phase = display.phase();
-        aiStatus.setText(over ? (zh ? "●  对局结束" : "●  Game over") : switch (phase) {
-            case "thinking" -> zh ? "●  正在选择落点" : "●  Choosing a placement";
-            case "next-piece" -> zh ? "●  下一块起生效" : "●  Starts with next piece";
-            case "executing" -> zh ? "●  正在执行" : "●  Executing";
-            case "fallback" -> zh ? "●  已切换本地策略" : "●  Local fallback used";
-            case "failed" -> zh ? "●  决策失败" : "●  Decision failed";
-            case "completed" -> zh ? "●  本步完成" : "●  Plan completed";
-            default -> enabled ? (zh ? "●  等待决策" : "●  Ready")
-                    : (zh ? "●  手动控制" : "●  Manual control");
+        aiStatus.setText(over ? (zh ? "对局结束" : "Game over") : switch (phase) {
+            case "thinking" -> zh ? "正在选择落点" : "Choosing a placement";
+            case "next-piece" -> zh ? "下一块起生效" : "Starts with next piece";
+            case "executing" -> zh ? "正在执行" : "Executing";
+            case "fallback" -> zh ? "已切换本地策略" : "Local fallback used";
+            case "failed" -> zh ? "决策失败" : "Decision failed";
+            case "completed" -> zh ? "本步完成" : "Plan completed";
+            case "paused" -> zh ? "AI 已暂停" : "AI paused";
+            default -> enabled ? (zh ? "等待决策" : "Ready")
+                    : (zh ? "手动控制" : "Manual control");
         });
         aiMessage.setText(!enabled ? (zh ? "AI 未执行；键盘操作优先。" : "AI is idle. Keyboard input has priority.")
+                : phase.equals("paused") ? (zh ? "继续对局后按最新状态重新决策。" : "Resume to decide from the latest state.")
                 : phase.equals("thinking") ? (zh ? "等待当前方块的决策结果。" : "Waiting for this piece's decision.")
                 : phase.equals("next-piece") ? (zh ? "当前方块仍可手动操作。" : "The current piece remains under manual control.")
                 : phase.equals("fallback") ? (zh ? "本步使用本地启发式策略。" : "This move used the local heuristic.")
@@ -513,7 +532,6 @@ public final class DashboardView extends BorderPane {
                 : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
         reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
         boardHint.setText(zh ? "空心轮廓 · 预计落点" : "Outline · projected landing");
-        aiStatus.setText(aiStatus.getText().replace("●  ", ""));
         refreshActions(display, zh);
     }
 
@@ -542,6 +560,10 @@ public final class DashboardView extends BorderPane {
             }
             if (plan.isEmpty()) actions.getChildren().add(label("empty-actions"));
         }
+        double maximumHeight = boardCellSide < 20 ? 90 : getStyleClass().contains("compact-height") ? 120 : 140;
+        double viewportHeight = plan.isEmpty() ? 36 : Math.min(maximumHeight, actionGroups.size() * 44.0);
+        actionScroll.setPrefViewportHeight(viewportHeight);
+        actionScroll.setMaxHeight(viewportHeight);
         if (plan.isEmpty()) {
             Label empty = (Label) actions.getChildren().getFirst();
             empty.setText(zh ? "当前没有执行中的计划" : "No active plan");
