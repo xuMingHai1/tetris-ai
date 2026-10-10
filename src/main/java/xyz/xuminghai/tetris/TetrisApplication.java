@@ -688,6 +688,22 @@ public class TetrisApplication extends Application {
                 gameWorld, getHostServices(), sceneWidth, sceneHeight);
         primaryStage.setScene(keyMonitor(new Scene(gameView,
                 sceneWidth, sceneHeight)));
+        // A release outside this window never reaches the Scene's key handler.
+        primaryStage.focusedProperty().addListener((_, _, focused) -> {
+            if (!focused) {
+                gameKeyCodeAction.resetInput();
+            }
+        });
+        gameWorld.activeDisplayProperty().addListener((_, _, active) -> {
+            if (!active) {
+                gameKeyCodeAction.resetInput();
+            }
+        });
+        gameWorld.gameOverDisplayProperty().addListener((_, _, gameOver) -> {
+            if (gameOver) {
+                gameKeyCodeAction.resetInput();
+            }
+        });
         primaryStage.show();
         checkUpdate(primaryStage);
         System.out.printf("启动完成耗时 = %dms%n", System.currentTimeMillis() - BOOT_TIME);
@@ -695,6 +711,7 @@ public class TetrisApplication extends Application {
 
     @Override
     public void stop() {
+        gameKeyCodeAction.resetInput();
         gameWorld.shutdown();
     }
 
