@@ -33,13 +33,14 @@ import java.util.Locale;
 import java.util.Arrays;
 import java.util.List;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Bounded check of actual control skins, scene key dispatch and live dashboard layout. */
 public final class UiInteractionApplication extends Application {
     private GameWorld world;
     private Scene scene;
     private GameKeyCodeAction input;
-    private static int failures;
+    private static final AtomicInteger FAILURES = new AtomicInteger();
     private double takeoverY;
     private double minimumY = Double.POSITIVE_INFINITY;
     private double maximumY = Double.NEGATIVE_INFINITY;
@@ -47,7 +48,7 @@ public final class UiInteractionApplication extends Application {
 
     public static void main(String[] args) {
         launch(args);
-        if (failures > 0) throw new IllegalStateException("UI interaction failures: " + failures);
+        if (FAILURES.get() > 0) throw new IllegalStateException("UI interaction failures: " + FAILURES.get());
     }
 
     @Override
@@ -186,7 +187,7 @@ public final class UiInteractionApplication extends Application {
             world.toggleAi();
             check(label(".ai-status").equals("AI paused"), "English paused AI status is truthful");
             System.out.printf(Locale.ROOT, "UI_INTERACTION_RESULT failures=%d plan_updates=%d%n",
-                    failures, observedPlans);
+                    FAILURES.get(), observedPlans);
             stage.close();
             Platform.exit();
         });
@@ -229,7 +230,7 @@ public final class UiInteractionApplication extends Application {
 
     private void check(boolean passed, String message) {
         System.out.println("UI_INTERACTION " + (passed ? "PASS " : "FAIL ") + message);
-        if (!passed) failures++;
+        if (!passed) FAILURES.incrementAndGet();
     }
 
     private void layout() {
@@ -244,7 +245,7 @@ public final class UiInteractionApplication extends Application {
                 action.run();
             }
             catch (RuntimeException exception) {
-                failures++;
+                FAILURES.incrementAndGet();
                 exception.printStackTrace();
                 Platform.exit();
             }
