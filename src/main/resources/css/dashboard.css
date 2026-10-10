@@ -97,7 +97,7 @@
 .goal-value { -fx-background-color: #e9eef8; -fx-background-radius: 8; -fx-padding: 12 10; }
 .goal-text { -fx-text-fill: #627ba9; -fx-font-size: 12px; }
 .goal-icon { -fx-fill: transparent; -fx-stroke: #627ba9; -fx-stroke-width: 1; }
-.action-scroll, .action-scroll > .viewport { -fx-background-color: transparent; -fx-border-color: transparent; }
+.action-scroll, .action-scroll > .viewport { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 0; -fx-background-insets: 0; }
 .action-row { -fx-padding: 8; -fx-background-radius: 8; }
 .action-number {
     -fx-min-width: 25; -fx-max-width: 25; -fx-min-height: 25; -fx-max-height: 25;

@@ -415,6 +415,7 @@ public final class DashboardView extends BorderPane {
         HBox auxiliary = new HBox(10, shortcuts, levelControls);
         auxiliary.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(shortcuts, Priority.ALWAYS);
+        HBox.setHgrow(levelControls, Priority.ALWAYS);
         shortcuts.setMaxWidth(Double.MAX_VALUE);
         // Expanded keyboard notes need the full panel width; collapsed controls share one row.
         VBox right = new VBox(15, card, auxiliary);
@@ -526,6 +527,7 @@ public final class DashboardView extends BorderPane {
                 : phase.equals("next-piece") ? (zh ? "当前方块仍可手动操作。" : "The current piece remains under manual control.")
                 : phase.equals("fallback") ? (zh ? "本步使用本地启发式策略。" : "This move used the local heuristic.")
                 : phase.equals("failed") ? (zh ? "本次决策未执行；可继续手动操作。" : "Decision did not execute; manual input is available.")
+                : phase.equals("completed") ? (zh ? "已落地；重力提前触底时，剩余下落动作不再执行。" : "Landed. Gravity may finish before all planned drops execute.")
                 : (zh ? "按真实游戏状态执行动作。" : "Actions follow the live game state."));
         keys.setText(zh
                 ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
@@ -561,9 +563,10 @@ public final class DashboardView extends BorderPane {
             if (plan.isEmpty()) actions.getChildren().add(label("empty-actions"));
         }
         double maximumHeight = boardCellSide < 20 ? 90 : getStyleClass().contains("compact-height") ? 120 : 140;
-        double viewportHeight = plan.isEmpty() ? 36 : Math.min(maximumHeight, actionGroups.size() * 44.0);
+        double viewportHeight = plan.isEmpty() ? 40 : Math.min(maximumHeight, actionGroups.size() * 44.0);
         actionScroll.setPrefViewportHeight(viewportHeight);
         actionScroll.setMaxHeight(viewportHeight);
+        actionScroll.setVbarPolicy(plan.isEmpty() ? ScrollPane.ScrollBarPolicy.NEVER : ScrollPane.ScrollBarPolicy.AS_NEEDED);
         if (plan.isEmpty()) {
             Label empty = (Label) actions.getChildren().getFirst();
             empty.setText(zh ? "当前没有执行中的计划" : "No active plan");
@@ -582,7 +585,9 @@ public final class DashboardView extends BorderPane {
             row.pseudoClassStateChanged(PseudoClass.getPseudoClass("active"), active);
             actionBadges.get(index).setText(done ? "✓" : "%02d".formatted(index + 1));
             String text = actionName(group.action(), zh) + (count > 1 ? " × " + count : "");
-            if (active && count > 1) text += " · " + (completed - group.start()) + "/" + count;
+            int executed = Math.clamp(completed - group.start(), 0, count);
+            if (count > 1 && !done && (active || executed > 0)) text += " · " + executed + "/" + count;
+            if (!done && display.phase().equals("completed")) text += zh ? " · 剩余未执行" : " · remaining skipped";
             actionTexts.get(index).setText(text);
             if (active || done) activeIndex = index;
         }

@@ -133,13 +133,18 @@ public final class DesktopAiTimingApplication extends Application {
                 shortcuts.setAnimated(false);
                 shortcuts.setExpanded(true);
                 ScrollPane mainScroll = (ScrollPane) scene.lookup(".main-scroll");
-                mainScroll.setVvalue(1);
                 scene.getRoot().applyCss();
                 scene.getRoot().layout();
-                snapshot(scene, "ui-v1-bottom.png");
-                world.shutdown();
-                stage.close();
-                Platform.exit();
+                // Expanding changes the scroll extent; wait for the skin to lay it out first.
+                PauseTransition expanded = new PauseTransition(Duration.millis(80));
+                expanded.setOnFinished(_ -> {
+                    mainScroll.setVvalue(1);
+                    snapshot(scene, "ui-v1-bottom.png");
+                    world.shutdown();
+                    stage.close();
+                    Platform.exit();
+                });
+                expanded.play();
             });
             capture.play();
         });
