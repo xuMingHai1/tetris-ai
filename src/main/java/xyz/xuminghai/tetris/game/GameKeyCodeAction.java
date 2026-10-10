@@ -629,6 +629,7 @@ package xyz.xuminghai.tetris.game;
 import javafx.scene.input.KeyCode;
 
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 /**
  * 2024/3/26 23:09 星期二<br/>
@@ -640,14 +641,26 @@ public class GameKeyCodeAction implements GameTimer {
 
     private boolean a, s, d;
 
-    private final GameWorld gameWorld;
+    private final Runnable leftMove, downMove, rightMove;
+
+    private final Consumer<GameTimer> setCompensateTimer;
 
     private long lastHandleTime;
 
     private Runnable keyCompensateRunnable;
 
     public GameKeyCodeAction(GameWorld gameWorld) {
-        this.gameWorld = gameWorld;
+        this(gameWorld::leftMove, gameWorld::downMove, gameWorld::rightMove,
+                gameWorld.gameTimeLine::setKeyCompensateTimer);
+    }
+
+    // Exercise the production input state machine without constructing GameWorld's JavaFX Robot.
+    GameKeyCodeAction(Runnable leftMove, Runnable downMove, Runnable rightMove,
+                      Consumer<GameTimer> setCompensateTimer) {
+        this.leftMove = leftMove;
+        this.downMove = downMove;
+        this.rightMove = rightMove;
+        this.setCompensateTimer = setCompensateTimer;
     }
 
     public void keyCodePressed(KeyCode keyCode) {
@@ -661,7 +674,7 @@ public class GameKeyCodeAction implements GameTimer {
                 }
                 else {
                     a = true;
-                    keyCoKeyCompensateRunning(gameWorld::leftMove);
+                    keyCoKeyCompensateRunning(leftMove);
                 }
             }
             // S 键 + 组合
@@ -672,7 +685,7 @@ public class GameKeyCodeAction implements GameTimer {
                 }
                 else {
                     s = true;
-                    keyCoKeyCompensateRunning(gameWorld::downMove);
+                    keyCoKeyCompensateRunning(downMove);
                 }
             }
             // D 键 + 组合
@@ -683,7 +696,7 @@ public class GameKeyCodeAction implements GameTimer {
                 }
                 else {
                     d = true;
-                    keyCoKeyCompensateRunning(gameWorld::rightMove);
+                    keyCoKeyCompensateRunning(rightMove);
                 }
             }
             // 其他按键处理（补偿机制）
@@ -743,17 +756,29 @@ public class GameKeyCodeAction implements GameTimer {
     private void applyKeyCompensateRunnable(Runnable runnable) {
         lastHandleTime = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(17L);
         keyCompensateRunnable = runnable;
-        gameWorld.gameTimeLine.setKeyCompensateTimer(this);
+        setCompensateTimer.accept(this);
     }
 
     private void closeKeyCompensateRunnable() {
         keyCompensateRunnable = null;
-        gameWorld.gameTimeLine.setKeyCompensateTimer(null);
+        setCompensateTimer.accept(null);
+    }
+
+    /**
+     * Discards held keys and repeat compensation when input ownership is lost.
+     * Call on the JavaFX application thread, like the key and timeline callbacks.
+     */
+    public void resetInput() {
+        a = false;
+        s = false;
+        d = false;
+        lastHandleTime = 0;
+        closeKeyCompensateRunnable();
     }
 
     @Override
     public void handle(long now) {
-        if (TimeUnit.NANOSECONDS.toMillis(now - lastHandleTime) >= 33L) {
+        if (keyCompensateRunnable != null && TimeUnit.NANOSECONDS.toMillis(now - lastHandleTime) >= 33L) {
             keyCompensateRunnable.run();
             lastHandleTime = now;
         }
@@ -762,41 +787,41 @@ public class GameKeyCodeAction implements GameTimer {
     private void aKeyAction() {
         // A + S
         if (s) {
-            gameWorld.leftMove();
-            gameWorld.downMove();
+            leftMove.run();
+            downMove.run();
         }
         // A
         else {
-            gameWorld.leftMove();
+            leftMove.run();
         }
     }
 
     private void sKeyAction() {
         // S + A
         if (a) {
-            gameWorld.downMove();
-            gameWorld.leftMove();
+            downMove.run();
+            leftMove.run();
         }
         // S + D
         else if (d) {
-            gameWorld.downMove();
-            gameWorld.rightMove();
+            downMove.run();
+            rightMove.run();
         }
         // S
         else {
-            gameWorld.downMove();
+            downMove.run();
         }
     }
 
     private void dKeyAction() {
         // D + S
         if (s) {
-            gameWorld.rightMove();
-            gameWorld.downMove();
+            rightMove.run();
+            downMove.run();
         }
         // D
         else {
-            gameWorld.rightMove();
+            rightMove.run();
         }
     }
 
