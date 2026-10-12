@@ -78,6 +78,10 @@ class HeadlessGameRunnerTest {
         assertEquals(control.boardHealth(), result.boardHealth());
         assertEquals(control.reachedPieceLimit(), result.reachedPieceLimit());
         assertEquals(result.decisions(), observations.size());
+        assertEquals(result.totalDecisionNanos(), observations.stream()
+                .mapToLong(HeadlessGameRunner.TurnObservation::decisionNanos).sum());
+        assertEquals(result.maxDecisionNanos(), observations.stream()
+                .mapToLong(HeadlessGameRunner.TurnObservation::decisionNanos).max().orElseThrow());
         assertEquals(5, observations.size());
         for (int index = 0; index < observations.size(); index++) {
             HeadlessGameRunner.TurnObservation observation = observations.get(index);

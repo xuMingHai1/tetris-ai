@@ -221,7 +221,7 @@ public final class HeadlessGameRunner {
             }
             long elapsed = System.nanoTime() - started;
 
-            observer.accept(new TurnObservation(decisions + 1, snapshot, selected));
+            observer.accept(new TurnObservation(decisions + 1, snapshot, selected, elapsed));
             board = selected.resultingBoard();
             linesCleared += selected.clearedLines();
             aggregateHeightSum += selected.aggregateHeight();
@@ -318,12 +318,14 @@ public final class HeadlessGameRunner {
     record TurnObservation(
             int decision,
             GameSnapshot snapshot,
-            PlacementCandidate selected) {
+            PlacementCandidate selected,
+            long decisionNanos) {
 
         TurnObservation {
             if (decision <= 0) {
                 throw new IllegalArgumentException("decision must be positive");
             }
+            if (decisionNanos < 0) throw new IllegalArgumentException("decisionNanos must not be negative");
             Objects.requireNonNull(snapshot, "snapshot");
             Objects.requireNonNull(selected, "selected");
         }

@@ -53,6 +53,7 @@ public final class BenchmarkApplication {
 
     public static void main(String[] args) {
         Configuration configuration = Configuration.fromEnvironment();
+        warmupShape(configuration);
         JevTelemetry telemetry = new JevTelemetry();
         ActionProvenanceTelemetry provenanceTelemetry = new ActionProvenanceTelemetry();
         TuckHunterTelemetry tuckHunterTelemetry = new TuckHunterTelemetry();
@@ -77,7 +78,7 @@ public final class BenchmarkApplication {
                         + "final_holes,avg_holes,max_holes,"
                         + "final_bumpiness,avg_bumpiness,max_bumpiness,reached_piece_limit");
         for (int game = 0; game < configuration.games(); game++) {
-            long seed = configuration.seed() + game;
+            long seed = Math.addExact(configuration.seed(), game);
             telemetry.startGame(seed);
             provenanceTelemetry.startGame(seed);
             tuckHunterTelemetry.startGame(seed);
@@ -121,6 +122,24 @@ public final class BenchmarkApplication {
                 buildShapeGuardTelemetry);
     }
 
+    private static void warmupShape(Configuration configuration) {
+        if (configuration.warmupGames() == 0) return;
+        if (!configuration.agent().equals("build-shape")) {
+            throw new IllegalArgumentException("warmup is supported only for local build-shape");
+        }
+        int decisions = 0;
+        HeadlessGameRunner runner = new HeadlessGameRunner();
+        for (int game = 0; game < configuration.warmupGames(); game++) {
+            decisions += runner.runPlanning(Math.addExact(configuration.warmupSeed(), game),
+                    configuration.warmupPieces(), new BuildShapeActionPlanningAgent()).decisions();
+        }
+        if (decisions != Math.multiplyExact(configuration.warmupGames(), configuration.warmupPieces())) {
+            throw new IllegalStateException("warmup ended before its configured decision count");
+        }
+        System.out.printf(Locale.ROOT, "# build_shape_warmup seed=%d games=%d pieces=%d decisions=%d%n",
+                configuration.warmupSeed(), configuration.warmupGames(), configuration.warmupPieces(), decisions);
+    }
+
     private static BenchmarkStrategy createStrategy(
             String agent,
             ObjectiveRiskProfile riskProfile,
@@ -162,12 +181,9 @@ public final class BenchmarkApplication {
                         runner.runPlanning(seed, pieceLimit, primary);
             }
             case "build-shape" -> {
-                AiPlanningAgent primary =
-                        new BuildShapeActionPlanningAgent(
-                                ShapeTarget.HEART,
-                                buildShapeTelemetry::record);
-                yield (runner, seed, pieceLimit) ->
-                        runner.runPlanning(seed, pieceLimit, primary);
+                yield (runner, seed, pieceLimit) -> runner.runPlanningObserved(seed, pieceLimit,
+                        new BuildShapeActionPlanningAgent(ShapeTarget.HEART, buildShapeTelemetry::record),
+                        null, buildShapeTelemetry::recordTurn);
             }
             case "build-shape-preview" -> {
                 AiPlanningAgent primary =
@@ -175,7 +191,7 @@ public final class BenchmarkApplication {
                                 ShapeTarget.HEART,
                                 buildShapeTelemetry::record);
                 yield (runner, seed, pieceLimit) ->
-                        runner.runPlanning(seed, pieceLimit, primary);
+                        runner.runPlanningObserved(seed, pieceLimit, primary, null, buildShapeTelemetry::recordTurn);
             }
             case "build-shape-guard-preserve" -> {
                 AiPlanningAgent primary =
@@ -664,6 +680,19 @@ public final class BenchmarkApplication {
                         game.cleanCompletion);
             }
 
+            System.out.println(ShapeCompletionTelemetry.HEADER);
+            for (BuildShapeGameTelemetry game : buildShapeTelemetry.games) {
+                System.out.println(game.completion.csv(configuration.resultAgent(), ShapeTarget.HEART.configValue(), game.seed));
+            }
+            System.out.println("build_shape_timing,strategy,target,seed,decision,decision_nanos");
+            for (BuildShapeGameTelemetry game : buildShapeTelemetry.games) {
+                List<Long> costs = game.completion.decisionNanos();
+                for (int index = 0; index < costs.size(); index++) {
+                    System.out.printf(Locale.ROOT, "build_shape_timing,%s,%s,%d,%d,%d%n",
+                            configuration.resultAgent(), ShapeTarget.HEART.configValue(), game.seed, index + 1, costs.get(index));
+                }
+            }
+
             System.out.println(
                     "build_shape_decision,strategy,target,seed,decision,risk_level,risk_profile,"
                             + "creative_suppressed_by_danger,baseline_headroom,baseline_holes,"
@@ -1024,6 +1053,7 @@ public final class BenchmarkApplication {
         private BuildShapeGameTelemetry currentGame;
         private long currentSeed;
         private int currentDecision;
+        private long gameStarted;
         private long samples;
         private long objectiveApplied;
         private long creativeSuppressedDanger;
@@ -1054,8 +1084,16 @@ public final class BenchmarkApplication {
         void startGame(long seed) {
             currentSeed = seed;
             currentDecision = 0;
+            gameStarted = System.nanoTime();
             currentGame = new BuildShapeGameTelemetry(seed);
             games.add(currentGame);
+        }
+
+        void recordTurn(HeadlessGameRunner.TurnObservation turn) {
+            ShapeProgress progress = ShapeTarget.HEART.progress(turn.selected().resultingBoard());
+            currentGame.record(progress);
+            currentGame.completion.record(turn.decision(), progress, turn.decisionNanos(),
+                    System.nanoTime() - gameStarted);
         }
 
         void record(BuildShapeDecisionObservation observation) {
@@ -1076,7 +1114,7 @@ public final class BenchmarkApplication {
                     observation.selectedProgress().forbiddenOccupiedCells();
             selectedSupportOccupiedCells += observation.selectedProgress().supportOccupiedCells();
             selectedVisualErrorCells += observation.selectedProgress().visualErrorCells();
-            currentGame.record(observation.selectedProgress());
+
             netScoreDeltaSum += observation.netScoreDelta();
             visualErrorDeltaSum += observation.visualErrorDelta();
             safetyRejectedCandidates += observation.safetyRejectedCandidates();
@@ -1183,6 +1221,7 @@ public final class BenchmarkApplication {
     private static final class BuildShapeGameTelemetry {
 
         private final long seed;
+        private final ShapeCompletionTelemetry completion = new ShapeCompletionTelemetry();
         private int bestVisualErrorCells = ShapeTarget.HEART.requiredCells();
         private int maxRequiredWithZeroForbidden;
         private int minForbiddenAtFullRequired = Integer.MAX_VALUE;
@@ -1246,7 +1285,10 @@ public final class BenchmarkApplication {
             int games,
             int maxPieces,
             long seed,
-            ObjectiveRiskProfile riskProfile) {
+            ObjectiveRiskProfile riskProfile,
+            int warmupGames,
+            int warmupPieces,
+            long warmupSeed) {
 
         static Configuration fromEnvironment() {
             String agent = System.getenv().getOrDefault(AGENT_ENV, "heuristic")
@@ -1261,7 +1303,10 @@ public final class BenchmarkApplication {
                     positiveInt(GAMES_ENV, DEFAULT_GAMES),
                     positiveInt(MAX_PIECES_ENV, DEFAULT_MAX_PIECES),
                     longValue(SEED_ENV, DEFAULT_SEED),
-                    riskProfile);
+                    riskProfile,
+                    nonnegativeInt("TETRIS_BENCHMARK_WARMUP_GAMES", 0),
+                    positiveInt("TETRIS_BENCHMARK_WARMUP_PIECES", 10),
+                    longValue("TETRIS_BENCHMARK_WARMUP_SEED", 19000));
         }
 
         String resultAgent() {
@@ -1291,6 +1336,13 @@ public final class BenchmarkApplication {
             return "adaptive-tuck-hunter".equals(agent)
                     ? "adaptive"
                     : riskProfile.configValue();
+        }
+
+        private static int nonnegativeInt(String name, int defaultValue) {
+            String value = System.getenv(name);
+            int parsed = value == null || value.isBlank() ? defaultValue : Integer.parseInt(value);
+            if (parsed < 0) throw new IllegalArgumentException(name + " must not be negative");
+            return parsed;
         }
 
         private static int positiveInt(String name, int defaultValue) {

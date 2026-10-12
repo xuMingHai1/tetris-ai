@@ -60,9 +60,13 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 - PR 页面保存协议、结果摘要与 Checks/Actions 导航。artifact 有保留期限（AI Benchmark 30 天、Desktop AI Timing 7 天），链接不等于永久可下载证据；失效后从冻结源码和协议重跑。计时受主机影响，不要求新 run 重现同毫秒数。
 - 自动路径只运行本地 deterministic agent、同仓库 PR；不调用 Jev、不读 provider secret、不使用外部 fork 占 self-hosted runner。研究不重新实现碰撞、旋转、下落或消行。
 
+## 稳定 HEART 阶段启动
+
+[#91](https://github.com/xuMingHai1/tetris-ai/issues/91) 的第一项 [#92](https://github.com/xuMingHai1/tetris-ai/issues/92) 使用 [HEART 验收协议 v1](heart-acceptance-v1.md) 与 [固定数值](heart-acceptance-v1.json) 作为评审交付。自动 `heart-baseline` 只采集开发/校准的 80 局，独立 validation 暂不运行；基线事实与新候选的采用目标分开报告。协议/基线接受前，#93–#96 仍按依赖门禁等待。
+
 ## 后续稳定 HEART 的验收维度
 
-这些是未来设计必须冻结的验收维度，**未指定或宣称已达到新的数值目标**。现有 clean witness 只证明存在可构造路径。
+以下是长期验收维度；本阶段拟采用的具体数值在上面的 v1 协议中预注册，等待 #92 评审接受，尚未达到或宣称稳定 HEART。现有 clean witness 只证明存在可构造路径。
 
 | 维度 | 下一阶段需预先定义并提供的证据 |
 | --- | --- |
