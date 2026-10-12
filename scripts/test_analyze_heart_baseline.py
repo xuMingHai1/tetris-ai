@@ -26,11 +26,12 @@ def fixture():
     for seed in (20000, 20001):
         for decision, nanos in enumerate((1000000, 3000000, 2000000), start=1):
             lines.append(f"build_shape_timing,build-shape-heart,heart,{seed},{decision},{nanos}")
-    lines.append("build_shape_decision,strategy,target,seed,decision,clean_completion,selected_forbidden_occupied_cells,required_completion_rate")
+    lines.append("build_shape_decision,strategy,target,seed,decision,clean_completion,selected_forbidden_occupied_cells,required_completion_rate,selected_matched_required_cells,selected_visual_error_cells")
     for seed in (20000, 20001):
         for decision in (1, 2, 3):
             clean = seed == 20000 and decision == 2
-            lines.append(f"build_shape_decision,build-shape-heart,heart,{seed},{decision},{str(clean).lower()},0,{1 if clean else 0.5}")
+            matched = 32 if clean else 20 if seed == 20001 else 16
+            lines.append(f"build_shape_decision,build-shape-heart,heart,{seed},{decision},{str(clean).lower()},0,{matched / 32},{matched},{32 - matched}")
     return "\n".join(lines), protocol
 
 
@@ -86,6 +87,32 @@ class HeartBaselineTest(unittest.TestCase):
         text, protocol = fixture()
         with self.assertRaises(ValueError):
             analyze(text.replace("20000,1,1000000", "20000,1,0"), protocol)
+
+    def test_rejects_corrupted_shape_aggregates(self):
+        text, protocol = fixture()
+        for value in ("0,20,-1", "-1,20,-1", "12,999,-1", "12,19,-1", "12,20,0"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                analyze(text.replace("20001,12,20,-1", "20001," + value), protocol)
+        with self.assertRaises(ValueError):
+            analyze(text.replace("20000,0,32,0,true", "20000,0,32,-1,true"), protocol)
+
+    def test_rejects_invalid_decision_shape_facts(self):
+        text, protocol = fixture()
+        before = "20000,1,false,0,0.5,16,16"
+        for value in ("false,-1,0.5,16,15", "false,17,0.5,16,33",
+                      "false,0,1.03125,33,-1", "false,0,nan,16,16",
+                      "false,0,0.6,16,16", "false,0,0.5,16,0"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                analyze(text.replace(before, "20000,1," + value), protocol)
+
+    def test_rejects_foreign_agent_rows_without_rejecting_build_logs(self):
+        text, protocol = fixture()
+        for agent, seed in (("heuristic", 30000), ("jev", 20000), ("future-agent", 20001)):
+            with self.subTest(agent=agent), self.assertRaises(ValueError):
+                analyze(text + f"\n{agent},{seed},3,3,3,0,0,2.000,3.000,true", protocol)
+        with self.assertRaises(ValueError):
+            analyze(text + "\nheuristic,30000", protocol)
+        analyze("[INFO] build log\n# note,30000\n" + text + "\n[INFO] BUILD SUCCESS", protocol)
 
     def test_protocol_populations_must_be_disjoint(self):
         _, protocol = fixture()

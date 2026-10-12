@@ -10,6 +10,9 @@ import re
 import statistics
 
 PROTOCOL = Path(__file__).resolve().parents[1] / "docs/research/heart-acceptance-v1.json"
+# Fixed HEART mask in ShapeTarget: 32 required and 16 forbidden cells (support excluded).
+HEART_REQUIRED = 32
+HEART_FORBIDDEN = 16
 
 
 def nearest_rank(values, fraction=0.95):
@@ -60,6 +63,10 @@ def parse_tables(text):
             continue
         table = "agent" if row[0] == "build-shape-heart" else row[0]
         if table not in tables:
+            # Maven/comment text is harmless; another CSV game is benchmark contamination,
+            # even when its agent is unknown or its row has the wrong number of columns.
+            if not row[0].startswith(("#", "[")) and len(row) > 1 and re.fullmatch(r"-?\d+", row[1]):
+                raise ValueError("unexpected benchmark agent in HEART baseline")
             continue
         if row[0] == "agent" or row[1:2] == ["strategy"]:
             if table in headers:
@@ -115,9 +122,17 @@ def analyze(text, protocol):
         if seed not in expected or decision in diagnostics[seed]:
             raise ValueError("invalid diagnostic seed or duplicate decision")
         diagnostics[seed][decision] = row
+        matched = int(row["selected_matched_required_cells"])
+        forbidden = int(row["selected_forbidden_occupied_cells"])
+        error = int(row["selected_visual_error_cells"])
+        rate = float(row["required_completion_rate"])
+        if (not 0 <= matched <= HEART_REQUIRED or not 0 <= forbidden <= HEART_FORBIDDEN
+                or error != HEART_REQUIRED - matched + forbidden
+                or not math.isfinite(rate) or not 0 <= rate <= 1
+                or abs(rate - matched / HEART_REQUIRED) > 0.000051):
+            raise ValueError("invalid HEART diagnostic coverage, intrusion or visual error")
         complete = boolean(row["clean_completion"])
-        if complete != (int(row["selected_forbidden_occupied_cells"]) == 0
-                        and float(row["required_completion_rate"]) == 1):
+        if complete != (forbidden == 0 and matched == HEART_REQUIRED):
             raise ValueError("clean diagnostic disagrees with coverage/intrusion")
         if complete:
             clean[seed].append(decision)
@@ -129,6 +144,17 @@ def analyze(text, protocol):
         for decision in range(1, decisions + 1):
             streak = streak + 1 if decision in clean[seed] else 0
             longest = max(longest, streak)
+        facts = list(diagnostics[seed].values())
+        # Match BuildShapeGameTelemetry's initial empty-board values and aggregation.
+        best_error = min([HEART_REQUIRED] + [int(row["selected_visual_error_cells"]) for row in facts])
+        zero_forbidden_coverage = max([0] + [int(row["selected_matched_required_cells"]) for row in facts
+                                           if int(row["selected_forbidden_occupied_cells"]) == 0])
+        full_required_intrusion = min([int(row["selected_forbidden_occupied_cells"]) for row in facts
+                                      if int(row["selected_matched_required_cells"]) == HEART_REQUIRED], default=-1)
+        if (int(shape[seed]["best_visual_error_cells"]) != best_error
+                or int(shape[seed]["max_required_with_zero_forbidden"]) != zero_forbidden_coverage
+                or int(shape[seed]["min_forbidden_at_full_required"]) != full_required_intrusion):
+            raise ValueError(f"shape summary disagrees with decision facts at seed {seed}")
         if (int(game["piece_limit"]) != protocol["piece_horizon"]
                 or int(game["pieces_placed"]) != decisions or not 0 <= decisions <= protocol["piece_horizon"]
                 or int(outcome["decisions"]) != decisions
