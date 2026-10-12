@@ -18,6 +18,9 @@ on:
       - .github/workflows/desktop-ai-timing.yml
       - pom.xml
       - src/main/java/xyz/xuminghai/tetris/DesktopAiTimingApplication.java
+      - src/main/java/xyz/xuminghai/tetris/TetrisApplication.java
+      - src/main/java/xyz/xuminghai/tetris/GameInputBindings.java
+      - src/main/java/xyz/xuminghai/tetris/UiInteractionApplication.java
       - src/main/java/xyz/xuminghai/tetris/ai/*.java
       - src/main/java/xyz/xuminghai/tetris/core/**
       - src/main/java/xyz/xuminghai/tetris/game/**
@@ -58,6 +61,27 @@ jobs:
           curl --fail --location --retry 3 --max-time 120 \
             https://raw.githubusercontent.com/notofonts/noto-cjk/523d033d6cb47f4a80c58a35753646f5c3608a78/Sans/OTF/SimplifiedChinese/NotoSansCJKsc-Regular.otf \
             --output "$RUNNER_TEMP/NotoSansCJKsc-Regular.otf"
+
+      - name: Verify desktop keyboard and layout interactions
+        shell: bash
+        env:
+          JAVA_TOOL_OPTIONS: -Dglass.platform=headless -Dprism.order=sw
+          TETRIS_UI_CAPTURE_FONT: ${{ runner.temp }}/NotoSansCJKsc-Regular.otf
+        run: |
+          set -euo pipefail
+          for dimensions in 950x850 750x700 1024x950; do
+            export TETRIS_UI_CAPTURE_WIDTH="${dimensions%x*}"
+            export TETRIS_UI_CAPTURE_HEIGHT="${dimensions#*x}"
+            if ! timeout 120 ./mvnw --batch-mode --no-transfer-progress \
+              -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.UiInteractionApplication \
+              compile javafx:run > "$RUNNER_TEMP/ui-interaction-$dimensions.log" 2>&1; then
+              cat "$RUNNER_TEMP/ui-interaction-$dimensions.log"
+              exit 1
+            fi
+            cat "$RUNNER_TEMP/ui-interaction-$dimensions.log"
+            grep -Eq '^UI_INTERACTION_RESULT failures=0 plan_updates=[0-9]+$' \
+              "$RUNNER_TEMP/ui-interaction-$dimensions.log"
+          done
 
       - name: Capture JavaFX timing
         shell: bash
@@ -144,6 +168,7 @@ jobs:
           name: desktop-ai-timing-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/ai-decision.log
+            ${{ runner.temp }}/ui-interaction*.log
             ${{ runner.temp }}/ai-decision-summary.txt
             ${{ runner.temp }}/ui-v1-ready.png
             ${{ runner.temp }}/ui-v1-playing.png

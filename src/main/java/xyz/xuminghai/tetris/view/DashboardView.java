@@ -96,9 +96,12 @@ public final class DashboardView extends BorderPane {
     private final Button startButton = button("primary-button");
     private final Button takeoverButton = button("takeover-button");
     private final Button languageButton = button("quiet-button");
+    private final Tooltip startTooltip = new Tooltip();
+    private final Tooltip takeoverTooltip = new Tooltip();
     private final VBox actions = new VBox(3);
     private final ScrollPane actionScroll = new ScrollPane(actions);
     private final VBox overlayContent = new VBox(6, overlayTitle, overlayMessage);
+    private final StackPane boardWell = new StackPane();
     private final StackPane overlay = new StackPane(overlayContent);
     private List<AiAction> shownPlan = List.of();
     private List<ActionGroup> actionGroups = List.of();
@@ -128,6 +131,7 @@ public final class DashboardView extends BorderPane {
         DashboardView view = new DashboardView(world, hostServices, agentLabel, objective,
                 cellSide, viewportWidth);
         if (viewportHeight < 900) view.getStyleClass().add("compact-height");
+        view.refresh();
         return view;
     }
 
@@ -139,6 +143,8 @@ public final class DashboardView extends BorderPane {
         this.objective = configuredObjective;
         this.boardCellSide = boardCellSide;
         this.viewportWidth = viewportWidth;
+        startButton.setTooltip(startTooltip);
+        takeoverButton.setTooltip(takeoverTooltip);
         reducedMotion.setId("reduced-motion");
         getStyleClass().add("dashboard");
         getStylesheets().add("css/dashboard.css");
@@ -202,6 +208,11 @@ public final class DashboardView extends BorderPane {
         refresh();
     }
 
+    /** Makes game shortcuts immediately usable after a mouse or keyboard game-control action. */
+    public void requestGameFocus() {
+        boardWell.requestFocus();
+    }
+
     private VBox header() {
         GridPane blocks = new GridPane();
         blocks.setHgap(2);
@@ -239,9 +250,11 @@ public final class DashboardView extends BorderPane {
 
         manualButton.setOnAction(_ -> {
             if (world.aiEnabledProperty().get()) world.toggleAi();
+            requestGameFocus();
         });
         aiButton.setOnAction(_ -> {
             if (!world.aiEnabledProperty().get()) world.toggleAi();
+            requestGameFocus();
         });
         HBox modes = new HBox(manualButton, aiButton);
         modes.getStyleClass().add("mode-group");
@@ -321,7 +334,9 @@ public final class DashboardView extends BorderPane {
         overlayMessage.setWrapText(true);
         overlayMessage.setMaxWidth(210);
         overlayMessage.setAlignment(Pos.CENTER);
-        StackPane boardWell = new StackPane(board, ghost, fallingPieceView, sweepLayer, rowShiftView, overlay);
+        boardWell.getChildren().setAll(board, ghost, fallingPieceView, sweepLayer, rowShiftView, overlay);
+        boardWell.setFocusTraversable(true);
+        boardWell.setOnMousePressed(_ -> requestGameFocus());
         boardWell.getStyleClass().add("board-frame");
         boardWell.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
 
@@ -330,7 +345,10 @@ public final class DashboardView extends BorderPane {
         HBox boardHead = new HBox(6, stageDot, stageStatus);
         boardHead.getStyleClass().add("stage-head");
         boardHead.setMaxWidth(board.getWidth() + 22);
-        startButton.setOnAction(_ -> world.startOrPauseGame());
+        startButton.setOnAction(_ -> {
+            world.startOrPauseGame();
+            requestGameFocus();
+        });
         startButton.setMaxWidth(Double.MAX_VALUE);
         HBox controls = new HBox(startButton);
         controls.setMaxWidth(board.getWidth() + 22);
@@ -367,7 +385,10 @@ public final class DashboardView extends BorderPane {
         VBox actionSection = new VBox(12, actionsTitle, actionScroll);
         actionSection.getStyleClass().add("cockpit-section");
 
-        takeoverButton.setOnAction(_ -> world.toggleAi());
+        takeoverButton.setOnAction(_ -> {
+            world.toggleAi();
+            requestGameFocus();
+        });
         takeoverButton.setMaxWidth(Double.MAX_VALUE);
         Circle statusDot = new Circle(3);
         statusDot.getStyleClass().add("status-dot");
@@ -378,6 +399,9 @@ public final class DashboardView extends BorderPane {
                 actionSection, takeoverButton);
         body.getStyleClass().add("cockpit-body");
         aiMessage.setWrapText(true);
+        aiMessage.setMinHeight(42);
+        aiMessage.setPrefHeight(42);
+        aiMessage.setMaxHeight(42);
         VBox card = new VBox(heading, body);
         card.getStyleClass().add("cockpit-card");
         if (objective.equals("build-shape")) {
@@ -404,12 +428,26 @@ public final class DashboardView extends BorderPane {
 
         Button minus = button("stepper-button");
         minus.setText("−");
-        minus.setTooltip(new Tooltip("Level −"));
-        minus.setOnAction(_ -> world.levelMinus());
+        Tooltip slower = new Tooltip();
+        slower.textProperty().bind(world.languageProperty().map(locale ->
+                locale.getLanguage().equals("zh") ? "降低等级与下落速度（−）" : "Decrease level and speed (−)"));
+        minus.setTooltip(slower);
+        minus.accessibleTextProperty().bind(slower.textProperty());
+        minus.setOnAction(_ -> {
+            world.levelMinus();
+            requestGameFocus();
+        });
         Button plus = button("stepper-button");
         plus.setText("+");
-        plus.setTooltip(new Tooltip("Level +"));
-        plus.setOnAction(_ -> world.levelPlus());
+        Tooltip faster = new Tooltip();
+        faster.textProperty().bind(world.languageProperty().map(locale ->
+                locale.getLanguage().equals("zh") ? "提高等级与下落速度（+）" : "Increase level and speed (+)"));
+        plus.setTooltip(faster);
+        plus.accessibleTextProperty().bind(faster.textProperty());
+        plus.setOnAction(_ -> {
+            world.levelPlus();
+            requestGameFocus();
+        });
         HBox levelControls = new HBox(8, minus, plus);
         levelControls.getStyleClass().add("level-controls");
         HBox auxiliary = new HBox(10, shortcuts, levelControls);
@@ -495,14 +533,14 @@ public final class DashboardView extends BorderPane {
                 : over ? (zh ? "重新开始" : "Restart")
                 : everStarted ? (zh ? "继续" : "Resume") : (zh ? "开始游戏" : "Start game"));
         takeoverButton.setText(enabled ? (zh ? "接管游戏 · 手动" : "Take over · manual")
-                : (zh ? "交给已配置 AI" : "Enable configured AI"));
+                : (zh ? "交给 AI 操作" : "Let AI play"));
 
         overlay.setVisible(!active);
         overlayTitle.setText(over ? (zh ? "游戏结束" : "Game over")
                 : everStarted ? (zh ? "已暂停" : "Paused")
                 : (zh ? "准备开始" : "Ready to play"));
         overlayMessage.setText(over ? (zh ? "重新开始一局新的对局" : "Start a new game when ready")
-                : everStarted ? (zh ? "对局与 AI 执行已暂停" : "The game and AI execution are paused")
+                : everStarted ? (zh ? "按 Space / Esc 或点击继续" : "Space / Esc or Resume to continue")
                 : (zh ? "选择控制方式，开始对局" : "Choose a controller and start playing"));
         stageStatus.setText(over ? (zh ? "游戏结束" : "Game over")
                 : active ? (zh ? "对局进行中" : "Game in progress")
@@ -510,30 +548,35 @@ public final class DashboardView extends BorderPane {
                 : (zh ? "准备就绪" : "Ready"));
 
         String phase = display.phase();
-        aiStatus.setText(over ? (zh ? "对局结束" : "Game over") : switch (phase) {
+        aiStatus.setText(over ? (zh ? "对局结束" : "Game over")
+                : !enabled ? (zh ? "手动控制" : "Manual control")
+                : !active ? (everStarted ? (zh ? "AI 已暂停" : "AI paused")
+                        : (zh ? "AI 已就绪" : "AI ready")) : switch (phase) {
             case "thinking" -> zh ? "正在选择落点" : "Choosing a placement";
             case "next-piece" -> zh ? "下一块起生效" : "Starts with next piece";
             case "executing" -> zh ? "正在执行" : "Executing";
             case "fallback" -> zh ? "已切换本地策略" : "Local fallback used";
             case "failed" -> zh ? "决策失败" : "Decision failed";
             case "completed" -> zh ? "本步完成" : "Plan completed";
-            case "paused" -> zh ? "AI 已暂停" : "AI paused";
-            default -> enabled ? (zh ? "等待决策" : "Ready")
-                    : (zh ? "手动控制" : "Manual control");
+            default -> zh ? "等待决策" : "Waiting for a plan";
         });
-        aiMessage.setText(!enabled ? (zh ? "AI 未执行；键盘操作优先。" : "AI is idle. Keyboard input has priority.")
-                : phase.equals("paused") ? (zh ? "继续对局后按最新状态重新决策。" : "Resume to decide from the latest state.")
-                : phase.equals("thinking") ? (zh ? "等待当前方块的决策结果。" : "Waiting for this piece's decision.")
-                : phase.equals("next-piece") ? (zh ? "当前方块仍可手动操作。" : "The current piece remains under manual control.")
-                : phase.equals("fallback") ? (zh ? "本步使用本地启发式策略。" : "This move used the local heuristic.")
-                : phase.equals("failed") ? (zh ? "本次决策未执行；可继续手动操作。" : "Decision did not execute; manual input is available.")
-                : phase.equals("completed") ? (zh ? "已落地；重力提前触底时，剩余下落动作不再执行。" : "Landed. Gravity may finish before all planned drops execute.")
-                : (zh ? "按真实游戏状态执行动作。" : "Actions follow the live game state."));
+        aiMessage.setText(over ? (zh ? "本局已结束，可重新开始。" : "Game finished. Start again when ready.")
+                : !enabled ? (zh ? "使用 A / D 移动，← / → 旋转。" : "Use A / D to move and ← / → to rotate.")
+                : !active ? (everStarted ? (zh ? "继续对局后，AI 将重新选择落点。" : "Resume to let AI choose a new placement.")
+                        : (zh ? "开始对局后，AI 将自动操作。" : "Start the game to let AI play."))
+                : phase.equals("thinking") ? (zh ? "正在为当前方块寻找落点。" : "Finding a placement for this piece.")
+                : phase.equals("next-piece") ? (zh ? "当前方块仍可手动操作。" : "You still control the current piece.")
+                : phase.equals("fallback") ? (zh ? "本步使用本地策略继续。" : "Continuing with the local strategy.")
+                : phase.equals("failed") ? (zh ? "暂时无法决策，可接管游戏。" : "Unable to decide. You can take over.")
+                : phase.equals("completed") ? (zh ? "方块已落地，等待下一块。" : "Piece landed. Waiting for the next one.")
+                : (zh ? "随时可接管游戏，切回手动操作。" : "Take over at any time to play manually."));
         keys.setText(zh
-                ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
-                : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
+                ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
+                : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space / Esc  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
         reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
-        boardHint.setText(zh ? "空心轮廓 · 预计落点" : "Outline · projected landing");
+        boardHint.setText(zh ? "Space / Esc · 开始或暂停" : "Space / Esc · start or pause");
+        startTooltip.setText(zh ? "Space / Esc：开始或暂停" : "Space / Esc: start or pause");
+        takeoverTooltip.setText(zh ? "F2：切换 AI / 手动控制" : "F2: toggle AI / manual control");
         refreshActions(display, zh);
     }
 
@@ -563,13 +606,20 @@ public final class DashboardView extends BorderPane {
             if (plan.isEmpty()) actions.getChildren().add(label("empty-actions"));
         }
         double maximumHeight = boardCellSide < 20 ? 90 : getStyleClass().contains("compact-height") ? 120 : 140;
-        double viewportHeight = plan.isEmpty() ? 40 : Math.min(maximumHeight, actionGroups.size() * 44.0);
+        // Decisions repeatedly clear/repopulate the plan; controls below must stay stationary.
+        double viewportHeight = maximumHeight;
         actionScroll.setPrefViewportHeight(viewportHeight);
+        actionScroll.setMinHeight(viewportHeight);
+        actionScroll.setPrefHeight(viewportHeight);
         actionScroll.setMaxHeight(viewportHeight);
         actionScroll.setVbarPolicy(plan.isEmpty() ? ScrollPane.ScrollBarPolicy.NEVER : ScrollPane.ScrollBarPolicy.AS_NEEDED);
         if (plan.isEmpty()) {
             Label empty = (Label) actions.getChildren().getFirst();
-            empty.setText(zh ? "当前没有执行中的计划" : "No active plan");
+            empty.setText(!world.aiEnabledProperty().get()
+                    ? (zh ? "启用 AI 后，在这里查看动作。" : "Enable AI to see its moves here.")
+                    : display.phase().equals("thinking") ? (zh ? "正在生成本次计划…" : "Planning the next moves…")
+                    : (zh ? "对局运行后显示本次动作。" : "Moves appear when the game is running."));
+            empty.setWrapText(true);
             actionScroll.setVvalue(0);
             return;
         }
@@ -587,7 +637,7 @@ public final class DashboardView extends BorderPane {
             String text = actionName(group.action(), zh) + (count > 1 ? " × " + count : "");
             int executed = Math.clamp(completed - group.start(), 0, count);
             if (count > 1 && !done && (active || executed > 0)) text += " · " + executed + "/" + count;
-            if (!done && display.phase().equals("completed")) text += zh ? " · 剩余未执行" : " · remaining skipped";
+            if (!done && display.phase().equals("completed")) text += zh ? " · 已落地" : " · landed";
             actionTexts.get(index).setText(text);
             if (active || done) activeIndex = index;
         }
