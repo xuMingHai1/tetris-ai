@@ -29,7 +29,7 @@ class HeartSelectorTest(unittest.TestCase):
             '.github/workflows/ai-benchmark.yml',
             '.github/workflows/ai-benchmark-pr.yml',
         ]
-        for name in ('BenchmarkApplication', 'HeadlessGameRunner', 'ShapeCompletionTelemetry'):
+        for name in ('BenchmarkApplication', 'HeadlessGameRunner', 'ShapeCompletionTelemetry', 'GameBenchmarkResult'):
             paths += [f'src/main/java/xyz/xuminghai/tetris/ai/benchmark/{name}.java',
                       f'src/test/java/xyz/xuminghai/tetris/ai/benchmark/{name}Test.java']
         for path in paths:
