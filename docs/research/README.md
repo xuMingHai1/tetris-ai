@@ -62,11 +62,11 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 
 ## 稳定 HEART 阶段启动
 
-[#91](https://github.com/xuMingHai1/tetris-ai/issues/91) 的第一项 [#92](https://github.com/xuMingHai1/tetris-ai/issues/92) 使用 [HEART 验收协议 v1](heart-acceptance-v1.md) 与 [固定数值](heart-acceptance-v1.json) 作为评审交付。自动 `heart-baseline` 只采集开发/校准的 80 局，独立 validation 暂不运行；基线事实与新候选的采用目标分开报告。协议/基线接受前，#93–#96 仍按依赖门禁等待。
+[#91](https://github.com/xuMingHai1/tetris-ai/issues/91) 的第一项 [#92](https://github.com/xuMingHai1/tetris-ai/issues/92) 使用 [HEART 验收协议 v1.1](heart-acceptance-v1.md) 与 [固定数值](heart-acceptance-v1.json) 作为评审交付。自动 `heart-baseline` 只采集开发/校准的 80 局，独立 validation 暂不运行；基线事实与新候选的采用目标分开报告。协议/基线接受前，#93–#96 仍按依赖门禁等待。
 
 ## 后续稳定 HEART 的验收维度
 
-以下是长期验收维度；本阶段拟采用的具体数值在上面的 v1 协议中预注册，等待 #92 评审接受，尚未达到或宣称稳定 HEART。现有 clean witness 只证明存在可构造路径。
+以下是长期验收维度；本阶段拟采用的具体数值在上面的 v1.1 协议中预注册，等待 #92 评审接受，尚未达到或宣称稳定 HEART。现有 clean witness 只证明存在可构造路径。
 
 | 维度 | 下一阶段需预先定义并提供的证据 |
 | --- | --- |

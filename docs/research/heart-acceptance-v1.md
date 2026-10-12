@@ -1,8 +1,8 @@
-# 稳定 HEART 验收协议 v1
+# 稳定 HEART 验收协议 v1.1
 
 任务：[#91](https://github.com/xuMingHai1/tetris-ai/issues/91) → [#92](https://github.com/xuMingHai1/tetris-ai/issues/92)。
 
-本文件与 [机器可读数值](heart-acceptance-v1.json) 是本轮预注册的评审交付。数值先固定并提交，再测 baseline；采集不能反过来调整目标。#92 接受、PR 合并前不启动 #93/#94 或独立 validation。若评审改变定义、seed 或门槛，创建新协议版本并重采相应基线，不用 v1 数据冒充新协议结果。本轮不声称稳定 HEART 已实现。
+本文件与 [机器可读数值](heart-acceptance-v1.json) 是本轮预注册的评审交付。数值先固定并提交，再测 baseline；采集不能反过来调整目标。#92 接受、PR 合并前不启动 #93/#94 或独立 validation。若评审改变定义、seed 或门槛，创建新协议版本并重采相应基线，不用旧版本数据冒充新协议结果。本轮不声称稳定 HEART 已实现。
 
 ## 冻结输入与完成定义
 
@@ -47,15 +47,18 @@ paired run 使用同 seed / 同输入边界 / 同 horizon，策略每局重新�
 
 prototype 值得继续的判断留在 #93 的被评审设计中，但不能改变这里的最终采用标准。均值 error 变好、clean witness 存在、headless latency 达标或 warning classifier 命中均不能单独触发 runtime adoption。
 
+v1.1 修正记录：在读取第一轮基线指标前，自审发现 v1 的桌面门禁只检查播放/耗时，缺少真实构造结果。v1.1 增加下面的 clean 与完成后存活条件；headless 门槛、population、warmup 不变。第一轮 v1 数据不作为 v1.1 的交付基线，按新协议 checksum 重采。此修改不来自观测结果，也不放宽任何门槛。
+
 ## Windows 桌面门禁（#96）
 
 每个起始等级 0/10、每个 seed 31000–31002 各采集 120 秒；保留自动升级与自然重力，记录每次请求时的实际等级、重力剩余时间、generation、ready/application 和 fallback。禁止固定 timeline 或跳过正常播放来提高完成率。早结束的对局记录死亡和实际持续时间，不重开拼接样本。采用结论只覆盖实际采集到的等级区间，不推导等级 30 的实时保证。
 
+- 六次采集均须在实际生产 settled post-row-clear 棋盘上出现 clean HEART，首次 clean ≤500 个真实锁定方块且 ≤90 秒，随后至少继续存活 30 秒；不能用 planner 的预测落点、截图外观或 headless 结果替代。早结束/未完成都记失败。记录实际首次 clean 的 piece/时间以及 clean 后存活时间；六次皆通过仅作运行接入验收，不宣称 Windows population 的成功率已证明 ≥90%。
 - request → FX plan-ready 的 pooled P95 ≤75 ms、max ≤250 ms；实际重力期限到达后只能按生产 fallback 契约处理，旧 snapshot/generation 的结果应用数为 0。
 - `gravity-fallback / accepted decisions ≤1%`；decision failure、fallback failure、暂停/人工接管后仍执行旧动作数为 0。
 - 完成播放比例 ≥99%，分母为有终态的计划，分子为 `completed + gravity-landed`；末尾未结束计划单独列出。受阻重算、人工优先、暂停/恢复/接管必须实际验证。
 - 保存 Windows 版本、CPU/RAM、电源模式、JDK/JavaFX、DPI、实际每局等级和采集原始日志。起始等级 10 后自动升级可能缩短 deadline，超过预算则按门禁失败，不能删去不利等级区间。
-- 当前 Desktop AI Timing 只给 Linux 观察值，且还没有足够的 per-request level/deadline/generation 日志；#96 须补齐这些可观测字段并做真实 Windows 操作验收。#92 不以既有 120 秒样本冒充此门禁。
+- 当前 Desktop AI Timing 只给 Linux 观察值，且还没有足够的真实 piece/clean 事件和 per-request level/deadline/generation 日志；#96 须补齐这些可观测字段并做真实 Windows 操作验收。#92 不以既有 120 秒样本冒充此门禁。
 
 ## 运行与数据核对
 
