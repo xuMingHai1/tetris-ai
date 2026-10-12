@@ -212,7 +212,12 @@ jobs:
           SEED: ${{ inputs.seed }}
         run: |
           set -euo pipefail
-          python3 -m unittest discover -s scripts -p 'test_analyze_heart_baseline.py'
+          python3 -m unittest discover -s scripts -p 'test_*heart*.py'
+          production_base=$(python3 -c "import json; print(json.load(open('docs/research/heart-acceptance-v1.json'))['production_base_sha'])")
+          [[ "$production_base" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Invalid production_base_sha'; exit 1; }
+          git fetch --no-tags origin "$production_base"
+          mkdir -p target/benchmark
+          python3 scripts/verify_heart_production_base.py | tee target/benchmark/heart-production-base.json
           python3 - <<'PY'
           import hashlib, json, os
           from pathlib import Path
@@ -785,6 +790,7 @@ jobs:
             target/benchmark/heart-baseline-summary.txt
             target/benchmark/heart-protocol.json
             target/benchmark/heart-environment.txt
+            target/benchmark/heart-production-base.json
             target/benchmark/shape-feasibility.csv
             target/benchmark/shape-feasibility-witness.csv
             target/benchmark/shape-witness-audit.csv

@@ -70,14 +70,10 @@ jobs:
             [ -z "$file" ] && continue
 
             case "$file" in
-              docs/research/heart-acceptance-v1.json|scripts/analyze_heart_baseline.py|scripts/test_analyze_heart_baseline.py|src/main/java/xyz/xuminghai/tetris/ai/benchmark/ShapeCompletionTelemetry.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/ShapeCompletionTelemetryTest.java)
+              docs/research/heart-acceptance-v1.*|scripts/*heart*.py|src/main/java/xyz/xuminghai/tetris/ai/benchmark/ShapeCompletionTelemetry.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/ShapeCompletionTelemetryTest.java|src/main/java/xyz/xuminghai/tetris/ai/benchmark/BenchmarkApplication.java|src/main/java/xyz/xuminghai/tetris/ai/benchmark/HeadlessGameRunner.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/BenchmarkApplicationTest.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/HeadlessGameRunnerTest.java|.github/workflows/ai-benchmark.yml|.github/workflows/ai-benchmark-pr.yml)
+                # Measurement wiring and shared workflow edits must exercise the
+                # fixed HEART log analyzer, not a different benchmark mode.
                 heart_protocol_changed=true
-                ;;
-
-              .github/workflows/ai-benchmark.yml|.github/workflows/ai-benchmark-pr.yml)
-                # Exercise the most feature-rich deterministic path when benchmark
-                # infrastructure itself changes.
-                shape_changed=true
                 ;;
 
               src/main/java/xyz/xuminghai/tetris/ai/PreviewRescueActionPlanningAgent.java|              src/test/java/xyz/xuminghai/tetris/ai/PreviewRescueActionPlanningAgentTest.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePlanningAgent.java|              src/main/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePairedApplication.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePlanningAgentTest.java|              src/test/java/xyz/xuminghai/tetris/ai/benchmark/PreviewRescuePairedApplicationTest.java)
