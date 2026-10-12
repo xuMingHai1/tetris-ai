@@ -76,6 +76,7 @@ on:
           - tuck-hunter
           - adaptive-tuck-hunter
           - build-shape
+          - heart-baseline
           - build-shape-preview
           - shape-feasibility
           - action-provenance
@@ -201,6 +202,40 @@ jobs:
             echo "::error::seed must be an integer"
             exit 1
           fi
+
+      - name: Validate fixed HEART protocol and summary tests
+        if: ${{ inputs.agent == 'heart-baseline' }}
+        shell: bash
+        env:
+          GAMES: ${{ inputs.games }}
+          MAX_PIECES: ${{ inputs.max_pieces }}
+          SEED: ${{ inputs.seed }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts -p 'test_*heart*.py'
+          production_base=$(python3 -c "import json; print(json.load(open('docs/research/heart-acceptance-v1.json'))['production_base_sha'])")
+          [[ "$production_base" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Invalid production_base_sha'; exit 1; }
+          git fetch --no-tags origin "$production_base"
+          mkdir -p target/benchmark
+          python3 scripts/verify_heart_production_base.py | tee target/benchmark/heart-production-base.json
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          protocol_path = Path('docs/research/heart-acceptance-v1.json')
+          raw = protocol_path.read_bytes()
+          protocol = json.loads(raw)
+          development = protocol['populations']['development']
+          calibration = protocol['populations']['calibration']
+          expected = (development['games'] + calibration['games'], protocol['piece_horizon'], development['seed_start'])
+          actual = tuple(int(os.environ[name]) for name in ('GAMES', 'MAX_PIECES', 'SEED'))
+          if actual != expected or calibration['seed_start'] != development['seed_start'] + development['games']:
+              raise SystemExit('heart-baseline requires the fixed development + calibration population: ' + str(expected))
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('TETRIS_BENCHMARK_WARMUP_GAMES=' + str(protocol['warmup']['games']) + '\n')
+              output.write('TETRIS_BENCHMARK_WARMUP_PIECES=' + str(protocol['warmup']['max_pieces']) + '\n')
+              output.write('TETRIS_BENCHMARK_WARMUP_SEED=' + str(protocol['warmup']['seed_start']) + '\n')
+          print('HEART_PROTOCOL_SHA256=' + hashlib.sha256(raw).hexdigest())
+          PY
 
       - name: Validate shape feasibility inputs
         if: ${{ inputs.agent == 'shape-feasibility' || inputs.agent == 'recovery-robustness' || inputs.agent == 'recovery-reserve-lead-time' || inputs.agent == 'recovery-reserve-validation' }}
@@ -350,7 +385,7 @@ jobs:
             javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
 
       - name: Run BUILD_SHAPE benchmark
-        if: ${{ inputs.agent == 'build-shape' || inputs.agent == 'compare-shape' || inputs.agent == 'compare-shape-preview' || inputs.agent == 'compare-shape-guard' }}
+        if: ${{ inputs.agent == 'heart-baseline' || inputs.agent == 'build-shape' || inputs.agent == 'compare-shape' || inputs.agent == 'compare-shape-preview' || inputs.agent == 'compare-shape-guard' }}
         shell: bash
         env:
           TETRIS_BENCHMARK_AGENT: build-shape
@@ -654,6 +689,8 @@ jobs:
           grep '^build_shape_guard_decision,' target/benchmark/raw.log > target/benchmark/build-shape-guard-decisions.csv || true
           grep '^build_shape_guard_game,' target/benchmark/raw.log > target/benchmark/build-shape-guard-games.csv || true
           grep '^build_shape_game,' target/benchmark/raw.log > target/benchmark/build-shape-games.csv || true
+          grep '^build_shape_outcome,' target/benchmark/raw.log > target/benchmark/build-shape-outcomes.csv || true
+          grep '^build_shape_timing,' target/benchmark/raw.log > target/benchmark/build-shape-timings.csv || true
           grep '^shape_feasibility,' target/benchmark/raw.log > target/benchmark/shape-feasibility.csv || true
           grep '^shape_feasibility_witness,' target/benchmark/raw.log > target/benchmark/shape-feasibility-witness.csv || true
           grep '^shape_witness_audit,' target/benchmark/raw.log > target/benchmark/shape-witness-audit.csv || true
@@ -696,6 +733,30 @@ jobs:
             echo "seed=${SEED}"
           } > target/benchmark/metadata.txt
 
+      - name: Summarize fixed HEART baseline
+        if: ${{ inputs.agent == 'heart-baseline' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/analyze_heart_baseline.py target/benchmark/raw.log \
+            --output target/benchmark/heart-baseline-summary.json \
+            | tee target/benchmark/heart-baseline-summary.txt
+          cp docs/research/heart-acceptance-v1.json target/benchmark/heart-protocol.json
+          {
+            echo "source_sha=$(git rev-parse HEAD)"
+            echo "protocol_sha256=$(sha256sum docs/research/heart-acceptance-v1.json | cut -d' ' -f1)"
+            java -version 2>&1
+            uname -a
+            lscpu
+            free -m
+          } > target/benchmark/heart-environment.txt
+          {
+            echo '## Fixed HEART baseline (development + calibration only)'
+            echo '```json'
+            cat target/benchmark/heart-baseline-summary.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Publish benchmark summary
         shell: bash
         run: |
@@ -723,6 +784,13 @@ jobs:
             target/benchmark/build-shape-guard-decisions.csv
             target/benchmark/build-shape-guard-games.csv
             target/benchmark/build-shape-games.csv
+            target/benchmark/build-shape-outcomes.csv
+            target/benchmark/build-shape-timings.csv
+            target/benchmark/heart-baseline-summary.json
+            target/benchmark/heart-baseline-summary.txt
+            target/benchmark/heart-protocol.json
+            target/benchmark/heart-environment.txt
+            target/benchmark/heart-production-base.json
             target/benchmark/shape-feasibility.csv
             target/benchmark/shape-feasibility-witness.csv
             target/benchmark/shape-witness-audit.csv

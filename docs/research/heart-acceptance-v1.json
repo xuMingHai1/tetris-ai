@@ -1,0 +1,69 @@
+{
+  "protocol": "heart-acceptance-v1.1",
+  "production_base_sha": "2d3f418afdc0454d160cda3599c5c688a8b1f670",
+  "baseline_agent": "build-shape",
+  "preview_rescue": false,
+  "target": "heart",
+  "rows": 20,
+  "cols": 10,
+  "piece_horizon": 1000,
+  "completion_piece_limit": 500,
+  "warmup": {
+    "seed_start": 19000,
+    "games": 10,
+    "max_pieces": 10
+  },
+  "populations": {
+    "development": {
+      "seed_start": 20000,
+      "games": 20
+    },
+    "calibration": {
+      "seed_start": 20020,
+      "games": 60
+    },
+    "validation": {
+      "seed_start": 30000,
+      "games": 200
+    }
+  },
+  "adoption": {
+    "minimum_clean_rate": 0.9,
+    "minimum_wilson95_lower_bound": 0.85,
+    "maximum_paired_clean_p_value": 0.05,
+    "minimum_mean_piece_delta": 0,
+    "minimum_median_piece_delta": 0,
+    "maximum_regressed_seed_fraction": 0.05,
+    "maximum_piece_loss": 100,
+    "maximum_baseline_survivors_lost": 0,
+    "maximum_horizon_rate_loss": 0.02,
+    "decision_p95_ms": 50,
+    "decision_max_ms": 250,
+    "primary_failures": 0,
+    "fallback_decisions": 0
+  },
+  "desktop": {
+    "platform": "Windows JavaFX 27",
+    "starting_levels": [
+      0,
+      10
+    ],
+    "seeds": [
+      31000,
+      31001,
+      31002
+    ],
+    "seconds_per_capture": 120,
+    "request_to_plan_ready_p95_ms": 75,
+    "request_to_plan_ready_max_ms": 250,
+    "gravity_fallback_fraction": 0.01,
+    "minimum_finished_playback_fraction": 0.99,
+    "decision_failures": 0,
+    "stale_generation_applied": 0,
+    "post_pause_or_takeover_actions": 0,
+    "minimum_clean_captures": 6,
+    "first_clean_piece_limit": 500,
+    "first_clean_seconds": 90,
+    "minimum_post_clean_seconds": 30
+  }
+}
