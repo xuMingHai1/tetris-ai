@@ -21,6 +21,10 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 ## 已完成实验
 
+#111 的 [每步几何域诊断](heart-prefix-diagnostic.md) 已在本地固定开发 seeds 20000–20019
+完成：0/20 clean witness，全部 BOUNDED_MISS，无超时/错误；按设计停止此方向，不能推导
+不可能或解锁 #94。实现仍是待审候选，冻结源码集成门禁阻断合并，不能称为已接受交付。
+
 以下协议是**历史结果所用的固定样本**，不是所有入口的当前默认值。`g×p` 表示局数×piece limit；同 seed 保证 7-bag 序列，不保证 JavaFX 时序。表中入口类位于 `xyz.xuminghai.tetris.ai.benchmark`，可从 [源码目录](../../src/main/java/xyz/xuminghai/tetris/ai/benchmark) 查阅。目的、关键结果和采用结论逐行列出；完整观测值与局限见 [详细记录](ai-experiment-history.md)。
 
 | 实验目的 / 状态 | Workflow mode / 入口 | 固定协议 | 关键结果 / 采用结论 | PR 证据 |

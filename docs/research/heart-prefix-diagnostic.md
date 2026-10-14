@@ -52,3 +52,36 @@ An explicit follow-up decision on the frozen measurement extension boundary is
 required before merge. Independent review identified this contract conflict; a
 successful local search/test does not remove it. #94/#95/#96 remain stopped and the
 independent/Windows populations remain reserved.
+
+## Registered local diagnostic: negative result, stop this direction
+
+On 2026-10-14 at 18:18:46 Beijing time, source
+`76e8203c5339ba449bd4fef2b94866b552f5a423`, protocol SHA-256
+`facddfb67ec0b26673e9372a1647770c9074987b624267e88fc4be5cf1870c4b`,
+Windows 11 / OpenJDK 27+35, completed all 20 registered seeds. There were **0 clean
+witnesses**, 20 `BOUNDED_MISS`, no timeout/error and no unrun seeds. The minimum
+observed visual error was 2 (seed 20005), which is not clean. Aggregate generated
+placements: 288572; domain-admitted placements: 16541; beam-pruned unique states:
+3313. Seeds 20010/20013/20018/20019 reached depth 24; the other frontiers ended
+earlier. Per-seed supervisor elapsed times ranged from 0.250 to 4.359 seconds;
+these are offline process observations, not decision latency or desktop acceptance.
+
+The fixed investment produced no witness: **stop this geometric-domain direction**
+under the accepted design. Do not widen the domain, substitute seeds or increase
+beam/depth to rescue it. Beam pruning and depth limits prevent an impossibility
+claim; no online strategy or survival evidence follows. The frozen-source integration
+conflict is separate and also remains unresolved. #94/#95/#96 stay stopped.
+
+Generated local evidence (not committed) is preserved at `target/benchmark/`:
+
+| File | SHA-256 |
+| --- | --- |
+| `prefix-raw.log` | `ba70328ad551cecdcd65a7ce5dc63927ec7cfd6272fdb68bb301379d5a2a5025` |
+| `prefix-summary.json` | `f698cda2b57850f7158568b305ccdc3667574554f256ad7f309fb3d1e337769c` |
+| `prefix-metadata.json` | `9d980a434734195565b033b6ff9d9c8ae33211339a56a64af4e297d0406337fb` |
+
+Each `prefix-<seed>.log` retains its actual sequence and complete depth records.
+Later edits to supervisor malformed-output handling, tests and this summary do not
+change the measured Java search or domain. This population is not rerun to obtain
+a different result. Local Wrapper verify passed 270 tests with zero failures/errors/
+skips and Spotless; `ci-quality` passed with zero SpotBugs bugs/errors.

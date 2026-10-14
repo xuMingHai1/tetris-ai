@@ -11,6 +11,22 @@ from run_prefix_diagnostic import run_population
 
 @patch('run_prefix_diagnostic.platform.platform', return_value='test host')
 class SupervisorTest(unittest.TestCase):
+    def test_truncated_terminal_is_preserved_as_error(self, _platform):
+        child = Mock()
+        child.wait.return_value = 0
+
+        def launch(_command, **kwargs):
+            kwargs['stdout'].write('prefix_result,20000\n')
+            return child
+
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('run_prefix_diagnostic.subprocess.Popen', side_effect=launch):
+                with patch('run_prefix_diagnostic.subprocess.run', return_value=Mock(stderr='test JVM')):
+                    self.assertEqual(2, run_population(['java'], Path(directory), 'test-sha'))
+            summary = json.loads((Path(directory) / 'prefix-summary.json').read_text())
+            self.assertEqual('ERROR', summary['results'][0]['status'])
+            self.assertEqual(19, len(summary['unrun']))
+
     def test_timeout_kills_child_stops_population_and_preserves_incomplete(self, _platform):
         child = Mock()
         child.wait.side_effect = [subprocess.TimeoutExpired('java', 60), 0]

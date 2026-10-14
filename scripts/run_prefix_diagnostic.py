@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import math
 from pathlib import Path
 import platform
 import subprocess
@@ -41,11 +42,19 @@ def run_population(command, output, sha):
             combined.flush()
             terminal = [line for line in raw.splitlines() if line.startswith('prefix_result,')]
             if status == 'FINISHED':
-                if len(terminal) != 1 or terminal[0].split(',')[1] != str(seed):
+                fields = terminal[0].split(',') if len(terminal) == 1 else []
+                if len(fields) != 8 or fields[1] != str(seed):
                     status = 'ERROR'
                 else:
-                    status = terminal[0].split(',')[2]
+                    status = fields[2]
                     if status not in ('REPLAYED_CLEAN', 'BOUNDED_MISS'):
+                        status = 'ERROR'
+                    try:
+                        counts = [int(value) for value in fields[3:7]]
+                        elapsed = float(fields[7])
+                        if min(counts) < 0 or not math.isfinite(elapsed) or elapsed < 0:
+                            status = 'ERROR'
+                    except ValueError:
                         status = 'ERROR'
             results.append(dict(seed=seed, status=status, elapsed_seconds=time.monotonic() - started))
             (output / 'prefix-summary.json').write_text(
