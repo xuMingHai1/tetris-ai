@@ -50,6 +50,7 @@ jobs:
           printf '%s\n' "$changed_files"
 
           heart_protocol_changed=false
+          heart_prefix_changed=false
           preview_rescue_changed=false
           recovery_eligibility_changed=false
           recovery_one_shot_changed=false
@@ -70,6 +71,9 @@ jobs:
             [ -z "$file" ] && continue
 
             case "$file" in
+              src/main/java/xyz/xuminghai/tetris/ai/HeartPrefixDomain.java|src/main/java/xyz/xuminghai/tetris/ai/benchmark/HeartPrefixDiagnosticApplication.java|src/test/java/xyz/xuminghai/tetris/ai/HeartPrefixDomainTest.java|scripts/run_prefix_diagnostic.py|scripts/test_prefix_diagnostic.py)
+                heart_prefix_changed=true
+                ;;
               docs/research/heart-acceptance-v1.*|scripts/*heart*.py|src/main/java/xyz/xuminghai/tetris/ai/benchmark/ShapeCompletionTelemetry.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/ShapeCompletionTelemetryTest.java|src/main/java/xyz/xuminghai/tetris/ai/benchmark/BenchmarkApplication.java|src/main/java/xyz/xuminghai/tetris/ai/benchmark/HeadlessGameRunner.java|src/main/java/xyz/xuminghai/tetris/ai/benchmark/GameBenchmarkResult.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/GameBenchmarkResultTest.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/BenchmarkApplicationTest.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/HeadlessGameRunnerTest.java|.github/workflows/ai-benchmark.yml|.github/workflows/ai-benchmark-pr.yml)
                 # Measurement wiring and shared workflow edits must exercise the
                 # fixed HEART log analyzer, not a different benchmark mode.
@@ -146,6 +150,9 @@ jobs:
           if [ "$heart_protocol_changed" = "true" ]; then
             benchmark=heart-baseline
             reason="fixed HEART acceptance protocol or validated outcome measurement changed"
+          elif [ "$heart_prefix_changed" = "true" ]; then
+            benchmark=heart-prefix-diagnostic
+            reason="registered offline HEART prefix-domain diagnostic changed"
           elif [ "$preview_rescue_changed" = "true" ]; then
             benchmark=preview-rescue-paired
             reason="paired preview-unrecoverable rescue experiment changed"
@@ -196,6 +203,18 @@ jobs:
           echo "benchmark=$benchmark" >> "$GITHUB_OUTPUT"
           echo "reason=$reason" >> "$GITHUB_OUTPUT"
           echo "Selected benchmark: $benchmark ($reason)"
+
+  heart-prefix-diagnostic:
+    name: HEART Prefix Diagnostic
+    needs: select-benchmark
+    if: ${{ needs.select-benchmark.outputs.benchmark == 'heart-prefix-diagnostic' }}
+    uses: ./.github/workflows/ai-benchmark.yml
+    with:
+      agent: heart-prefix-diagnostic
+      games: '20'
+      max_pieces: '24'
+      seed: '20000'
+      confirm_jev_cost: false
 
   heart-baseline:
     name: Fixed HEART Baseline
@@ -484,6 +503,7 @@ jobs:
     needs:
       - select-benchmark
       - heart-baseline
+      - heart-prefix-diagnostic
       - preview-rescue-paired
       - recovery-eligibility-feature-audit
       - recovery-one-shot-counterfactual
@@ -510,6 +530,7 @@ jobs:
           SELECTED: ${{ needs.select-benchmark.outputs.benchmark }}
           REASON: ${{ needs.select-benchmark.outputs.reason }}
           HEART_RESULT: ${{ needs.heart-baseline.result }}
+          PREFIX_RESULT: ${{ needs.heart-prefix-diagnostic.result }}
           PREVIEW_RESCUE_RESULT: ${{ needs.preview-rescue-paired.result }}
           ELIGIBILITY_RESULT: ${{ needs.recovery-eligibility-feature-audit.result }}
           ONE_SHOT_RESULT: ${{ needs.recovery-one-shot-counterfactual.result }}
@@ -534,6 +555,12 @@ jobs:
           fi
 
           case "$SELECTED" in
+            heart-prefix-diagnostic)
+              if [ "$PREFIX_RESULT" != "success" ]; then
+                echo "::error::HEART prefix diagnostic result: $PREFIX_RESULT"
+                exit 1
+              fi
+              ;;
             none)
               echo "No deterministic AI benchmark required: $REASON"
               ;;

@@ -77,6 +77,7 @@ on:
           - adaptive-tuck-hunter
           - build-shape
           - heart-baseline
+          - heart-prefix-diagnostic
           - build-shape-preview
           - shape-feasibility
           - action-provenance
@@ -578,6 +579,19 @@ jobs:
             -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.ai.benchmark.BenchmarkApplication \
             javafx:run | tee -a "${RUNNER_TEMP}/benchmark-output.log"
 
+      - name: Run registered HEART prefix-domain diagnostic
+        if: ${{ inputs.agent == 'heart-prefix-diagnostic' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./mvnw --batch-mode --no-transfer-progress -DskipTests compile \
+            dependency:build-classpath -Dmdep.outputFile=target/prefix-classpath.txt
+          python3 -m unittest discover -s scripts -p 'test_prefix_diagnostic.py'
+          python3 scripts/run_prefix_diagnostic.py \
+            --classpath "target/classes:$(cat target/prefix-classpath.txt)" \
+            --source-sha "$(git rev-parse HEAD)"
+          cp target/benchmark/prefix-raw.log "${RUNNER_TEMP}/benchmark-output.log"
+
       - name: Run shape construction feasibility benchmark
         if: ${{ inputs.agent == 'shape-feasibility' }}
         shell: bash
@@ -652,6 +666,7 @@ jobs:
             javafx:run | tee "$RUNNER_TEMP/benchmark-output.log"
 
       - name: Collect benchmark results
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           AGENT: ${{ inputs.agent }}
@@ -668,7 +683,13 @@ jobs:
           set -euo pipefail
 
           mkdir -p target/benchmark
-          cp "$RUNNER_TEMP/benchmark-output.log" target/benchmark/raw.log
+          if [ -f "$RUNNER_TEMP/benchmark-output.log" ]; then
+            cp "$RUNNER_TEMP/benchmark-output.log" target/benchmark/raw.log
+          elif [ -f target/benchmark/prefix-raw.log ]; then
+            cp target/benchmark/prefix-raw.log target/benchmark/raw.log
+          else
+            touch target/benchmark/raw.log
+          fi
           awk '
             /^agent,/ {
               if (!header_seen) {
@@ -787,6 +808,7 @@ jobs:
             target/benchmark/build-shape-outcomes.csv
             target/benchmark/build-shape-timings.csv
             target/benchmark/heart-baseline-summary.json
+            target/benchmark/prefix-*
             target/benchmark/heart-baseline-summary.txt
             target/benchmark/heart-protocol.json
             target/benchmark/heart-environment.txt

@@ -13,6 +13,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 /**
  * Bounded benchmark-only search for evidence that a creative target can be constructed through
@@ -61,6 +63,28 @@ public final class ShapeConstructionFeasibilityBenchmark {
             int rows,
             int cols,
             int beamWidth) {
+        return search(target, pieceSequence, rows, cols, beamWidth, board -> true, ignored -> { });
+    }
+
+    /** Offline HEART-only variant; every retained post-clear prefix must satisfy the frozen domain. */
+    public static Result searchHeartPrefixes(
+            List<TetrominoType> pieceSequence,
+            Consumer<DepthEvidence> observer) {
+        if (pieceSequence.size() != 24) {
+            throw new IllegalArgumentException("HEART diagnostic requires exactly 24 pieces");
+        }
+        return search(ShapeTarget.HEART, pieceSequence, 20, 10, 128,
+                board -> HeartPrefixDomain.observe(board).allowed(), observer);
+    }
+
+    private static Result search(
+            ShapeTarget target,
+            List<TetrominoType> pieceSequence,
+            int rows,
+            int cols,
+            int beamWidth,
+            Predicate<boolean[][]> accept,
+            Consumer<DepthEvidence> observer) {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(pieceSequence, "pieceSequence");
         if (pieceSequence.stream().anyMatch(Objects::isNull)) {
@@ -92,6 +116,8 @@ public final class ShapeConstructionFeasibilityBenchmark {
             stats.searchedPieces = depth + 1;
             TetrominoType pieceType = pieceSequence.get(depth);
             Map<String, SearchState> unique = new HashMap<>();
+            long generatedBefore = stats.generatedPlacements;
+            long admitted = 0;
 
             for (SearchState state : frontier) {
                 stats.expandedStates++;
@@ -104,6 +130,10 @@ public final class ShapeConstructionFeasibilityBenchmark {
                     stats.generatedPlacements++;
                     PlacementCandidate placement = candidate.placement();
                     boolean[][] resultingBoard = placement.resultingBoard();
+                    if (!accept.test(resultingBoard)) {
+                        continue;
+                    }
+                    admitted++;
                     ShapeProgress progress = target.progress(resultingBoard);
                     SearchState child = new SearchState(
                             resultingBoard,
@@ -117,6 +147,9 @@ public final class ShapeConstructionFeasibilityBenchmark {
                     stats.observe(child);
 
                     if (progress.cleanCompletion()) {
+                        observer.accept(new DepthEvidence(depth + 1, stats.expandedStates,
+                                stats.generatedPlacements - generatedBefore, admitted, unique.size(),
+                                0, 0, true));
                         return stats.result(
                                 true,
                                 depth + 1,
@@ -136,11 +169,15 @@ public final class ShapeConstructionFeasibilityBenchmark {
             stats.uniqueStates += unique.size();
             List<SearchState> next = new ArrayList<>(unique.values());
             next.sort(CONSTRUCTION_ORDER);
+            int pruned = Math.max(0, next.size() - beamWidth);
             if (next.size() > beamWidth) {
                 next = new ArrayList<>(next.subList(0, beamWidth));
             }
             stats.maxFrontierSize = Math.max(stats.maxFrontierSize, next.size());
             frontier = List.copyOf(next);
+            observer.accept(new DepthEvidence(depth + 1, stats.expandedStates,
+                    stats.generatedPlacements - generatedBefore, admitted, unique.size(),
+                    next.size(), pruned, false));
         }
 
         return stats.result(
@@ -158,6 +195,12 @@ public final class ShapeConstructionFeasibilityBenchmark {
             }
         }
         return value.toString();
+    }
+
+    /** Counts are per completed depth except cumulative expanded roots; clean rows are partial depths. */
+    public record DepthEvidence(
+            int depth, long expandedRoots, long generated, long admitted,
+            int unique, int retained, int pruned, boolean clean) {
     }
 
     private static List<WitnessStep> witness(SearchState state) {
