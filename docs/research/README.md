@@ -19,6 +19,10 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 策略选择事实：[AiPlanningAgentFactory](../../src/main/java/xyz/xuminghai/tetris/ai/AiPlanningAgentFactory.java)。
 
+## 未接受的诊断实现
+
+[#111 每步几何域诊断的审查记录](heart-prefix-diagnostic.md) 保留原执行会话报告的 0/20 witness 与固定源码出处；原始日志尚未取得，汇总未独立核验。原实现 #112 因冻结目录冲突和证据完整性缺口不予合并，保持既有 guard / v1.1，停止该域的在线推进。后续取得已有文件时使用离线核验工具，不重跑或放宽原域；#94/#95/#96 继续停止。
+
 ## 已完成实验
 
 以下协议是**历史结果所用的固定样本**，不是所有入口的当前默认值。`g×p` 表示局数×piece limit；同 seed 保证 7-bag 序列，不保证 JavaFX 时序。表中入口类位于 `xyz.xuminghai.tetris.ai.benchmark`，可从 [源码目录](../../src/main/java/xyz/xuminghai/tetris/ai/benchmark) 查阅。目的、关键结果和采用结论逐行列出；完整观测值与局限见 [详细记录](ai-experiment-history.md)。
