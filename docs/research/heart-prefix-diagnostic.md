@@ -22,7 +22,7 @@
 | `prefix-summary.json` | `f698cda2b57850f7158568b305ccdc3667574554f256ad7f309fb3d1e337769c` |
 | `prefix-metadata.json` | `9d980a434734195565b033b6ff9d9c8ae33211339a56a64af4e297d0406337fb` |
 
-报告的 protocol SHA-256 为 `facddfb67ec0b26673e9372a1647770c9074987b624267e88fc4be5cf1870c4b`。#112 归档时未取得文件；#113 随后在原执行 worktree 的 `target/benchmark/` 找回这三个文件及二十份 `prefix-<seed>.log`，实际字节通过上述登记 hash 与逐 seed 一致性核验。原始文件只有本地保存副本，没有公开下载附件；本地路径与命令见下方，生成日志不提交源码仓库。
+报告的 protocol SHA-256 为 `facddfb67ec0b26673e9372a1647770c9074987b624267e88fc4be5cf1870c4b`。#112 归档时未取得文件；#113 随后在原执行 worktree 的 `target/benchmark/` 找回这三个文件及二十份 `prefix-<seed>.log`，实际字节通过上述登记 hash 与逐 seed 一致性核验。原始文件只有本地保存副本，没有公开下载附件；本地保存位置由执行记录管理，生成日志不提交源码仓库。
 
 ## 已复现的集成与证据问题
 
@@ -46,14 +46,10 @@ python3 scripts/verify_heart_prefix_evidence.py <original-evidence-directory>
 
 ## #113 原始文件找回与实际核验
 
-本次新增修改只登记既有日志的读取结果。使用已合并 `main@4975c5d35f9e21915b385d089c71173e10c632b9` 的未修改核验器，对以下目录运行上述命令，实际退出 0：
+本次新增修改只登记既有日志的读取结果。使用已合并 `main@4975c5d35f9e21915b385d089c71173e10c632b9` 的未修改核验器，对原执行 worktree 的 `target/benchmark/` 运行上述命令，实际退出 0。
 
-```text
-C:\dev\IdeaProjects\tetris-ai\.git\codex-worktrees\heart-prefix-diagnostic\target\benchmark
-```
+全部 23 份原文件按字节复制保存至本地自动化证据目录，对副本再次核验退出 0；该目录保留 `verification.json`，具体位置记录在本地执行记录中。两次输出均为 `log_integrity_verified=true`、`registered_checksums_verified=true`、20 bounded misses、0 clean witnesses、generated/admitted/pruned 288572/16541/3313、minimum visual error 2。登记三份 SHA-256 均与实际文件字节一致；二十份 seed 日志顺序拼接等于 `prefix-raw.log`。
 
-全部 23 份原文件按字节复制保存至 `C:\Users\xmh\.codex\automations\tetris-ai-pr\evidence-113`，对副本再次核验退出 0；该目录保留 `verification.json`。两次输出均为 `log_integrity_verified=true`、`registered_checksums_verified=true`、20 bounded misses、0 clean witnesses、generated/admitted/pruned 288572/16541/3313、minimum visual error 2。登记三份 SHA-256 均与实际文件字节一致；二十份 seed 日志顺序拼接等于 `prefix-raw.log`。
-
-本地路径用于定位，不保证其他主机可访问；没有把复制文件当成新的采集。未启动 JVM、重跑搜索、使用预留 population 或认证 build/seed 来源。该结果仅补足“原文件尚未取得和结构未核验”的缺口，不接受已撤回实现，不解锁 #94/#95/#96，也不宣称稳定 HEART。
+本地副本不保证其他主机可访问；没有把复制文件当成新的采集。未启动 JVM、重跑搜索、使用预留 population 或认证 build/seed 来源。该结果仅补足“原文件尚未取得和结构未核验”的缺口，不接受已撤回实现，不解锁 #94/#95/#96，也不宣称稳定 HEART。
 
 文档与核验脚本是本轮新增内容；生产 Java、配置、workflow、通用 safety、冻结协议均保持当前主分支。原实验源码与修改历史保留在 #112 / 固定 commits 中，不把弃用实现包装为主分支已交付能力。
