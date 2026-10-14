@@ -2,7 +2,7 @@
 
 任务：[#109](https://github.com/xuMingHai1/tetris-ai/issues/109)，阶段 [#91](https://github.com/xuMingHai1/tetris-ai/issues/91)。
 
-状态：**待独立评审；仅建议允许下一项 benchmark-only 域可达性诊断，不批准在线 planner 或解除 #94。** 核对源码为 `main@7a6be4efc830dc0f66a64e0a7e603d2d44574961`。#93 已通过 #106 接受否决两块债务事务的结论，#105 已通过 #108 交付分析工具；[旧设计](heart-online-construction.md) 保留评审前叙述，接受状态以 issue/PR 决议为准。
+状态：**设计评审交付；接受范围仅为下一项 benchmark-only 域可达性诊断，不批准在线 planner 或解除 #94。** 本设计是否接受以 #109 / PR 的最终决议为准。核对源码为 `main@7a6be4efc830dc0f66a64e0a7e603d2d44574961`。#93 已通过 #106 接受否决两块债务事务的结论，#105 已通过 #108 交付分析工具；[旧设计](heart-online-construction.md) 保留评审前叙述，接受状态以 issue/PR 决议为准。
 
 ## 新问题与可核对的结构事实
 

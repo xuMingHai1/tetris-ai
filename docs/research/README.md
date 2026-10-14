@@ -66,7 +66,7 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 
 [#93 在线构造设计审查](../design/heart-online-construction.md) 已通过 [#106](https://github.com/xuMingHai1/tetris-ai/pull/106) 接受否决与停止结论：两块构造事务缺少中间损伤边界和累计存活依据。旧稿保留评审前叙述，最终接受状态以 #91 / PR 合并决议为准；这不是 HEART 不可构造的证明。[#105 paired 分析工具](heart-paired-interface.md) 已通过 [#108](https://github.com/xuMingHai1/tetris-ai/pull/108) 接受，工具完成不等于候选采用。
 
-[#109 目标留白与每步几何域](../design/heart-prefix-domain.md) 是新的待评审假设：核对 clean HEART 的至少 12 个 raw holes，提议先诊断无额外 hole、零 FORBIDDEN 侵入、限于 target 高度的前缀域是否可达。静态结构事实不是安全证书；设计接受最多允许后续离线诊断，须再接受在线候选设计才能解除 #94。当前 #94/#95/#96 仍停止，独立/Windows population 未使用。
+[#109 目标留白与每步几何域](../design/heart-prefix-domain.md) 交付新的诊断设计，接受状态以任务与 PR 的最终决议为准：核对 clean HEART 的至少 12 个 raw holes，提议先诊断无额外 hole、零 FORBIDDEN 侵入、限于 target 高度的前缀域是否可达。静态结构事实不是安全证书；设计接受最多允许后续离线诊断，须再接受在线候选设计才能解除 #94。当前 #94/#95/#96 仍停止，独立/Windows population 未使用。
 
 ## 后续稳定 HEART 的验收维度
 
