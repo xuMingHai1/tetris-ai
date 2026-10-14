@@ -140,6 +140,61 @@ class ShapeTargetTest {
     }
 
     @Test
+    void cleanHeartNeedsTwelveRawHolesEvenWithCompleteSupport() {
+        // Static occupancy evidence, not a reachable construction or a survival certificate.
+        boolean[][] board = supportedCleanHeart();
+        BoardOccupancyMetrics.Analysis metrics =
+                BoardOccupancyMetrics.analyzeWithHoleCells(board);
+
+        assertTrue(ShapeTarget.HEART.progress(board).cleanCompletion());
+        assertEquals(16, ShapeTarget.HEART.progress(board).supportOccupiedCells());
+        assertEquals(12, metrics.holes());
+        assertEquals(8, metrics.maxColumnHeight());
+        assertEquals(12, metrics.headroom());
+        assertEquals(60, metrics.aggregateHeight());
+        assertEquals(18, metrics.bumpiness());
+        for (BoardPosition hole : metrics.holeCells()) {
+            assertEquals(ShapeTarget.CellRole.FORBIDDEN,
+                    ShapeTarget.HEART.roleAtBoardCell(20, 10, hole.row(), hole.col()));
+        }
+
+        // Runtime risk uses SURVIVAL top-1, so this does not prove every clean transition is blocked.
+        PlacementCandidate fixture = new PlacementCandidate(AiMove.NONE, board, 0,
+                metrics.aggregateHeight(), metrics.holes(), metrics.bumpiness());
+        assertEquals(ObjectiveRiskController.RiskLevel.DANGER,
+                ObjectiveRiskController.adaptive().decide(fixture).level());
+    }
+
+    @Test
+    void visuallyNeutralSupportGapStillAddsANonForbiddenHole() {
+        boolean[][] board = supportedCleanHeart();
+        board[18][1] = false;
+        BoardOccupancyMetrics.Analysis metrics =
+                BoardOccupancyMetrics.analyzeWithHoleCells(board);
+
+        assertTrue(ShapeTarget.HEART.progress(board).cleanCompletion());
+        assertEquals(15, ShapeTarget.HEART.progress(board).supportOccupiedCells());
+        assertEquals(13, metrics.holes());
+        assertEquals(1, metrics.holeCells().stream()
+                .filter(hole -> ShapeTarget.HEART.roleAtBoardCell(
+                        20, 10, hole.row(), hole.col()) == ShapeTarget.CellRole.SUPPORT_ALLOWED)
+                .count());
+    }
+
+    private static boolean[][] supportedCleanHeart() {
+        boolean[][] board = new boolean[20][10];
+        for (int row = 0; row < board.length; row++) {
+            for (int col = 0; col < board[row].length; col++) {
+                ShapeTarget.CellRole role = ShapeTarget.HEART.roleAtBoardCell(
+                        board.length, board[row].length, row, col);
+                board[row][col] = role == ShapeTarget.CellRole.REQUIRED
+                        || role == ShapeTarget.CellRole.SUPPORT_ALLOWED;
+            }
+        }
+        return board;
+    }
+
+    @Test
     void rejectsBoardSmallerThanTargetCanvas() {
         assertThrows(
                 IllegalArgumentException.class,
