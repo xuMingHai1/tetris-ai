@@ -74,6 +74,8 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 
 ## 后续稳定 HEART 的验收维度
 
+[#115 无状态终局窗口设计评审](../design/heart-goal-window.md) 审查新的精确终局选择例外：非终态 setup 保留原 top-5/risk/budget，仅对当前或已知 preview 的真实 clean 终态使用事先冻结的几何条件。提议在正常测试源码中复用同包生产 API，保持 frozen source guard；不是继续原逐前缀域或把目标 holes 当安全证书。设计接受状态以 issue/PR 最终决议为准；当前没有原型或新采集，#94/#95/#96 尚未解锁。
+
 以下是长期验收维度；本阶段具体数值已在上面的 v1.1 协议中预注册并通过 #92 接受，能力仍未达到，不能宣称稳定 HEART。现有 clean witness 只证明存在可构造路径。
 
 | 维度 | 下一阶段需预先定义并提供的证据 |
