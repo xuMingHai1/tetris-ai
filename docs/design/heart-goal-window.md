@@ -35,7 +35,7 @@
 2. 若当前候选中存在 Q，选择 SURVIVAL rank 最小的 Q，返回它的当前块计划。仅这个精确终局分支可在隔离 benchmark 内越过 top-5、DANGER 与 raw budget；原拒绝理由仍逐项记录。
 3. 没有当前 Q 且 preview 已知时，setup 只取原 current top-5。rank 1 可用，它不需额外 creative 准入，但不代表结果满足 Q 或有安全证明；rank 2–5 必须由同一次 current SURVIVAL top-1 得到非 DANGER risk，并通过该 profile 的原 `ObjectiveSafetyBudget`。中间 FORBIDDEN/各类 holes/高度均记录，不能新增损伤额度或声称中间满足 D。
 4. 对每个合格 setup，使用其真实 post-clear board 和已知 preview，经原 spawn helper 完整枚举一次 preview 落点，只保留 Q。按 `(current survival rank, preview survival rank)` 字典序选 pair；返回第一块计划，不返回或保存第二块动作队列。相同 rank 不会对应多个条目，生产枚举顺序决定稳定 tie-break。
-5. 缺 preview、所有窗口为空或比较失败时，调用未修改的 `BuildShapeActionPlanningAgent.plan(snapshot)`。这是原 guarded greedy 的 `BASELINE_CHOICE`，不是异常触发的 executor fallback；不复制它的 private selector。非法计划/异常不能伪装为正常选择。
+5. 缺 preview 或完整比较后未找到 Q 时，调用未修改的 `BuildShapeActionPlanningAgent.plan(snapshot)`。这是原 guarded greedy 的 `BASELINE_CHOICE`，不是异常触发的 executor fallback；不复制它的 private selector。非法计划/异常不能伪装为正常选择。
 
 当前 Q 优先于 preview Q，因而在下一块真实 snapshot 与预测 spawn 状态一致时，重算仍先选择某个真实 Q；不保证选择同一条动作路径。重力推进、部分播放、方向变化或 board 不一致时，只从最新 snapshot 重算，可能失去窗口，不能宣布已完成或兑现旧承诺。该条件性质与取消/重开 fixture 分开验证；没有提交意图或 lifecycle 回调。
 
@@ -49,7 +49,7 @@
 
 当前 `ActionStateSearch` 没有取消、visited-state 或请求 deadline 接口。7 次调用不限制单次内部工作，也不保证 50/250ms；本设计不批准修改该 API。为保持策略确定性，不依据墙钟选择不同的部分结果。实现须完整评价上述固定范围；计算错误导致比较不完整时使本轮失败，不能挑 partial winner。
 
-仅为控制离线投入，每 seed/arm 由直接父进程施加 60 秒外部超时，保留原始输出，记 `INCOMPLETE` 并停止整轮；不能当作正常 game-over、bounded miss 或在线预算。沿用 reusable job 的 60 分钟总投入；job 被取消/超时同样不是完整 paired 数据。不得提高限额或缩小枚举范围挽救本候选。
+仅为控制离线投入，完整 80-seed 双臂测量在同一直接 JVM 子进程中运行，两臂各先完成一次 100 决策 warmup，再逐 seed 交替测量。直接父进程对该子进程施加 **45 分钟**外部超时（含 warmup），不是每 seed 重启 JVM 并重复 warmup。超时保留原始输出，记 `INCOMPLETE` 并停止整轮；不能当作正常 game-over、bounded miss 或在线预算。沿用 reusable job 的 60 分钟总投入；job 被取消/超时同样不是完整 paired 数据。不得提高限额或缩小枚举范围挽救本候选。
 
 完整决策从 agent 调用到合法 terminal placement 验证结束，包含 baseline 选择、全部枚举/排序、Q、replay，依 [v1.1](../research/heart-acceptance-v1.md) 要求 pooled P95≤50ms、max≤250ms。预探测与 observer/输出仍在计时外；观测到的枚举数/耗时不是 runtime 硬上限。
 
@@ -69,7 +69,7 @@
 
 采集前运行未修改的 `verify_heart_production_base.py`，仍与 `2d3f418afdc0454d160cda3599c5c688a8b1f670` 比较，结果必须 true。另保存完整测量 checkout/clean 状态、protocol/config SHA、依赖解析及版本、实际 classpath、main/test class 文件 hash 清单；拒绝 main/test 同 FQN 覆盖，登记实际加载的关键 class 来源并核对本次产物。仅参数 `source_sha` 不是构建证明。若正常编译/同包运行不能通过，停止原型，不临时增加生产 API 或 build 配置例外。
 
-未来 `heart-terminal-paired` 是同一个 reusable workflow 内的显式双臂模式，先做原 source guard 并采集完整 80 局生产 baseline，再与独立 80 局 candidate 按 seed 交替运行；“先做”表示先通过 guard，不把两臂执行顺序改成整批 baseline 在前。baseline/candidate 原始文件和身份严格分开，baseline 保留原 analyzer 可核对的日志及新增 paired facts；不另外跑第三臂。
+未来 `heart-terminal-paired` 是同一个 reusable workflow 内的显式双臂模式：先通过原 source guard，随后逐 seed 按奇偶交替 baseline/candidate 顺序，共采集完整 80 局生产 baseline 与 80 局 candidate。baseline/candidate 原始文件和身份严格分开，baseline 保留原 analyzer 可核对的日志及新增 paired facts；不另外跑第三臂。
 
 新候选专属路径选择该模式时，必须同样包含原 frozen guard 与完整 baseline，绝不能改选旧 shape-feasibility 来避开校验。只有 shared workflow/旧 measurement 变更时仍走原 heart-baseline；旧模式和固定参数不变。selector 回归须覆盖两种单独路径、混合变更、same-repository/default-branch 限制与每 revision 一个模式。workflow/selector 的提议需在 #94 的真实 diff 和独立 Review 中验证，本设计本身没有接线或执行新模式。
 
@@ -81,9 +81,13 @@
 
 通过上述实现 Review 后才采集开发 20000–20019、校准 20020–20079，两臂各 80×1000，seed 奇偶交替、同环境、各自 19000–19009 的 100 次 warmup 决策、每局新建策略。开发/校准已被旧研究使用，不称为 fresh validation。固定一个候选和参数，不扫多个 terminal/根数版本后选优。
 
-输出复用 [#105 接口](../research/heart-paired-interface.md) 的两个 population envelope，包含真实 per-decision nanos、post-clear facts、illegal plan、failure/fallback、执行顺序与 source/config 证据；额外记录 `IMMEDIATE_Q/PREVIEW_SETUP/BASELINE_CHOICE`、每维 Q、原始 guard 拒绝原因、枚举/replay 数和预测窗口是否在下一步实际完成。预测 Q 不能写入 actual clean。非法计划由生产验证实际判定，不能默认填 0；错误/超时保存 partial 证据但整轮失败。
+输出复用 [#105 接口](../research/heart-paired-interface.md) 的两个 population envelope，包含真实 per-decision nanos、post-clear facts、illegal plan、failure/fallback、执行顺序与 source/config 证据；两份共同引用同一完整测量的 warmup 记录，不伪称重做 warmup。额外记录 `IMMEDIATE_Q/PREVIEW_SETUP/BASELINE_CHOICE`、每维 Q、原始 guard 拒绝原因、枚举/replay 数和预测窗口是否在下一步实际完成。预测 Q 不能写入 actual clean。非法计划由生产验证实际判定，不能默认填 0；错误/超时保存 partial 证据但整轮失败。
 
-进入 #95 的必要条件为前 500 块出现真实 clean，candidate-only 多于 baseline-only，且 v1.1 的存活均值/中位数、≤5% 回归 seed、最坏损失≤100 块、0 baseline-survivor 损失、horizon rate、50/250ms 和零 failure/非法计划/fallback 逐项通过。开发/校准 analyzer 的 exit 0 不代表这些门已通过，需实际读取每个 gate；任一失败停止，不换 seed 或调终局约束救活。
+**原型继续门固定以全部 80 个预定 seed 合并判定**，不在结果出现后选择开发/校准某一组。两份 envelope 先各由未修改的 #105 严格验证并保存分组门禁；专属 driver 核对无重复/遗漏的 20000–20079、相同 source/config/protocol/环境与 warmup 后，复用现有统计纯函数汇总合并事实，另输出明确标记的 prototype 报告，不能把 80 局伪装成 validation 人口。
+
+合并继续门为：candidate 在前 500 块有真实 clean 且 candidate-only 多于 baseline-only；80 个配对 pieces delta 的均值/中位数均≥0，回归 seed 比例≤5%，最坏损失≤100 块，baseline-survivor 损失=0，horizon rate loss≤2%。完整计时按每臂自己的全部 80 局决策池独立计算 nearest-rank P95≤50ms/max≤250ms，不混合两臂池稀释 candidate 成本；两臂 failure/非法计划/fallback 均为0。任一必要事实缺失或任一门失败都停止，不换 seed 或调终局约束救活。
+
+分组 clean rate、Wilson 和 exact paired p 以及 #105 的采用级门均如实报告，但不是这个较弱原型继续门；不能要求开发/校准通过全部采用门，也不能用 analyzer 的 exit 0 代替读取原型逐门结论。该 prototype pass 最多支持申请 #95，`eligible_for_runtime_validation` 在两个开发/校准 envelope 中始终为 false。
 
 即使通过，#95 的 30000–30199、≥180/200 clean、Wilson 下界≥85%、exact paired 检验以及 #96 的 Windows 31000–31002 门禁仍须独立解锁。合成成功或仅获得一个真实 clean 都不能宣称稳定 HEART、可在线采用或默认提升。
 
