@@ -70,11 +70,11 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 
 [#93 在线构造设计审查](../design/heart-online-construction.md) 已通过 [#106](https://github.com/xuMingHai1/tetris-ai/pull/106) 接受否决与停止结论：两块构造事务缺少中间损伤边界和累计存活依据。旧稿保留评审前叙述，最终接受状态以 #91 / PR 合并决议为准；这不是 HEART 不可构造的证明。[#105 paired 分析工具](heart-paired-interface.md) 已通过 [#108](https://github.com/xuMingHai1/tetris-ai/pull/108) 接受，工具完成不等于候选采用。
 
-[#109 目标留白与每步几何域](../design/heart-prefix-domain.md) 交付新的诊断设计，接受状态以任务与 PR 的最终决议为准：核对 clean HEART 的至少 12 个 raw holes，提议先诊断无额外 hole、零 FORBIDDEN 侵入、限于 target 高度的前缀域是否可达。静态结构事实不是安全证书；设计接受最多允许后续离线诊断，须再接受在线候选设计才能解除 #94。当前 #94/#95/#96 仍停止，独立/Windows population 未使用。
+[#109 目标留白与每步几何域](../design/heart-prefix-domain.md) 交付诊断设计，接受状态以任务与 PR 的最终决议为准：核对 clean HEART 的至少 12 个 raw holes，提议先诊断无额外 hole、零 FORBIDDEN 侵入、限于 target 高度的前缀域是否可达。静态结构事实不是安全证书；该设计及原域诊断不自行解除 #94，其他候选须另行接受，见下方 #115。#95/#96 继续停止，独立/Windows population 未使用。
 
 ## 后续稳定 HEART 的验收维度
 
-[#115 无状态终局窗口设计评审](../design/heart-goal-window.md) 审查新的精确终局选择例外：非终态 setup 保留原 top-5/risk/budget，仅对当前或已知 preview 的真实 clean 终态使用事先冻结的几何条件。提议在正常测试源码中复用同包生产 API，保持 frozen source guard；不是继续原逐前缀域或把目标 holes 当安全证书。设计接受状态以 issue/PR 最终决议为准；当前没有原型或新采集，#94/#95/#96 尚未解锁。
+[#115 无状态终局窗口设计评审](../design/heart-goal-window.md) 审查新的精确终局选择例外：非终态 setup 保留原 top-5/risk/budget，仅对当前或已知 preview 的真实 clean 终态使用事先冻结的几何条件。提议在正常测试源码中复用同包生产 API，保持 frozen source guard；不是继续原逐前缀域或把目标 holes 当安全证书。若经独立评审并合并接受，只允许 #94 的测试源码原型与开发/校准 paired 评估，#95/#96 继续停止；评审提交时尚无原型或新采集。实际接受状态以 issue/PR 最终决议为准。
 
 以下是长期验收维度；本阶段具体数值已在上面的 v1.1 协议中预注册并通过 #92 接受，能力仍未达到，不能宣称稳定 HEART。现有 clean witness 只证明存在可构造路径。
 
