@@ -211,15 +211,7 @@ class GoalWindowCandidateTest {
     }
 
     static boolean[][] heart() {
-        var board = new boolean[20][10];
-        for (int row = 0; row < 20; row++) {
-            for (int col = 0; col < 10; col++) {
-                var role = ShapeTarget.HEART.roleAtBoardCell(20, 10, row, col);
-                board[row][col] = role == ShapeTarget.CellRole.REQUIRED
-                        || role == ShapeTarget.CellRole.SUPPORT_ALLOWED;
-            }
-        }
-        return board;
+        return GoalWindowFixtures.heart();
     }
 
     private static void removeO(boolean[][] board, int col) {

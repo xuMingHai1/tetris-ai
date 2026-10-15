@@ -75,9 +75,7 @@ final class GoalWindowPairedRunner {
                     });
             audit.inEvidence = true;
             evidence.requireMatches(result);
-            if (invocation.phase() == Phase.WARMUP && result.decisions() != invocation.pieceLimit()) {
-                throw new IllegalStateException("warmup ended before its required ten decisions");
-            }
+            requireFullWarmup(invocation, result);
             return new CompletedGame(invocation, result,
                     evidence.snapshot(invocation.arm().name(), invocation.seed()), 0);
         }
@@ -90,6 +88,12 @@ final class GoalWindowPairedRunner {
             throw new IncompleteRun(invocation, kind,
                     evidence.snapshot(invocation.arm().name(), invocation.seed()), primaryFailures,
                     kind == FailureKind.ILLEGAL_PLAN ? 1 : 0, failure);
+        }
+    }
+
+    static void requireFullWarmup(Invocation invocation, GameBenchmarkResult result) {
+        if (invocation.phase() == Phase.WARMUP && result.decisions() != invocation.pieceLimit()) {
+            throw new IllegalStateException("warmup ended before its required ten decisions");
         }
     }
 

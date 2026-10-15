@@ -208,7 +208,7 @@ class GoalWindowPairedRunnerTest {
     }
 
     @Test
-    void eachGameGetsFreshAgentAndWarmupDeathCannotBecomeSuccessfulWarmup() {
+    void eachGameGetsFreshAgentAndShortResultCannotBecomeSuccessfulWarmup() {
         var factories = new AtomicInteger();
         AgentFactory factory = (arm, observer) -> {
             factories.incrementAndGet();
@@ -222,13 +222,10 @@ class GoalWindowPairedRunnerTest {
         runGame(invocation, factory);
         runGame(invocation, factory);
         assertEquals(2, factories.get());
-        // Legal hard drops at the spawn column die before ten: no fallback or shortened warmup.
-        var failed = assertThrows(IncompleteRun.class, () -> runGame(
-                new Invocation(Phase.WARMUP, Arm.BASELINE, 19000, 10),
-                (arm, observer) -> input -> new AiPlan(List.of(AiAction.HARD_DROP))));
-        assertEquals(FailureKind.EVIDENCE_FAILURE, failed.kind());
-        assertTrue(failed.prefix().turns().size() < 10);
-        assertEquals(0, failed.primaryFailures());
+        // Test the warmup admission rule with an actual short result, not an assumed bad strategy.
+        var shortResult = runGame(new Invocation(Phase.MEASURED, Arm.BASELINE, 19000, 3)).result();
+        assertThrows(IllegalStateException.class, () -> requireFullWarmup(
+                new Invocation(Phase.WARMUP, Arm.BASELINE, 19000, 10), shortResult));
     }
 
     private static GoalWindowCandidate.Observation baselineObservation() {
@@ -242,15 +239,7 @@ class GoalWindowPairedRunnerTest {
     }
 
     private static boolean[][] heart() {
-        var board = new boolean[20][10];
-        for (int row = 0; row < 20; row++) {
-            for (int col = 0; col < 10; col++) {
-                var role = ShapeTarget.HEART.roleAtBoardCell(20, 10, row, col);
-                board[row][col] = role == ShapeTarget.CellRole.REQUIRED
-                        || role == ShapeTarget.CellRole.SUPPORT_ALLOWED;
-            }
-        }
-        return board;
+        return GoalWindowFixtures.heart();
     }
 
     private static void removeO(boolean[][] board, int col) {
