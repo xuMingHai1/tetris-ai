@@ -21,7 +21,7 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 ## 未接受的诊断实现
 
-[#111 每步几何域诊断的审查记录](heart-prefix-diagnostic.md) 保留 0/20 witness 与固定源码出处；后续 #113 找回全部 23 份既有文件，登记 hash、逐 seed 记录和汇总通过只读日志完整性核验，构建来源及 seed 生成仍未认证。原实现 #112 因冻结目录冲突不予合并，最终只接受归档与核验工具；保持既有 guard / v1.1，停止该域的在线推进。不重跑或放宽原域；#94/#95/#96 继续停止。
+[#111 每步几何域诊断的审查记录](heart-prefix-diagnostic.md) 保留 0/20 witness 与固定源码出处；后续 #113 找回全部 23 份既有文件，登记 hash、逐 seed 记录和汇总通过只读日志完整性核验，构建来源及 seed 生成仍未认证。原实现 #112 因冻结目录冲突不予合并，最终只接受归档与核验工具；保持既有 guard / v1.1，停止该域的在线推进。不重跑或放宽原域；该诊断本身不解锁在线任务。#116 后仅 #94 的新 GoalWindow 测试原型获准，#95/#96 继续停止。
 
 ## 已完成实验
 
@@ -88,3 +88,8 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 | 新能力范围 | 颜色先有显式 color-aware settled state；自定义 target 先定义 REQUIRED/FORBIDDEN/SUPPORT 与合法边界；Jev 指令创作单独设计 deterministic objective facts、成本与授权，不能让远程模型定义游戏规则。 |
 
 当前没有可直接采用的普通 frozen-warning recovery discriminator。不得继续从原 seed 调 rank cap、persistence N 或 guard 比例来“救活”已否决设计。若有新假设，先冻结可观测特征与协议，再收集独立证据。
+
+
+## GoalWindow 原型实施中
+
+#116 已接受设计；[#94 采集前置实施状态](heart-goal-window-prototype.md) 记录 test-only 候选与真实 replay synthetic 行为检验。paired runner、来源认证与 workflow 尚未交付，不运行 population，不关闭 #94；#95/#96 与 runtime 继续停止。
