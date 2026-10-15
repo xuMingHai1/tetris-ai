@@ -114,7 +114,7 @@ public final class GoalWindowCandidate implements AiPlanningAgent {
     }
 
     /** Q is narrower than actual clean. Never use this predicate to count game completion. */
-    static Terminal terminal(boolean[][] board) {
+    public static Terminal terminal(boolean[][] board) {
         if (board.length != 20 || Arrays.stream(board).anyMatch(row -> row.length != 10)) {
             throw new IllegalArgumentException("Q requires a 20x10 board");
         }
