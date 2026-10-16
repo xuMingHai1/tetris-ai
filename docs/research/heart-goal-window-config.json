@@ -1,0 +1,18 @@
+{
+  "schema": "goal-window-config-v1",
+  "candidate": "goal-window",
+  "baseline": "build-shape",
+  "rows": 20,
+  "cols": 10,
+  "target": "heart",
+  "preview_rescue": false,
+  "seed_start": 20000,
+  "games": 80,
+  "piece_limit": 1000,
+  "warmup": {"seed_start": 19000, "games": 10, "piece_limit": 10},
+  "setup_top_k": 5,
+  "max_enumerations": 7,
+  "terminal": {"clean": true, "max_height": 8, "required_holes": 0, "support_holes": 0, "outside_holes": 0},
+  "jvm_args": [],
+  "measurement_timeout_seconds": 2700
+}

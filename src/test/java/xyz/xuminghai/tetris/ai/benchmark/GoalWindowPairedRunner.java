@@ -16,7 +16,7 @@ import java.util.Objects;
 import java.util.function.Consumer;
 
 /**
- * Test-only session orchestration around the original game loop. No CLI or population job yet.
+ * Test-only session orchestration around the original game loop.
  * A caller must preserve each emitted game and the partial evidence on IncompleteRun.
  */
 final class GoalWindowPairedRunner {
@@ -53,12 +53,38 @@ final class GoalWindowPairedRunner {
     }
 
     static CompletedGame runGame(Invocation invocation) {
-        return runGame(invocation, (arm, observer) -> arm == Arm.BASELINE
-                ? new BuildShapeActionPlanningAgent() : new GoalWindowCandidate(observer));
+        return runGame(invocation, GoalWindowPairedRunner::agent);
+    }
+
+    private static AiPlanningAgent agent(Arm arm, Consumer<GoalWindowCandidate.Observation> observer) {
+        return arm == Arm.BASELINE ? new BuildShapeActionPlanningAgent() : new GoalWindowCandidate(observer);
+    }
+
+    static void runSession(List<Long> seeds, int pieceLimit, EventSink sink) {
+        new GoalWindowPairedRunner(invocation -> runObservedGame(invocation,
+                GoalWindowPairedRunner::agent, sink)).run(seeds, pieceLimit, ignored -> { });
+    }
+
+    static CompletedGame runObservedGame(Invocation invocation, AgentFactory factory, EventSink sink) {
+        sink.started(invocation);
+        try {
+            var game = runGame(invocation, factory, update -> sink.turn(invocation, update));
+            sink.completed(game);
+            return game;
+        }
+        catch (IncompleteRun failure) {
+            sink.failed(failure);
+            throw failure;
+        }
     }
 
     /** Factory receives no seed, phase, run order or future pieces. Fresh agent on every call. */
     static CompletedGame runGame(Invocation invocation, AgentFactory factory) {
+        return runGame(invocation, factory, ignored -> { });
+    }
+
+    private static CompletedGame runGame(Invocation invocation, AgentFactory factory,
+                                         Consumer<GoalWindowGameEvidence.Update> output) {
         var evidence = new GoalWindowGameEvidence();
         var audit = new AuditedAgent();
         long started = System.nanoTime();
@@ -70,7 +96,8 @@ final class GoalWindowPairedRunner {
                         audit.awaitingValidation = false;
                         audit.inEvidence = true;
                         var choice = audit.requireObservation(invocation.arm());
-                        evidence.record(turn, choice, System.nanoTime() - started);
+                        var update = evidence.record(turn, choice, System.nanoTime() - started);
+                        output.accept(update);
                         audit.inEvidence = false;
                     });
             audit.inEvidence = true;
@@ -142,6 +169,13 @@ final class GoalWindowPairedRunner {
 
     @FunctionalInterface
     interface AgentFactory { AiPlanningAgent create(Arm arm, Consumer<GoalWindowCandidate.Observation> observer); }
+
+    interface EventSink {
+        void started(Invocation invocation);
+        void turn(Invocation invocation, GoalWindowGameEvidence.Update update);
+        void completed(CompletedGame game);
+        void failed(IncompleteRun failure);
+    }
 
     private static final class AuditedAgent implements AiPlanningAgent {
         private AiPlanningAgent delegate;
