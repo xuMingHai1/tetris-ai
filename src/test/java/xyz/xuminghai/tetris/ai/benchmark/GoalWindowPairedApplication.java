@@ -70,6 +70,16 @@ public final class GoalWindowPairedApplication {
         return List.copyOf(result);
     }
 
+    private static Map<String, Object> identity(GoalWindowPairedRunner.Invocation game) {
+        return Map.of("phase", game.phase().name(), "arm", game.arm().name(),
+                "seed", game.seed(), "pieceLimit", game.pieceLimit());
+    }
+
+    private static List<Map<String, Object>> predictions(List<GoalWindowGameEvidence.Prediction> values) {
+        return values.stream().map(p -> Map.<String, Object>of("setupDecision", p.setupDecision(),
+                "nextValidatedDecision", p.nextValidatedDecision(), "resolution", p.resolution().name())).toList();
+    }
+
     /** Flush every line so a killed JVM retains its last fully written turn. */
     static final class JsonLines implements GoalWindowPairedRunner.EventSink, AutoCloseable {
         private final BufferedWriter writer;
@@ -102,7 +112,7 @@ public final class GoalWindowPairedApplication {
                     "missing/duplicate/out-of-order game");
             current = invocation;
             decisions = 0;
-            write("game_started", invocation);
+            write("game_started", identity(invocation));
         }
 
         @Override
@@ -113,7 +123,7 @@ public final class GoalWindowPairedApplication {
             var turn = update.turn();
             var progress = turn.actual();
             var data = new LinkedHashMap<String, Object>();
-            data.put("game", invocation);
+            data.put("game", identity(invocation));
             data.put("decision_fact", Map.of("decision", turn.decision(), "decision_nanos", turn.decisionNanos(),
                     "selected_matched_required_cells", progress.matchedRequiredCells(),
                     "selected_forbidden_occupied_cells", progress.forbiddenOccupiedCells(),
@@ -124,7 +134,7 @@ public final class GoalWindowPairedApplication {
             data.put("actual_q", turn.actualQ());
             data.put("q_accepted", turn.actualQ().accepted());
             data.put("candidate_choice", turn.candidateChoice()); // null is explicit on baseline.
-            data.put("resolved_predictions", update.resolvedPredictions());
+            data.put("resolved_predictions", predictions(update.resolvedPredictions()));
             write("turn", data);
         }
 
@@ -136,9 +146,9 @@ public final class GoalWindowPairedApplication {
                 require(decisions == 10, "incomplete warmup");
             }
             // Turn facts already streamed. End retains exact summaries and unresolved predictions.
-            write("game_complete", Map.of("game", current, "result", game.result(),
+            write("game_complete", Map.of("game", identity(current), "result", game.result(),
                     "illegal_plans", game.illegalPlans(), "completion_csv", game.evidence().completionCsv(),
-                    "predictions", game.evidence().predictions()));
+                    "predictions", predictions(game.evidence().predictions())));
             completed++;
             current = null;
         }
@@ -146,11 +156,11 @@ public final class GoalWindowPairedApplication {
         @Override
         public void failed(GoalWindowPairedRunner.IncompleteRun failure) {
             failed = true;
-            write("game_incomplete", Map.of("game", failure.invocation(), "kind", failure.kind(),
+            write("game_incomplete", Map.of("game", identity(failure.invocation()), "kind", failure.kind().name(),
                     "primary_failures", failure.primaryFailures(), "illegal_plans", failure.illegalPlans(),
                     "recorded_prefix_decisions", failure.prefix().turns().size(),
                     "completion_csv", failure.prefix().completionCsv(),
-                    "predictions", failure.prefix().predictions(), "causes", causes(failure)));
+                    "predictions", predictions(failure.prefix().predictions()), "causes", causes(failure)));
         }
 
         void requireFullSession() {

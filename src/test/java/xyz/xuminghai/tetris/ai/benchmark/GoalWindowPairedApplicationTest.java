@@ -23,6 +23,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static xyz.xuminghai.tetris.ai.benchmark.GoalWindowPairedRunner.*;
@@ -34,6 +35,7 @@ class GoalWindowPairedApplicationTest {
 
     @Test
     void verifyOnlyNeverStartsGamesAndOutputCannotOverwriteAnEarlierAttempt() throws Exception {
+        if (onClasspath("verifyOnly")) return;
         var output = directory.resolve("verify.jsonl");
         GoalWindowPairedApplication.execute(output, Map.of("test_fixture", true), true,
                 sink -> fail("verify-only must not run games"));
@@ -48,6 +50,7 @@ class GoalWindowPairedApplicationTest {
 
     @Test
     void missingGamesOrWrongOrderCannotWriteSessionComplete() throws Exception {
+        if (onClasspath("missingGames")) return;
         for (boolean wrongOrder : List.of(false, true)) {
             var output = directory.resolve("missing-" + wrongOrder + ".jsonl");
             assertThrows(IllegalStateException.class, () -> GoalWindowPairedApplication.execute(
@@ -61,6 +64,7 @@ class GoalWindowPairedApplicationTest {
 
     @Test
     void syntheticCompleteStreamRequiresAllExpectedGamesAndSerializesGameSummaries() throws Exception {
+        if (onClasspath("completeStream")) return;
         var output = directory.resolve("synthetic-complete.jsonl");
         // Format/state-machine fixture only. No game engine or measured provenance is supplied.
         GoalWindowPairedApplication.execute(output, Map.of("test_fixture", true), false, sink ->
@@ -93,6 +97,7 @@ class GoalWindowPairedApplicationTest {
 
     @Test
     void realTurnIsFlushedBeforeNextAgentCallAndIllegalOrAgentFailureRetainsPrefix() throws Exception {
+        if (onClasspath("realFailure")) return;
         for (boolean illegal : List.of(false, true)) {
             var output = directory.resolve("failure-" + illegal + ".jsonl");
             var calls = new AtomicInteger();
@@ -133,6 +138,7 @@ class GoalWindowPairedApplicationTest {
 
     @Test
     void outputFailureIsEvidenceFailureAndNeverPrimaryOrNormalGameOver() throws Exception {
+        if (onClasspath("outputFailure")) return;
         var output = directory.resolve("output-failure.jsonl");
         var failure = assertThrows(IncompleteRun.class, () -> GoalWindowPairedApplication.execute(
                 output, Map.of("test_fixture", true), false, sink -> runObservedGame(
@@ -156,6 +162,7 @@ class GoalWindowPairedApplicationTest {
 
     @Test
     void actualLoadedCriticalClassesMustMatchRecordedOriginAndHash() throws Exception {
+        if (onClasspath("loadedClasses")) return;
         var root = Path.of(GoalWindowPairedApplication.class.getProtectionDomain().getCodeSource()
                 .getLocation().toURI()).toRealPath().getParent().getParent();
         var hashes = new LinkedHashMap<String, String>();
@@ -178,6 +185,7 @@ class GoalWindowPairedApplicationTest {
 
     @Test
     void wrongManifestDigestOrCheckoutIsRejectedBeforeAnyGameOrVerifierProcess() throws Exception {
+        if (onClasspath("wrongManifest")) return;
         var path = directory.resolve("manifest.json");
         Files.writeString(path, "{}");
         assertThrows(IllegalStateException.class, () -> GoalWindowBuildProvenance.verify(path, "0".repeat(64), new String[0]));
@@ -185,6 +193,39 @@ class GoalWindowPairedApplicationTest {
         var hash = GoalWindowBuildProvenance.sha256(Files.readAllBytes(path));
         assertThrows(IllegalStateException.class, () -> GoalWindowBuildProvenance.verify(path, hash, new String[0]));
         assertThrows(IllegalArgumentException.class, () -> GoalWindowPairedApplication.main(new String[0]));
+    }
+
+    /** Exercise the same ordinary application classloader as the accepted prototype launch. */
+    private boolean onClasspath(String scenario) throws Exception {
+        if (!getClass().getModule().isNamed()) return false;
+        var classpath = System.getProperty("surefire.test.class.path");
+        assertNotNull(classpath, "Surefire must expose the full test dependency classpath");
+        var java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
+        var log = directory.resolve("child.log");
+        var process = new ProcessBuilder(java, "-cp", classpath, getClass().getName(), scenario, directory.toString())
+                .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        if (!process.waitFor(45, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            fail("ordinary classpath test timed out");
+        }
+        assertEquals(0, process.exitValue(), Files.readString(log));
+        return true;
+    }
+
+    /** Test harness only: no population entry or module-access overrides. */
+    public static void main(String[] args) throws Exception {
+        var tests = new GoalWindowPairedApplicationTest();
+        tests.directory = Path.of(args[1]);
+        switch (args[0]) {
+            case "verifyOnly" -> tests.verifyOnlyNeverStartsGamesAndOutputCannotOverwriteAnEarlierAttempt();
+            case "missingGames" -> tests.missingGamesOrWrongOrderCannotWriteSessionComplete();
+            case "completeStream" -> tests.syntheticCompleteStreamRequiresAllExpectedGamesAndSerializesGameSummaries();
+            case "realFailure" -> tests.realTurnIsFlushedBeforeNextAgentCallAndIllegalOrAgentFailureRetainsPrefix();
+            case "outputFailure" -> tests.outputFailureIsEvidenceFailureAndNeverPrimaryOrNormalGameOver();
+            case "loadedClasses" -> tests.actualLoadedCriticalClassesMustMatchRecordedOriginAndHash();
+            case "wrongManifest" -> tests.wrongManifestDigestOrCheckoutIsRejectedBeforeAnyGameOrVerifierProcess();
+            default -> throw new IllegalArgumentException("unknown test scenario");
+        }
     }
 
     private List<JsonNode> lines(Path path) throws IOException {
