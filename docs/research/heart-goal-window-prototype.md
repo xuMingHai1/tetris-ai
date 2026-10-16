@@ -52,30 +52,90 @@ warmup 提前死亡也失败，不缩短为成功；首个异常立即中止，�
 拒绝已返回计划时计 illegal plan。缺失/重复/跨臂候选观测是 evidence failure，
 不会复用上一步观测或伪装成非法计划。异常对象保存已完整记录的前缀、失败分类与
 primary/illegal 计数，失败局没有正常 `GameBenchmarkResult`，也不填成 bounded miss。
-外部超时、持久化 partial 输出与全轮 INCOMPLETE 将由下一阶段 driver 接线落实。
+逐 turn 持久化已在第三阶段实现；外部总超时与全轮 driver 接线仍待下一阶段落实。
 
 新增行为验证使用人工 HEART board、调度 stub 和最多三步的生产 loop smoke，覆盖
 clean 非 Q、预测与下一实际完成、上下文变化、完整 nanos、真实 validator 拒绝、
 agent 抛错、陈旧/重复观测、每局新 agent、warmup/顺序及失败即停。
 调度 stub 不执行 80 局；这些测试不提供存活、收益、总体延迟或空棋盘构造结论。
 
+## 第三阶段：原始 CLI 与构建来源
+
+`GoalWindowPairedApplication` 是正常 `src/test/java/.../ai/benchmark` 的测试入口，
+仅接受 `manifest路径 manifest原始bytes的SHA256 新JSONL路径 [--verify-only]`，
+没有 seed/策略/小人口或环境覆盖开关。默认逻辑固定完整 80 配对，**本阶段不执行它**。
+`--verify-only` 只验证来源并写验证证据，不创建 runner 或启动 warmup/population。
+普通 jar、生产 module descriptor 和 factory 不变。
+
+`scripts/prepare_goal_window_build.py` 在 JDK27 的干净 checkout 中，先运行未修改的
+frozen guard，再使用固定 Wrapper `clean test-compile` 和 POM 中已固定版本的
+dependency plugin 生成显式 test-scope classpath/dependency tree。它不启动任何游戏。
+需要本地已有协议的 production-base commit；未来 workflow 仍须显式 fetch 该 SHA。
+脚本记录真实 checkout/JDK/Maven、构建命令/日志、原协议与新增
+[固定运行配置](heart-goal-window-config.json) 的 SHA256、全部 main/test `.class`
+及依赖 JAR 的 hash。prepare 失败会使本次证书不存在，不沿用旧证书。
+
+校验拒绝脏源码、ignored source/build 输入、被修改或多余的 class、main/test 同 FQN、
+依赖 JAR 中的项目 class、class symlink、协议/配置/依赖/log/证书 hash 不一致及额外注入参数。
+原 source guard 和 v1.1 JSON 未变。证书不是签名或不可信主机的远程证明；可信父进程必须
+保存刚完成 clean build 返回的 manifest digest，不能使用事后自报的 source_sha 替代证据。
+
+Java 入口在任何游戏前复核磁盘证书、实际 JDK、普通 `java -cp` 的完整 argv/classpath、
+同一 application classloader、关键类真实 code source/resource 与 hash。仅用标准
+class loading/source inspection，未打开或调用私有成员，未修改生产模块的 requires/exports。
+两臂共享这个 JVM。固定运行配置当前没有额外 JVM flags，注入 launcher/agent 参数会失败；
+使用 shell 拼接、module-path 或未登记 cache class 不属于允许的启动方式。
+
+仅构建/校验可在干净 JDK27 checkout 中执行：
+
+```bash
+python3 scripts/prepare_goal_window_build.py --root "$PWD"
+```
+
+输出 manifest 路径及其 digest；后续父进程按其 `jdk.executable`、`classpath` 数组构造
+`java -cp <完整classpath> xyz.xuminghai.tetris.ai.benchmark.GoalWindowPairedApplication`
+及上述位置参数，校验时必须附加 `--verify-only`。输出必须是尚不存在的文件，禁止覆盖旧轮次。
+本阶段本地只有 JDK17；Python 反例与 Java CI 中的 loaded-class/stream tests 不等于已经
+完成这条 clean build + 普通 JVM 的端到端来源认证。该真实接线验证仍需下一阶段完成后记录。
+
+原始输出是 UTF-8 `goal-window-raw-v1` JSONL，每行包含连续 `sequence`、`type` 与 `data`：
+
+| 事件 | 内容/完整性语义 |
+| --- | --- |
+| `provenance_verified` | 完整 manifest/digest 与实际关键类 source/hash；此事件不代表测量完成。 |
+| `verification_complete` | 仅 verify-only；`population_started=false`，不是 `session_complete`。 |
+| `session_started` / `game_started` | 固定 warmup/measurement 数量与实际 phase/arm/seed/horizon。 |
+| `turn` | `decision_fact` 直接提供 #105 的六项逐步字段；另有 elapsed nanos、actual progress/Q、Q accepted、候选原始观测和本步新兑现的 prediction。baseline choice 显式为 null。 |
+| `game_complete` | 原 `GameBenchmarkResult`、illegal count、原 completion CSV 与全局内 prediction 列表；turn 不重复写出。 |
+| `game_incomplete` | 失败分类、primary/illegal count、已记账前缀长度、completion CSV、prediction 与原因链；没有虚构正常 result。 |
+| `session_complete` / `session_incomplete` | writer 再检查全部 20 warmup + 160 measured 的 seed/arm/顺序及逐步数量，全部到齐才写 complete；异常即停。 |
+
+`turn` 的 clean 来源只读实际生产 placement，与 prediction/Q 分开；new-resolved prediction
+与 game end 的全量 prediction 列表不能重复累计。每行写后 flush，额外 I/O 在生产决策计时外。
+异常不会补齐失败决策的未知 nanos。强杀/外部超时可能没有最后的 incomplete 行，此时保留
+已经写完的行及可能截断的尾行；**缺少最终 complete 或存在截断即不完整**，不能转为 bounded miss。
+flush 保障进程中断前缀可读，不声称断电 fsync 持久性。外部父进程仍必须在 45 分钟内终止整轮、
+保存 stdout/stderr/raw 并另记 INCOMPLETE，不能按 seed 重启 JVM。
+
+新增 7 项 Java 行为检验与 6 项 Python 反例只使用小规模生产调用、当前 class 来源和临时
+合成构建文件；没有执行完整 warmup、真实 clean-build 认证或人口采集。完整环境信息、baseline
+兼容日志、#105 envelope 和原型继续门由后续 driver 交付，raw event 本身不是验收报告。
+
 ## 尚未交付，禁止采集
 
-本次是 #94 第二阶段，不关闭 #94。仍需在同一问题下完成：
+本次是 #94 第三阶段，不关闭 #94。仍需在同一问题下完成：
 
-1. 同包 `GoalWindowPairedApplication` CLI，将 runner 的原始证据与 partial failure
-   持久化到专属格式；没有此入口时不宣称完整采集链路已就绪。
-2. 干净 Wrapper 构建及实际 classpath/class 来源/hash 认证，拒绝旧 target/FQN shadow，
-   并通过未修改 frozen source guard。仅 source SHA 不代表二进制来源已认证。
-3. 专属 driver/两个 #105 envelope/80局合并 prototype 继续门及其负面数据验证。
-4. 既有 reusable workflow 内的显式双臂模式、selector 回归；原 shared-only
+1. 真实 clean build + 普通 JVM preflight 的接线验证；单 JVM 外部45分钟超时与 partial
+   artifact/stdout/stderr/完整环境记录，保留原 baseline analyzer 可核验的兼容日志。
+2. 专属 driver/两个 #105 envelope/80局合并 prototype 继续门及其负面数据验证。
+3. 既有 reusable workflow 内的显式双臂模式、selector 回归；原 shared-only
    heart-baseline、guard、v1.1 与 #105 分析器保持不变。
-5. 最终实现 revision 独立 Review 和适用 CI 成功后，才运行一次已登记开发/校准
+4. 最终实现 revision 独立 Review 和适用 CI 成功后，才运行一次已登记开发/校准
    20000–20079 双臂测量；单直接 JVM、45分钟总上限、60分钟 job。
 
 本次没有执行 candidate/baseline population，也没有新增 Actions 采集路径。
 没有 actual clean、净收益、存活或延迟门通过的结论。#95 / #96、30000–30199、
 31000–31002 与 runtime/default adoption 继续停止。
 
-生产 API、包职责、运行方式和构建不变，因此 README/AGENTS 不需改变生产契约；
-测试原型的分阶段交付状态只在本页与任务/PR 记录。未来配对接线再更新运行说明。
+生产 API、普通应用运行方式和构建不变，因此 README/AGENTS 不改生产契约；
+test-only CLI/构建验证的运行边界记录在本页。未来 workflow 配对接线再同步顶层运行说明。

@@ -20,7 +20,7 @@ final class GoalWindowGameEvidence {
     private final List<Prediction> predictions = new ArrayList<>();
     private Pending pending;
 
-    void record(HeadlessGameRunner.TurnObservation turn,
+    Update record(HeadlessGameRunner.TurnObservation turn,
                 GoalWindowCandidate.Observation choice, long elapsedGameNanos) {
         var board = turn.selected().resultingBoard();
         var actual = ShapeTarget.HEART.progress(board);
@@ -29,6 +29,7 @@ final class GoalWindowGameEvidence {
                 ? new Pending(turn.decision(), board, turn.snapshot().nextType().orElseThrow()) : null;
         // Reuse frozen completion/streak/timing semantics, including sequential validation.
         completion.record(turn.decision(), actual, turn.decisionNanos(), elapsedGameNanos);
+        var resolved = new ArrayList<Prediction>();
         if (pending != null) {
             boolean same = Arrays.deepEquals(pending.board(), turn.snapshot().occupied())
                     && pending.preview() == turn.snapshot().currentType();
@@ -36,12 +37,16 @@ final class GoalWindowGameEvidence {
                     : actualQ.accepted() ? Resolution.ACTUAL_Q
                     : actual.cleanCompletion() ? Resolution.ACTUAL_CLEAN_NON_Q
                     : Resolution.ACTUAL_NOT_CLEAN;
-            predictions.add(new Prediction(pending.decision(), turn.decision(), resolution));
+            var prediction = new Prediction(pending.decision(), turn.decision(), resolution);
+            predictions.add(prediction);
+            resolved.add(prediction);
             pending = null;
         }
-        turns.add(new Turn(turn.decision(), turn.decisionNanos(), elapsedGameNanos,
-                actual, actualQ, choice));
+        var fact = new Turn(turn.decision(), turn.decisionNanos(), elapsedGameNanos,
+                actual, actualQ, choice);
+        turns.add(fact);
         pending = nextPending;
+        return new Update(fact, List.copyOf(resolved));
     }
 
     Snapshot snapshot(String strategy, long seed) {
@@ -80,6 +85,9 @@ final class GoalWindowGameEvidence {
     }
 
     record Prediction(int setupDecision, int nextValidatedDecision, Resolution resolution) { }
+
+    /** New facts only: streaming never recopies the whole prefix on every decision. */
+    record Update(Turn turn, List<Prediction> resolvedPredictions) { }
 
     record Snapshot(List<Turn> turns, List<Prediction> predictions,
                     String completionCsv, List<Long> decisionNanos) { }
