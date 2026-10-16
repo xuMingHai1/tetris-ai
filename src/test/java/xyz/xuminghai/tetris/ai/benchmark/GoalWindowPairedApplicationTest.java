@@ -20,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -198,8 +199,24 @@ class GoalWindowPairedApplicationTest {
     /** Exercise the same ordinary application classloader as the accepted prototype launch. */
     private boolean onClasspath(String scenario) throws Exception {
         if (!getClass().getModule().isNamed()) return false;
-        var classpath = System.getProperty("surefire.test.class.path");
-        assertNotNull(classpath, "Surefire must expose the full test dependency classpath");
+        var testClasspath = System.getProperty("surefire.test.class.path");
+        assertNotNull(testClasspath, "Surefire must expose the test dependency classpath");
+        var entries = new LinkedHashSet<String>();
+        entries.add(Path.of(getClass().getProtectionDomain().getCodeSource().getLocation().toURI()).toRealPath().toString());
+        entries.add(Path.of(BuildShapeActionPlanningAgent.class.getProtectionDomain().getCodeSource()
+                .getLocation().toURI()).toRealPath().toString());
+        for (var entry : testClasspath.split(java.io.File.pathSeparator)) {
+            entries.add(Path.of(entry).toRealPath().toString());
+        }
+        // Surefire's classpath omits dependencies assigned to the module path. Recover their
+        // actual resolved file locations, then launch all of them on one ordinary classloader.
+        for (var module : ModuleLayer.boot().configuration().modules()) {
+            var location = module.reference().location();
+            if (location.isPresent() && location.orElseThrow().getScheme().equals("file")) {
+                entries.add(Path.of(location.orElseThrow()).toRealPath().toString());
+            }
+        }
+        var classpath = String.join(java.io.File.pathSeparator, entries);
         var java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
         var log = directory.resolve("child.log");
         var process = new ProcessBuilder(java, "-cp", classpath, getClass().getName(), scenario, directory.toString())
