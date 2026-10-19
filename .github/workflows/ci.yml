@@ -30,7 +30,7 @@ jobs:
   detect-changes:
     name: Detect Changes
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       full_scan: ${{ steps.changes.outputs.full_scan }}
@@ -151,7 +151,7 @@ jobs:
     name: Build & Test
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.build_changed == 'true' }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -172,7 +172,7 @@ jobs:
     name: Code Quality
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.java_changed == 'true' }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:
@@ -192,7 +192,7 @@ jobs:
   gitleaks:
     name: Secret Scan
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     steps:
@@ -265,7 +265,7 @@ jobs:
       - verify
       - code-quality
       - gitleaks
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
@@ -314,7 +314,7 @@ jobs:
       - detect-changes
       - fast-quality-gate
     if: ${{ !cancelled() && needs.fast-quality-gate.result == 'success' && needs.detect-changes.outputs.java_changed == 'true' }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -347,7 +347,7 @@ jobs:
       - detect-changes
       - fast-quality-gate
     if: ${{ !cancelled() && needs.fast-quality-gate.result == 'success' && needs.detect-changes.outputs.packaging_changed == 'true' }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -373,7 +373,7 @@ jobs:
       - detect-changes
       - fast-quality-gate
     if: ${{ !cancelled() && needs.fast-quality-gate.result == 'success' && needs.detect-changes.outputs.dependency_changed == 'true' }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
@@ -436,7 +436,7 @@ jobs:
       - mutation-test
       - dependency-security
       - desktop-image
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
