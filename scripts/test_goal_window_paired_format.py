@@ -156,6 +156,13 @@ class FormatTests(unittest.TestCase):
             events[3]["data"]["elapsed_game_nanos"] = value
             with self.assertRaises(ValueError): self.convert(events)
 
+    def test_oversized_elapsed_is_rejected_as_value_error(self):
+        events, _ = raw_game()
+        for event in events[1:-1]:
+            event["data"]["elapsed_game_nanos"] = 10 ** 400
+        with self.assertRaises(ValueError):
+            self.convert(events)
+
     def test_csv_summary_tampering_is_rejected(self):
         for index, value in ((1, "CANDIDATE"), (3, "20001"), (4, "3"), (5, "1"),
                              (6, "0.000000"), (7, "0"), (8, "0"), (9, "0"),

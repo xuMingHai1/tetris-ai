@@ -18,7 +18,7 @@ def convert_game(events, *, run_order):
     """
     try:
         return _convert_game(events, run_order)
-    except (KeyError, TypeError, IndexError, csv.Error) as failure:
+    except (KeyError, TypeError, IndexError, OverflowError, csv.Error) as failure:
         raise ValueError("missing or malformed raw game field") from failure
 
 
