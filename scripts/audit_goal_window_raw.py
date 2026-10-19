@@ -210,7 +210,7 @@ def main():
         with args.output.open("x", encoding="utf-8") as output:
             json.dump(report, output, indent=2, allow_nan=False)
             output.write("\n")
-    except (ValueError, KeyError, TypeError, OSError, csv.Error) as failure:
+    except (ValueError, KeyError, TypeError, OSError, csv.Error, RecursionError) as failure:
         print(f"raw audit rejected: {failure}", file=sys.stderr)
         return 2
     return 0

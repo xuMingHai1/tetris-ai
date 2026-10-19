@@ -274,6 +274,19 @@ class RawAuditTests(unittest.TestCase):
             target[field] = 10**400
             self.reject()
 
+    def test_cli_rejects_deep_json_without_traceback_or_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, output = Path(directory) / "raw.jsonl", Path(directory) / "audit.json"
+            original = b'[' * 20000 + b'0' + b']' * 20000 + b'\n'
+            source.write_bytes(original)
+            command = [sys.executable, str(Path(raw.__file__)), "--input", str(source), "--output", str(output)]
+            rejected = subprocess.run(command, capture_output=True, timeout=30)
+            self.assertEqual(2, rejected.returncode, rejected.stderr.decode())
+            self.assertIn(b"raw audit rejected:", rejected.stderr)
+            self.assertNotIn(b"Traceback", rejected.stderr)
+            self.assertFalse(output.exists())
+            self.assertEqual(original, source.read_bytes())
+
     def test_cli_preserves_input_and_existing_report_and_rejects_incomplete(self):
         with tempfile.TemporaryDirectory() as directory:
             source, output = Path(directory) / "raw.jsonl", Path(directory) / "audit.json"
