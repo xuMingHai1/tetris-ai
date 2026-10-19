@@ -71,7 +71,7 @@ PIT mutation testing：
 PIT 仅评估 `core` 包及其测试，mutation score 与 mutated-class line coverage 均要求至少 95%。
 当前基线、存活变异分类和验证边界见 [核心变异测试说明](docs/testing/core-mutation.md)。
 
-GitHub Actions 使用 self-hosted Linux x64 runner 执行构建、SpotBugs、Gitleaks、PIT 和依赖安全检查。
+GitHub Actions 使用 GitHub 托管的 `ubuntu-24.04` Linux x64 runner 执行构建、SpotBugs、Gitleaks、PIT 和依赖安全检查。
 
 本项目是开源的，不会写入和创建额外业务数据。
 
@@ -107,7 +107,7 @@ scripts\package-app.cmd exe
 scripts\package-app.cmd msi
 ```
 
-产物位于 `target/jpackage/dist`。GitHub CI 在 Linux self-hosted runner 上验证 `app-image`，Windows/macOS 原生格式应在对应平台构建。
+产物位于 `target/jpackage/dist`。GitHub CI 在 GitHub 托管的 `ubuntu-24.04` runner 上验证 `app-image`，Windows/macOS 原生格式应在对应平台构建。
 
 打包脚本显式覆盖 JDK 默认的 jlink options，不执行 `--strip-debug`，因此 Linux 构建不依赖额外安装 `binutils/objcopy`。
 
@@ -169,7 +169,7 @@ mvnw.cmd javafx:run > "%TEMP%\tetris-ai-decision.log" 2>&1
 py -3 scripts\analyze_ai_decision_trace.py "%TEMP%\tetris-ai-decision.log"
 ```
 
-同仓库 PR 修改生产 AI、游戏规则或 JavaFX 视图等相关路径时，GitHub Actions 的 **Desktop AI Timing** 会自动采集 120 秒，摘要写入 Actions 运行摘要，原始日志与汇总文件作为 artifact 保存 7 天；新提交会取消该 PR 上旧的采集任务。自动 PR 采集固定 7-bag seed `1000`；手动运行可指定 1–900 秒及 signed 64-bit `seed`。工作流使用 JavaFX 的 headless 平台和生产 `GameWorld` / `DashboardView`，仅采集入口关闭音频，固定开启 BUILD_SHAPE 的 preview rescue。这只代表 self-hosted Linux runner 的 JavaFX 时钟和软件渲染环境，不能替代 Windows 桌面上的交互、音频或最终重力期限验证；较短的样本也未必遇到 preview 救援条件。
+同仓库 PR 修改生产 AI、游戏规则或 JavaFX 视图等相关路径时，GitHub Actions 的 **Desktop AI Timing** 会自动采集 120 秒，摘要写入 Actions 运行摘要，原始日志与汇总文件作为 artifact 保存 7 天；新提交会取消该 PR 上旧的采集任务。自动 PR 采集固定 7-bag seed `1000`；手动运行可指定 1–900 秒及 signed 64-bit `seed`。工作流使用 JavaFX 的 headless 平台和生产 `GameWorld` / `DashboardView`，仅采集入口关闭音频，固定开启 BUILD_SHAPE 的 preview rescue。这只代表 GitHub 托管 Linux runner 的 JavaFX 时钟和软件渲染环境，不能替代 Windows 桌面上的交互、音频或最终重力期限验证；较短的样本也未必遇到 preview 救援条件。
 
 专用 `DesktopAiTimingApplication` 使用 `TETRIS_AI_TRACE_SEED`（默认 `1000`）创建独立的 `BagPieceGenerator`，通过 `GameWorld` 构造器注入。日志 `AI_TRACE_SESSION seconds=… seed=…` 和 Actions 摘要均保留实际 seed；旧日志缺失 seed 时显示 `unavailable`，损坏或拼接多个 session 的日志会报错。Windows 可设置 `TETRIS_AI_TRACE_SEED=1000`、`TETRIS_AI_TRACE_SECONDS=120`，并用 `mvnw.cmd -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.DesktopAiTimingApplication javafx:run` 启动自动限时采集（同时保留上述 AI 与诊断环境变量）。该 seed 只影响专用采集入口，普通游戏继续随机生成方块。
 
