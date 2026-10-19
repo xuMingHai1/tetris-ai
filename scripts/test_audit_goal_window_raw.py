@@ -1,0 +1,227 @@
+"""Synthetic event streams only: no Java launcher, warmup, or population is executed."""
+import copy
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+import audit_goal_window_raw as raw
+
+
+def fixture(warmup_count=10):
+    events = []
+
+    def emit(kind, data):
+        events.append({"schema": "goal-window-raw-v1", "sequence": len(events) + 1, "type": kind, "data": data})
+
+    emit("provenance_verified", {"manifest": {}, "loaded_classes": {}, "manifest_sha256": "a" * 64})
+    emit("session_started", {"expected_warmup_games": 20, "expected_measured_games": 160,
+                             "timing_scope": raw.TIMING_SCOPE})
+    # Independent schedule fixture; the test does not call the auditor's expected_game.
+    games = [("WARMUP", arm, seed, 10) for arm in ("BASELINE", "CANDIDATE") for seed in range(19000, 19010)]
+    for seed in range(20000, 20080):
+        arms = ("BASELINE", "CANDIDATE") if seed % 2 == 0 else ("CANDIDATE", "BASELINE")
+        games.extend(("MEASURED", arm, seed, 1000) for arm in arms)
+    for phase, arm, seed, limit in games:
+        game = {"phase": phase, "arm": arm, "seed": seed, "pieceLimit": limit}
+        count = warmup_count if phase == "WARMUP" else 3
+        emit("game_started", game)
+        for decision in range(1, count + 1):
+            clean = arm == "CANDIDATE" and decision == 2
+            emit("turn", {"game": game, "decision_fact": {
+                "decision": decision, "decision_nanos": 1000,
+                "selected_matched_required_cells": 32 if clean else 0,
+                "selected_forbidden_occupied_cells": 0, "selected_visual_error_cells": 0 if clean else 32,
+                "clean_completion": clean}, "elapsed_game_nanos": decision * 2000,
+                "actual_progress": {"requiredCells": 32, "forbiddenCells": raw.HEART_FORBIDDEN,
+                                    "matchedRequiredCells": 32 if clean else 0,
+                                    "forbiddenOccupiedCells": 0, "supportOccupiedCells": 0},
+                "actual_q": {"clean": clean, "matchedRequired": 32 if clean else 0,
+                             "forbiddenOccupied": 0, "maxHeight": 9, "rawHoles": 0,
+                             "requiredHoles": 0, "supportHoles": 0, "outsideHoles": 0}, "q_accepted": False,
+                "candidate_choice": {} if arm == "CANDIDATE" else None, "resolved_predictions": []})
+        clean = arm == "CANDIDATE"
+        csv = (f"build_shape_outcome,{arm},heart,{seed},{count},{2 if clean else -1},"
+               f"{'0.004000' if clean else '-1.000000'},{count - 2 if clean else 0},"
+               f"{1 if clean else 0},{1 if clean else 0},false,{count * .002:.6f}")
+        emit("game_complete", {"game": game, "result": {"seed": seed, "pieceLimit": limit,
+             "piecesPlaced": count, "decisions": count, "primaryFailures": 0, "fallbackDecisions": 0,
+             "totalDecisionNanos": count * 1000, "maxDecisionNanos": 1000,
+             "reachedPieceLimit": count == limit}, "illegal_plans": 0,
+             "completion_csv": csv, "predictions": []})
+    emit("session_complete", {"warmup_games": 20, "measured_games": 160})
+    return events
+
+
+def encode(events):
+    return [(json.dumps(e, separators=(",", ":")) + "\n").encode() for e in events]
+
+
+class RawAuditTests(unittest.TestCase):
+    def setUp(self):
+        self.events = fixture()
+
+    def reject(self, events=None):
+        with self.assertRaises((ValueError, KeyError, TypeError)):
+            raw.audit(encode(self.events if events is None else events))
+
+    def first(self, kind, arm=None):
+        return next(e["data"] for e in self.events if e["type"] == kind
+                    and (arm is None or e["data"].get("game", e["data"]).get("arm") == arm))
+
+    def test_full_structure_hash_and_clean_non_q_do_not_certify_origin_or_gates(self):
+        lines = encode(self.events)
+        report = raw.audit(iter(lines))
+        self.assertEqual(hashlib.sha256(b"".join(lines)).hexdigest(), report["raw_sha256"])
+        self.assertEqual(sum(map(len, lines)), report["raw_bytes"])
+        self.assertEqual(80, report["measured_games_with_clean_facts"])
+        self.assertTrue(report["structurally_complete"])
+        for field in ("build_provenance_verified", "seed_sequence_attested", "prototype_gates_evaluated", "runtime_permission"):
+            self.assertIs(False, report[field])
+
+    def test_no_final_marker_truncated_line_or_trailing_event_is_success(self):
+        self.reject(self.events[:-1])
+        with self.assertRaises(ValueError):
+            raw.audit(encode(self.events)[:-1] + [encode(self.events)[-1].rstrip(b"\n")])
+        self.reject(self.events + [copy.deepcopy(self.events[-1])])
+
+    def test_empty_blank_invalid_utf8_duplicate_fields_and_nonfinite_json_rejected(self):
+        for lines in ([], [b"\n"], [b"\xff\n"], [b'{"schema":1,"schema":2}\n'], [b'{"x":NaN}\n']):
+            with self.subTest(lines=lines), self.assertRaises(ValueError):
+                raw.audit(lines)
+
+    def test_verify_only_incomplete_unknown_events_and_wrong_schema_rejected(self):
+        for kind in ("verification_complete", "game_incomplete", "session_incomplete", "unknown"):
+            events = copy.deepcopy(self.events)
+            events[1]["type"] = kind
+            self.reject(events)
+        self.events[3]["schema"] = "other"
+        self.reject()
+
+    def test_event_sequence_gap_duplicate_and_boolean_rejected(self):
+        for value in (1, 3, True):
+            self.events[1]["sequence"] = value
+            self.reject()
+
+    def test_wrong_fixed_counts_and_timing_scope_rejected(self):
+        data = self.events[1]["data"]
+        for key, value in (("expected_warmup_games", 2), ("expected_measured_games", 80), ("timing_scope", "plan-only")):
+            original = data[key]
+            data[key] = value
+            self.reject()
+            data[key] = original
+        self.events[-1]["data"]["warmup_games"] = 19
+        self.reject()
+
+    def test_wrong_seed_phase_arm_and_limit_rejected(self):
+        game = self.first("game_started")
+        for key, value in (("seed", 20000), ("phase", "MEASURED"), ("arm", "CANDIDATE"), ("pieceLimit", 1000)):
+            previous = game[key]
+            game[key] = value
+            self.reject()
+            game[key] = previous
+
+    def test_missing_overlapping_and_extra_games_rejected(self):
+        for index in (2, 3, -2):
+            events = copy.deepcopy(self.events)
+            del events[index]
+            for sequence, event in enumerate(events, 1):
+                event["sequence"] = sequence
+            self.reject(events)
+        events = copy.deepcopy(self.events)
+        events.insert(3, copy.deepcopy(events[2]))
+        for sequence, event in enumerate(events, 1):
+            event["sequence"] = sequence
+        self.reject(events)
+
+    def test_turn_identity_contiguity_and_fact_types_rejected(self):
+        turn = self.first("turn")
+        for key, value in (("decision", 2), ("decision_nanos", -1), ("decision_nanos", True), ("clean_completion", 0)):
+            previous = turn["decision_fact"][key]
+            turn["decision_fact"][key] = value
+            self.reject()
+            turn["decision_fact"][key] = previous
+        turn["game"] = {**turn["game"], "seed": 19001}
+        self.reject()
+
+    def test_false_clean_and_progress_disagreement_rejected(self):
+        turn = self.first("turn")
+        turn["decision_fact"]["clean_completion"] = True
+        self.reject()
+        turn["decision_fact"]["clean_completion"] = False
+        turn["actual_progress"]["matchedRequiredCells"] = 1
+        self.reject()
+
+    def test_missing_choice_or_wrong_arm_cannot_borrow_previous_observation(self):
+        for arm, value in (("BASELINE", {}), ("CANDIDATE", None)):
+            turn = self.first("turn", arm)
+            original = turn["candidate_choice"]
+            turn["candidate_choice"] = value
+            self.reject()
+            turn["candidate_choice"] = original
+        del self.first("turn", "CANDIDATE")["resolved_predictions"]
+        self.reject()
+
+    def test_q_is_consistent_and_cannot_replace_clean(self):
+        turn = self.first("turn")
+        turn["q_accepted"] = 1
+        self.reject()
+        turn["q_accepted"] = True
+        self.reject()
+
+    def test_actual_terminal_record_has_no_synthetic_accepted_property(self):
+        self.assertNotIn("accepted", self.first("turn")["actual_q"])
+        self.assertTrue(raw.audit(encode(self.events))["structurally_complete"])
+        del self.first("turn")["actual_q"]["rawHoles"]
+        self.reject()
+
+    def test_fully_consistent_early_warmup_still_rejected(self):
+        self.reject(fixture(warmup_count=9))
+
+    def test_elapsed_monotonic_and_complete_cost_pool_required(self):
+        turns = [e["data"] for e in self.events if e["type"] == "turn"]
+        turns[1]["elapsed_game_nanos"] = 1999
+        self.reject()
+        turns[1]["elapsed_game_nanos"] = 4000
+        turns[0]["elapsed_game_nanos"] = 999
+        self.reject()
+
+    def test_summary_horizon_failure_illegal_or_cost_mismatch_rejected(self):
+        data = self.first("game_complete")
+        for key, value in (("decisions", 9), ("primaryFailures", 1), ("fallbackDecisions", 1),
+                           ("totalDecisionNanos", 0), ("maxDecisionNanos", 999), ("reachedPieceLimit", False)):
+            original = data["result"][key]
+            data["result"][key] = value
+            self.reject()
+            data["result"][key] = original
+        data["illegal_plans"] = 1
+        self.reject()
+
+    def test_completion_csv_cannot_claim_clean_missing_from_actual_turns(self):
+        data = self.first("game_complete")
+        data["completion_csv"] = data["completion_csv"].replace(",10,-1,-1.000000,", ",10,1,0.002000,")
+        self.reject()
+
+    def test_cli_preserves_input_and_existing_report_and_rejects_incomplete(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, output = Path(directory) / "raw.jsonl", Path(directory) / "audit.json"
+            original = b"".join(encode(self.events))
+            source.write_bytes(original)
+            command = [sys.executable, str(Path(raw.__file__)), "--input", str(source), "--output", str(output)]
+            run = subprocess.run(command, capture_output=True, timeout=30)
+            self.assertEqual(0, run.returncode, run.stderr.decode())
+            report = output.read_bytes()
+            self.assertEqual(2, subprocess.run(command, capture_output=True, timeout=30).returncode)
+            self.assertEqual(report, output.read_bytes())
+            self.assertEqual(original, source.read_bytes())
+            source.write_bytes(b"".join(encode(self.events[:-1])))
+            output.unlink()
+            self.assertEqual(2, subprocess.run(command, capture_output=True, timeout=30).returncode)
+            self.assertFalse(output.exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
