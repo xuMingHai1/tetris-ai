@@ -224,6 +224,27 @@ class PrototypeTests(unittest.TestCase):
             with self.assertRaises((ValueError, KeyError)):
                 self.report(data)
 
+    def test_cli_rejects_deep_json_in_either_envelope_or_protocol_without_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            paths = [root / name for name in ('development.json', 'calibration.json', 'protocol.json')]
+            valid = [json.dumps(value).encode('utf-8') for value in inputs()] + [PROTOCOL_BYTES]
+            # Exercise the real child interpreter's decoder, not a mocked exception.
+            nested = b'[' * 20000 + b'0' + b']' * 20000
+            for index in range(len(paths)):
+                with self.subTest(input=paths[index].name):
+                    for number, path in enumerate(paths):
+                        path.write_bytes(nested if number == index else valid[number])
+                    output = root / str(index) / 'report.json'
+                    command = [sys.executable, str(Path(prototype.__file__)),
+                               *(str(p) for p in paths[:2]), '--protocol', str(paths[2]),
+                               '--output', str(output)]
+                    completed = subprocess.run(command, capture_output=True, text=True)
+                    self.assertEqual(2, completed.returncode, completed.stderr)
+                    self.assertIn('Invalid prototype evidence/output:', completed.stderr)
+                    self.assertNotIn('Traceback', completed.stderr)
+                    self.assertFalse(output.parent.exists())
+
     def test_cli_exit_codes_refuse_invalid_json_and_preserve_existing_report(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

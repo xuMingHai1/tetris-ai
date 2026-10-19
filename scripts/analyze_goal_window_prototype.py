@@ -133,7 +133,7 @@ def main():
         args.output.parent.mkdir(parents=True, exist_ok=True)
         with args.output.open('x', encoding='utf-8') as stream:
             stream.write(serialized)
-    except (OSError, ValueError, KeyError, TypeError, OverflowError) as error:
+    except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as error:
         parser.exit(2, f'Invalid prototype evidence/output: {error}\n')
     print(json.dumps({'prototype_gates_pass': report['prototype_gates_pass'],
                       'conclusion': report['conclusion'], 'report': str(args.output)}))

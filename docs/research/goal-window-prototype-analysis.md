@@ -67,7 +67,8 @@ python3 -m unittest discover -s scripts -p 'test_analyze_goal_window_prototype.p
 文件给已经检查的数据标记hash。输出使用新文件，拒绝覆盖旧报告；无效输入不会创建成功报告。
 
 退出码0只表示输入有效且数值原型门全部通过；1表示有效数据的原型门失败；2表示输入/输出
-无效。即使`evidence_kind=measured`且数值通过，`provenance_verified`、
+无效（包括任一 envelope 或 protocol 的 JSON 嵌套超过解析器递归限制，返回2且不输出 traceback）。
+即使`evidence_kind=measured`且数值通过，`provenance_verified`、
 `eligible_for_runtime_validation`与`runtime_permission`仍为false。合成数据标为
 `synthetic-diagnostic-only`，不能取得真实来源认证或消费新样本的权限。
 
