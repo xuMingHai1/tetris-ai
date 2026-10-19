@@ -51,8 +51,16 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def command(root, args):
-    return subprocess.check_output(args, cwd=root, stderr=subprocess.STDOUT, text=True)
+def command(root, args, *, log_path=None):
+    if log_path is None:
+        return subprocess.check_output(args, cwd=root, stderr=subprocess.STDOUT, text=True)
+    # The supervisor keeps this file outside target so clean/termination cannot erase its prefix.
+    with log_path.open('x', encoding='utf-8') as log:
+        result = subprocess.run(args, cwd=root, stdout=log, stderr=subprocess.STDOUT)
+    output = log_path.read_text(encoding='utf-8')
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, args, output=output)
+    return output
 
 
 def source_state(root):
@@ -140,8 +148,11 @@ def build_command(root):
             '-DoutputFile=' + BUILD + '/dependency-tree.txt']
 
 
-def prepare(root):
+def prepare(root, build_log=None):
     root = root.resolve(strict=True)
+    if build_log is not None:
+        build_log = build_log.absolute()
+        require(not build_log.resolve().is_relative_to(root), 'streamed build log must be outside checkout')
     require(not (root / 'target').is_symlink() and not (root / BUILD).is_symlink(), 'target symlink')
     # A failed attempt must not leave an older certificate looking like this attempt's output.
     (root / MANIFEST).unlink(missing_ok=True)
@@ -152,7 +163,7 @@ def prepare(root):
     args = build_command(root)
     # clean must run before compilation. Capture outside target so clean cannot unlink the log.
     try:
-        log = command(root, args)
+        log = command(root, args) if build_log is None else command(root, args, log_path=build_log)
     except subprocess.CalledProcessError as error:
         (root / BUILD).mkdir(parents=True, exist_ok=True)
         (root / BUILD / 'build.log').write_text(error.output, encoding='utf-8')
@@ -205,13 +216,15 @@ def main():
     parser.add_argument('--root', type=Path, default=Path('.'))
     parser.add_argument('--verify', type=Path)
     parser.add_argument('--manifest-sha256')
+    parser.add_argument('--build-log', type=Path, help='new external log retaining the live clean-build prefix')
     args = parser.parse_args()
     if args.verify:
+        require(args.build_log is None, 'build log is only valid when preparing')
         manifest = verify_build(args.verify, args.manifest_sha256)
         print(json.dumps({'verified': True, 'source_sha': manifest['source_sha']}))
     else:
         require(args.manifest_sha256 is None, 'digest is only valid with --verify')
-        print(json.dumps(prepare(args.root)))
+        print(json.dumps(prepare(args.root, args.build_log)))
 
 
 if __name__ == '__main__':

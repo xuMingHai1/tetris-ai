@@ -121,12 +121,55 @@ flush 保障进程中断前缀可读，不声称断电 fsync 持久性。外部�
 合成构建文件；没有执行完整 warmup、真实 clean-build 认证或人口采集。完整环境信息、baseline
 兼容日志、#105 envelope 和原型继续门由后续 driver 交付，raw event 本身不是验收报告。
 
-## 尚未交付，禁止采集
+## 第四阶段：干净构建预检与外部进程监督
 
-本次是 #94 第三阶段，不关闭 #94。仍需在同一问题下完成：
+`scripts/supervise_goal_window.py` 的 CLI 始终只做 verify-only：从干净 checkout 调用既有
+`prepare_goal_window_build.py`，父进程持有刚生成的 manifest digest，按登记的 JDK/完整
+classpath/固定入口启动一个直接 JVM，再核对两条连续来源/验证事件与构建前后的一致性。
+不提供 seed、horizon、额外 JVM flags、重试或测量 CLI 开关，也不启动 warmup/game loop。
 
-1. 真实 clean build + 普通 JVM preflight 的接线验证；单 JVM 外部45分钟超时与 partial
-   artifact/stdout/stderr/完整环境记录，保留原 baseline analyzer 可核验的兼容日志。
+```bash
+python3 scripts/supervise_goal_window.py --root "$PWD" --output /tmp/new-goal-window-preflight
+```
+
+输出目录必须尚不存在且位于 checkout 外，避免 Wrapper clean 删除父进程记录；失败也不会
+覆盖旧轮次。prepare Python/Maven 作为独立受监督进程组运行，既有构建脚本的可选
+`--build-log` 将真实编译输出直接写入新外部文件。保存 `report.json`、本次 manifest/构建日志/
+依赖树/classpath 副本、原始 JSONL、JVM stdout/stderr、prepare-stdout/stderr 和可在构建被取消前
+读取的 `build-console.log`，登记文件 bytes/SHA256。环境记录包括 OS/kernel、CPU 型号/特征/affinity/load、
+内存/cgroup 限制、Python/locale；JDK/Maven/实际 class 来源继续在 manifest/raw 中。
+不导出全部环境变量或凭据。这些信息描述采集环境，不消除共享主机噪声或提供桌面保证。
+
+构建阶段单独上限为300秒，预检 JVM 总上限为120秒；可供后续完整 driver 调用的 `launch_prepared(..., verify_only=False)`
+仍固定2700秒，包含同一 JVM 的 warmup，且不允许每 seed 重启或超时重跑。该函数只返回
+`EXITED/TIMEOUT/INTERRUPTED` 的进程结果；**exit 0 不等于完整测量或验收通过**。测量 driver
+尚未交付，本阶段不调用测量分支。Linux 父进程在超时、SIGTERM/SIGINT 或异常退出时终止
+构建或 JVM process group，短暂 TERM 清理后 KILL 剩余后代，清理期间忽略重复 TERM/INT。
+启动期间先取得子进程句柄再处理取消，保留所有已写 prefix/截断尾行和
+两路输出。父进程遭 SIGKILL/宿主丢失时无法保证收尾；预先写入的报告仍是 INCOMPLETE。
+
+仅在来源复核、两条完整预检事件、零进程错误及运行后磁盘校验全部成功时，报告才成为
+`VERIFIED` 且 `population_started=false`；失败/超时是 `INCOMPLETE`，population 是否启动
+保持未知，不补齐缺失事实。这里的 VERIFIED 只表示构建/普通 JVM 预检，不表示 candidate
+收益、全轮来源认证、稳定 HEART 或 runtime permission。
+
+`GoalWindowPreflightTest` 在标准 Linux Wrapper 测试中建立当前提交的独立干净 checkout，
+真实编译后执行上述命令，并检查实际来源、两条事件/无游戏及保留产物；嵌套构建只到
+test-compile，不递归执行测试。浅 checkout 缺少 frozen base 时只 fetch 协议登记的 public
+commit。另一测试把 Python 构建来源/进程反例接入标准套件。Windows/macOS 跳过这一 Linux
+预检测试，不以此替代 #96。Python 反例运行真实子进程验证超时、TERM 忽略后代、父进程中断、
+连续取消、构建中断、启动中断、非零退出、stdout/stderr/截断保留；Linux procfs 检查使用子进程
+实际 `/proc/self/stat` PID，避免 PID namespace 差异导致存活检测假通过。合成 manifest/事件只用于格式与错误测试。
+
+本地只有 JDK17，因此尚无本地真实 clean-build + JDK27 预检通过结论；实际端到端是否通过
+须读取本 revision 的 JDK27 CI 日志。没有运行固定80局或为测量来源/候选收益提供认证。
+
+## 剩余门禁，禁止采集
+
+本次是 #94 第四阶段，不关闭 #94。仍需在同一问题下完成：
+
+1. 读取真实 clean build + 普通 JVM preflight 的 JDK27 结果；完整 driver 复用监督组件，
+   保留原 baseline analyzer 可核验的兼容日志及全轮失败状态。
 2. 专属 driver/两个 #105 envelope/80局合并 prototype 继续门及其负面数据验证。
 3. 既有 reusable workflow 内的显式双臂模式、selector 回归；原 shared-only
    heart-baseline、guard、v1.1 与 #105 分析器保持不变。
