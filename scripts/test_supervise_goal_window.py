@@ -24,16 +24,37 @@ class GoalWindowSupervisorTest(unittest.TestCase):
         self.root.mkdir()
         self.output = self.directory / 'evidence'
 
-    def run_child(self, program, timeout=5):
+    def run_child(self, program, timeout=5, *, ready=None):
         self.output.mkdir()
-        return supervisor.run_process([sys.executable, '-u', '-c', program], self.root, self.output, timeout)
+        actual_popen = subprocess.Popen
+
+        def launch(*args, **kwargs):
+            process = actual_popen(*args, **kwargs)
+            if ready is not None:
+                try:
+                    # Keep interpreter startup outside the short timeout under test.
+                    deadline = time.monotonic() + 10
+                    while not ready.exists():
+                        self.assertIsNone(process.poll(), 'child exited before readiness')
+                        self.assertLess(time.monotonic(), deadline, 'child readiness timed out')
+                        time.sleep(0.01)
+                except BaseException:
+                    supervisor.stop_group(process)
+                    raise
+            return process
+
+        with patch.object(supervisor.subprocess, 'Popen', side_effect=launch):
+            return supervisor.run_process([sys.executable, '-u', '-c', program], self.root, self.output, timeout)
 
     def test_timeout_preserves_stdout_stderr_and_truncated_raw_without_retry(self):
+        ready = self.root / 'ready'
         result = self.run_child(
-            'from pathlib import Path; import sys,time; '
+            # Deliberately exceed the timeout before writing, to exercise cold startup.
+            'from pathlib import Path; import sys,time; time.sleep(0.5); '
             'Path(sys.argv[1]).write_text("complete line\\npartial tail"); '
-            'print("stdout prefix", flush=True); print("stderr prefix",file=sys.stderr,flush=True); time.sleep(30)'
-            .replace('sys.argv[1]', repr(str(self.output / 'raw.jsonl'))), timeout=0.3)
+            'print("stdout prefix", flush=True); print("stderr prefix",file=sys.stderr,flush=True); '
+            f'Path({str(ready)!r}).touch(); time.sleep(30)'
+            .replace('sys.argv[1]', repr(str(self.output / 'raw.jsonl'))), timeout=0.3, ready=ready)
         self.assertEqual('TIMEOUT', result['state'])
         self.assertNotEqual(0, result['returncode'])
         self.assertEqual('stdout prefix\n', (self.output / 'stdout.log').read_text())
@@ -70,7 +91,7 @@ class GoalWindowSupervisorTest(unittest.TestCase):
         result = self.run_child(
             'import subprocess,sys,time; '
             f'p=subprocess.Popen([sys.executable,"-u","-c",{child!r}]); '
-            'print(p.pid,flush=True); time.sleep(30)', timeout=0.5)
+            'print(p.pid,flush=True); time.sleep(30)', timeout=0.5, ready=host_pid_file)
         self.assertEqual('TIMEOUT', result['state'])
         self.require_stopped(int(host_pid_file.read_text()))
 
