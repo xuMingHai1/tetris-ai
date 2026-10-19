@@ -83,7 +83,7 @@ def main():
     args = parser.parse_args()
     try:
         result = read_bundle(args.bundle)
-    except (ValueError, OSError) as failure:
+    except (ValueError, OSError, RecursionError) as failure:
         print("GoalWindow bundle rejected: " + str(failure), file=sys.stderr)
         return 2
     print(json.dumps({"internally_consistent": True,

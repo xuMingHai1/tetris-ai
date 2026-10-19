@@ -152,6 +152,24 @@ class ReaderTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
         self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.iterdir()})
 
+    def test_cli_deeply_nested_json_rejected_without_traceback(self):
+        args = [sys.executable, str(Path(__file__).with_name("read_goal_window_bundle.py")),
+                "--bundle", str(self.root)]
+        original_manifest = (self.root / "manifest.json").read_bytes()
+        nested = b"[" * 20000 + b"0" + b"]" * 20000
+        for name in ("manifest.json", "records.json"):
+            with self.subTest(name=name):
+                (self.root / "manifest.json").write_bytes(original_manifest)
+                if name == "manifest.json":
+                    (self.root / name).write_bytes(nested)
+                else:
+                    self.replace_bound_file(name, nested)
+                before = {p.name: p.read_bytes() for p in self.root.iterdir()}
+                result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertEqual(before, {p.name: p.read_bytes() for p in self.root.iterdir()})
+
 
 if __name__ == "__main__":
     unittest.main()
