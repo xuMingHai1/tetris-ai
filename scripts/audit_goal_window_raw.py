@@ -38,11 +38,32 @@ def same_game(actual, expected):
             "missing, duplicate, or out-of-order game")
 
 
+def nanos(value):
+    require(integer(value) <= 2**63 - 1, "timing exceeds Java long range")
+    return value
+
+
+def check_predictions(values, setup, next_decision):
+    """Bind serialized records to their streamed positions, without replaying predictions."""
+    require(isinstance(values, list) and len(values) == int(setup is not None),
+            "missing or unexpected prediction")
+    for prediction in values:
+        require(isinstance(prediction, dict) and set(prediction) == {
+            "setupDecision", "nextValidatedDecision", "resolution"}, "invalid prediction record")
+        require(integer(prediction["setupDecision"], 1) == setup
+                and type(prediction["nextValidatedDecision"]) is int
+                and prediction["nextValidatedDecision"] == next_decision,
+                "prediction decision mismatch")
+        resolutions = {"NO_NEXT_VALIDATED_TURN"} if next_decision == -1 else {
+            "ACTUAL_Q", "ACTUAL_CLEAN_NON_Q", "ACTUAL_NOT_CLEAN", "BOARD_OR_TYPE_CHANGED"}
+        require(prediction["resolution"] in resolutions, "invalid prediction resolution")
+
+
 def check_turn(data, game, facts, elapsed):
     same_game(data["game"], game)
     fact = data["decision_fact"]
     require(integer(fact["decision"], 1) == len(facts) + 1 <= game["pieceLimit"], "non-contiguous turn")
-    integer(fact["decision_nanos"])
+    nanos(fact["decision_nanos"])
     matched = integer(fact["selected_matched_required_cells"])
     forbidden = integer(fact["selected_forbidden_occupied_cells"])
     require(matched <= HEART_REQUIRED and forbidden <= HEART_FORBIDDEN
@@ -55,7 +76,7 @@ def check_turn(data, game, facts, elapsed):
                           ("matchedRequiredCells", matched), ("forbiddenOccupiedCells", forbidden)):
         require(integer(progress[key]) == expected, "progress disagrees with decision fact")
     integer(progress["supportOccupiedCells"])
-    now = integer(data["elapsed_game_nanos"])
+    now = nanos(data["elapsed_game_nanos"])
     require(now >= elapsed and now >= sum(f["decision_nanos"] for f in facts) + fact["decision_nanos"],
             "invalid elapsed timing")
     terminal = data["actual_q"]
@@ -112,6 +133,7 @@ def audit(lines):
     facts = []
     elapsed, first_clean_elapsed = 0, None
     finished = False
+    resolved, pending = [], None
     for raw in lines:
         require(isinstance(raw, bytes) and raw.endswith(b"\n"), "truncated or non-binary JSONL line")
         digest.update(raw)
@@ -140,13 +162,24 @@ def audit(lines):
             game = expected_game(completed)
             same_game(data, game)
             facts, elapsed, first_clean_elapsed = [], 0, None
+            resolved, pending = [], None
         elif kind == "turn":
             require(game is not None, "turn outside game")
             elapsed = check_turn(data, game, facts, elapsed)
+            check_predictions(data["resolved_predictions"], pending, len(facts))
+            resolved.extend(data["resolved_predictions"])
+            choice = data["candidate_choice"]
+            pending = len(facts) if choice is not None and choice.get("choice") == "PREVIEW_SETUP" else None
             if facts[-1]["clean_completion"] and first_clean_elapsed is None:
                 first_clean_elapsed = elapsed
         elif kind == "game_complete":
             require(game is not None, "completion outside game")
+            predictions = data["predictions"]
+            require(isinstance(predictions, list) and predictions[:len(resolved)] == resolved,
+                    "prediction summary disagrees with streamed records")
+            for final, streamed in zip(predictions, resolved):
+                check_predictions([final], streamed["setupDecision"], streamed["nextValidatedDecision"])
+            check_predictions(predictions[len(resolved):], pending, -1)
             clean = check_complete(data, game, facts, elapsed, first_clean_elapsed)
             measured_clean += int(clean and game["phase"] == "MEASURED")
             completed += 1

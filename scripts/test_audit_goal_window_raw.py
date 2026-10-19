@@ -205,6 +205,75 @@ class RawAuditTests(unittest.TestCase):
         data["completion_csv"] = data["completion_csv"].replace(",10,-1,-1.000000,", ",10,1,0.002000,")
         self.reject()
 
+    def prediction_game(self):
+        turns = [e["data"] for e in self.events if e["type"] == "turn"
+                 and e["data"]["game"] == {"phase": "MEASURED", "arm": "CANDIDATE",
+                                             "seed": 20000, "pieceLimit": 1000}]
+        end = next(e["data"] for e in self.events if e["type"] == "game_complete"
+                   and e["data"]["game"] == turns[0]["game"])
+        turns[0]["candidate_choice"]["choice"] = "PREVIEW_SETUP"
+        record = {"setupDecision": 1, "nextValidatedDecision": 2, "resolution": "ACTUAL_CLEAN_NON_Q"}
+        turns[1]["resolved_predictions"] = [copy.deepcopy(record)]
+        end["predictions"] = [copy.deepcopy(record)]
+        return turns, end
+
+    def test_streamed_prediction_and_only_last_turn_pending_are_reconciled(self):
+        turns, end = self.prediction_game()
+        self.assertTrue(raw.audit(encode(self.events))["structurally_complete"])
+        turns[-1]["candidate_choice"]["choice"] = "PREVIEW_SETUP"
+        end["predictions"].append({"setupDecision": 3, "nextValidatedDecision": -1,
+                                   "resolution": "NO_NEXT_VALIDATED_TURN"})
+        self.assertTrue(raw.audit(encode(self.events))["structurally_complete"])
+        end["predictions"][-1]["setupDecision"] = 2
+        self.reject()
+
+    def test_dropped_injected_altered_or_malformed_predictions_rejected(self):
+        for mutation in ("dropped", "injected", "altered", "missing-field", "boolean", "unknown", "pending"):
+            self.events = fixture()
+            turns, end = self.prediction_game()
+            if mutation == "dropped":
+                turns[1]["resolved_predictions"] = []
+            elif mutation == "injected":
+                end["predictions"].append(copy.deepcopy(end["predictions"][0]))
+            elif mutation == "altered":
+                end["predictions"][0]["resolution"] = "ACTUAL_NOT_CLEAN"
+            elif mutation == "missing-field":
+                del turns[1]["resolved_predictions"][0]["resolution"]
+            elif mutation == "boolean":
+                turns[1]["resolved_predictions"][0]["setupDecision"] = True
+            elif mutation == "unknown":
+                turns[1]["resolved_predictions"][0]["resolution"] = "INVENTED"
+            else:
+                turns[1]["resolved_predictions"][0]["nextValidatedDecision"] = -1
+            with self.subTest(mutation=mutation):
+                self.reject()
+
+    def test_predictions_cannot_appear_without_setup_or_in_baseline(self):
+        turns, end = self.prediction_game()
+        turns[0]["candidate_choice"]["choice"] = "BASELINE_CHOICE"
+        self.reject()
+        self.events = fixture()
+        self.first("turn")["resolved_predictions"] = [{"setupDecision": 1,
+            "nextValidatedDecision": 2, "resolution": "ACTUAL_NOT_CLEAN"}]
+        self.reject()
+
+    def test_final_prediction_id_types_cannot_hide_behind_numeric_equality(self):
+        for key, value in (("setupDecision", True), ("setupDecision", 1.0),
+                           ("nextValidatedDecision", 2.0)):
+            self.events = fixture()
+            _, end = self.prediction_game()
+            end["predictions"][0][key] = value
+            with self.subTest(key=key, value=value):
+                self.reject()
+
+    def test_timing_integers_larger_than_java_long_are_rejected(self):
+        for field in ("decision_nanos", "elapsed_game_nanos"):
+            self.events = fixture()
+            turn = self.first("turn")
+            target = turn["decision_fact"] if field == "decision_nanos" else turn
+            target[field] = 10**400
+            self.reject()
+
     def test_cli_preserves_input_and_existing_report_and_rejects_incomplete(self):
         with tempfile.TemporaryDirectory() as directory:
             source, output = Path(directory) / "raw.jsonl", Path(directory) / "audit.json"
@@ -220,6 +289,12 @@ class RawAuditTests(unittest.TestCase):
             source.write_bytes(b"".join(encode(self.events[:-1])))
             output.unlink()
             self.assertEqual(2, subprocess.run(command, capture_output=True, timeout=30).returncode)
+            self.assertFalse(output.exists())
+            self.first("turn")["elapsed_game_nanos"] = 10**400
+            source.write_bytes(b"".join(encode(self.events)))
+            rejected = subprocess.run(command, capture_output=True, timeout=30)
+            self.assertEqual(2, rejected.returncode)
+            self.assertNotIn(b"Traceback", rejected.stderr)
             self.assertFalse(output.exists())
 
 

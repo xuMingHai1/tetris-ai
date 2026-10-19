@@ -18,6 +18,12 @@ progress. Elapsed times must be monotonic and cover all recorded decision costs.
 Game result counts, timing totals, failure/fallback/illegal counts, horizon and
 the existing completion CSV must agree with turns. Candidate/Q and prediction
 observations must be present; Q cannot turn a non-clean board into a clean fact.
+Prediction records must have valid decision identities and resolution tags;
+each preview setup resolves on the next turn, or appears once as pending at the
+end. The final prediction list must exactly match the streamed resolutions plus
+that permitted pending record. This checks serialization consistency, not the
+truth of the prediction or board/type comparison. Nanosecond inputs are bounded
+to the nonnegative Java `long` range before CSV formatting.
 Only a final session-complete event with all 180 games permits success.
 
 Missing/truncated lines, duplicate JSON keys, non-finite numbers, verify-only,
