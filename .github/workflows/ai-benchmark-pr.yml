@@ -23,7 +23,7 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository
         && github.event.pull_request.base.ref == github.event.repository.default_branch
       }}
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       benchmark: ${{ steps.select.outputs.benchmark }}
@@ -141,7 +141,7 @@ jobs:
           benchmark=none
           reason="no AI benchmark-sensitive files changed"
 
-          # One benchmark per PR revision keeps the self-hosted runner bounded.
+          # One benchmark per PR revision keeps runner usage bounded.
           # Prefer the most specialized path when categories overlap.
           if [ "$heart_protocol_changed" = "true" ]; then
             benchmark=heart-baseline
@@ -499,7 +499,7 @@ jobs:
       - shape-feasibility
       - adaptive-objective
       - action-provenance
-    runs-on: [self-hosted, linux, x64]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
 
     steps:
