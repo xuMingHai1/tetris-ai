@@ -80,7 +80,7 @@ def main():
     try:
         result = write_bundle(args.records.read_bytes(), args.metadata.read_bytes(),
                               args.protocol.read_bytes(), args.output)
-    except (ValueError, OSError) as failure:
+    except (ValueError, OSError, RecursionError) as failure:
         print("GoalWindow bundle rejected: " + str(failure), file=sys.stderr)
         return 2
     print(json.dumps(result, sort_keys=True))

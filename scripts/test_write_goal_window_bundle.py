@@ -121,6 +121,24 @@ class BundleTests(unittest.TestCase):
         self.assertTrue((self.output / "manifest.json").is_file())
         self.assertTrue((self.output / "INCOMPLETE").is_file())
 
+    def test_cli_rejects_deep_json_without_traceback_or_output(self):
+        deep = b"[" * 20000 + b"0" + b"]" * 20000
+        originals = {"records": self.records, "metadata": self.metadata, "protocol": PROTOCOL_BYTES}
+        for invalid_name in ("records", "metadata"):
+            with self.subTest(input=invalid_name):
+                supplied = dict(originals, **{invalid_name: deep})
+                args = [sys.executable, str(Path(__file__).with_name("write_goal_window_bundle.py"))]
+                for name, raw in supplied.items():
+                    path = self.root / name
+                    path.write_bytes(raw)
+                    args.extend(["--" + name, str(path)])
+                args.extend(["--output", str(self.output)])
+                result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+                self.assertFalse(self.output.exists())
+                self.assertEqual({name: (self.root / name).read_bytes() for name in supplied}, supplied)
+
     def test_cli_success_then_no_overwrite_and_invalid_input_status_two(self):
         for name, raw in (("records", self.records), ("metadata", self.metadata), ("protocol", PROTOCOL_BYTES)):
             (self.root / name).write_bytes(raw)
