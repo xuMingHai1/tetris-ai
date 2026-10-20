@@ -7,8 +7,17 @@ and the prototype gate evaluator (#121). It consumes the existing
 
 ```sh
 python3 scripts/audit_goal_window_raw.py --input raw.jsonl --output new-audit.json
+python3 scripts/audit_goal_window_raw.py --input raw.jsonl --output new-bound-audit.json --manifest build.json --manifest-sha256 <independently-retained-sha256>
 python3 -m unittest discover -s scripts -p test_audit_goal_window_raw.py -v
 ```
+
+The optional manifest and independently retained digest must be supplied together.
+In this mode, the existing session header checker validates the first line against
+the exact manifest bytes, embedded manifest and 19 critical loaded-class claims.
+The same single raw stream then undergoes the full completeness audit; a valid
+header cannot excuse a missing final event. The report adds `session_header_check`
+with its manifest/header hashes. Omitting both options preserves structural-only
+behavior and the original report shape. Neither mode overwrites existing output.
 
 The audit requires continuous event sequence numbers, one provenance record,
 one full session start, both fixed 100-decision warmups, and all 160 measured
@@ -34,10 +43,11 @@ report binds the exact raw bytes with SHA256 and counts clean facts independentl
 of Q (including clean non-Q turns).
 
 **Scope:** success means structural consistency of untrusted event claims.
-Manifest/loaded-class values are retained as required records, not authenticated.
+In structural-only mode manifest/loaded-class values are required records. Bound
+mode also checks their offline consistency, without authenticating execution.
 The auditor does not reconstruct boards or validate candidate choice semantics,
 Q geometry, prediction resolution semantics, seed/bag sequences, loaded class
-origins, or build hashes. In particular, a fully synthetic stream can pass.
+origins or build hashes on disk. In particular, a fully synthetic stream can pass.
 `build_provenance_verified`, `seed_sequence_attested`,
 `prototype_gates_evaluated` and `runtime_permission` remain false.
 

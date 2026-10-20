@@ -7,6 +7,7 @@ from pathlib import Path
 import sys
 
 from analyze_heart_paired import HEART_FORBIDDEN, HEART_REQUIRED, TIMING_SCOPE, integer, require
+from check_goal_window_session_header import check_header
 
 
 def unique_object(pairs):
@@ -125,8 +126,15 @@ def check_complete(data, game, facts, elapsed, first_clean_elapsed):
     return bool(clean_turns)
 
 
-def audit(lines):
-    """Consume binary JSONL lines. Success means structural consistency, never provenance."""
+def audit(lines, *, manifest_bytes=None, expected_manifest_sha256=None):
+    """Audit one stream, optionally binding its first line to retained manifest bytes.
+
+    Header binding reuses the offline checker, never certifies actual execution.
+    Both header binding and completeness consume the same raw bytes.
+    """
+    require((manifest_bytes is None) == (expected_manifest_sha256 is None),
+            "manifest bytes and independent digest must be supplied together")
+    header_check = None
     digest = hashlib.sha256()
     size = sequence = completed = measured_clean = 0
     game = None
@@ -147,6 +155,8 @@ def audit(lines):
         kind, data = event["type"], event["data"]
         require(isinstance(data, dict) and not finished, "invalid data or trailing event")
         if sequence == 1:
+            if manifest_bytes is not None:
+                header_check = check_header(raw, manifest_bytes, expected_manifest_sha256)
             require(kind == "provenance_verified" and isinstance(data["manifest"], dict)
                     and isinstance(data["loaded_classes"], dict)
                     and isinstance(data["manifest_sha256"], str)
@@ -192,21 +202,30 @@ def audit(lines):
         else:
             raise ValueError("unexpected, verify-only, or incomplete event")
     require(finished, "missing session_complete")
-    return {"schema": "goal-window-raw-audit-v1", "structurally_complete": True,
+    report = {"schema": "goal-window-raw-audit-v1", "structurally_complete": True,
             "raw_sha256": digest.hexdigest(), "raw_bytes": size, "events": sequence,
             "warmup_games": 20, "measured_games": 160, "measured_games_with_clean_facts": measured_clean,
             "build_provenance_verified": False, "seed_sequence_attested": False,
             "prototype_gates_evaluated": False, "runtime_permission": False}
+    if header_check is not None:
+        report["session_header_check"] = header_check
+    return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--manifest-sha256")
     args = parser.parse_args()
     try:
+        require((args.manifest is None) == (args.manifest_sha256 is None),
+                "--manifest and --manifest-sha256 must be supplied together")
+        manifest_bytes = args.manifest.read_bytes() if args.manifest is not None else None
         with args.input.open("rb") as source:
-            report = audit(source)
+            report = audit(source, manifest_bytes=manifest_bytes,
+                           expected_manifest_sha256=args.manifest_sha256)
         with args.output.open("x", encoding="utf-8") as output:
             json.dump(report, output, indent=2, allow_nan=False)
             output.write("\n")

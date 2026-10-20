@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 import audit_goal_window_raw as raw
+from test_check_goal_window_session_header import fixture as header_fixture
 
 
 def fixture(warmup_count=10):
@@ -273,6 +274,62 @@ class RawAuditTests(unittest.TestCase):
             target = turn["decision_fact"] if field == "decision_nanos" else turn
             target[field] = 10**400
             self.reject()
+
+    def test_bound_header_and_completeness_use_one_stream(self):
+        manifest, header = header_fixture()
+        self.events[0] = header
+        lines = encode(self.events)
+        expected = hashlib.sha256(manifest).hexdigest()
+        result = raw.audit(iter(lines), manifest_bytes=manifest, expected_manifest_sha256=expected)
+        self.assertEqual(result["raw_sha256"], hashlib.sha256(b"".join(lines)).hexdigest())
+        self.assertEqual(result["session_header_check"]["manifest_sha256"], expected)
+        self.assertTrue(result["structurally_complete"])
+        self.assertFalse(result["build_provenance_verified"])
+        self.assertFalse(result["runtime_permission"])
+        self.assertFalse(result["session_header_check"]["provenance_authenticated"])
+        self.assertFalse(result["session_header_check"]["raw_completeness_verified"])
+        with self.assertRaises(ValueError):
+            raw.audit(iter(lines[:-1]), manifest_bytes=manifest, expected_manifest_sha256=expected)
+        for supplied, digest in ((manifest, None), (None, expected), (manifest, "0" * 64)):
+            with self.assertRaises(ValueError):
+                raw.audit(iter(lines), manifest_bytes=supplied, expected_manifest_sha256=digest)
+        # Changing the same consumed header must fail even though the rest is complete.
+        name = next(iter(header["data"]["loaded_classes"]))
+        header["data"]["loaded_classes"][name]["sha256"] = "0" * 64
+        with self.assertRaises(ValueError):
+            raw.audit(encode(self.events), manifest_bytes=manifest, expected_manifest_sha256=expected)
+
+    def test_cli_manifest_binding_rejects_mismatch_partial_options_and_incomplete_raw(self):
+        manifest, header = header_fixture()
+        self.events[0] = header
+        original = b"".join(encode(self.events))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, build, output = root / "raw.jsonl", root / "build.json", root / "audit.json"
+            source.write_bytes(original)
+            build.write_bytes(manifest)
+            command = [sys.executable, str(Path(raw.__file__)), "--input", str(source), "--output", str(output)]
+            options = ["--manifest", str(build), "--manifest-sha256", hashlib.sha256(manifest).hexdigest()]
+            result = subprocess.run(command + options, capture_output=True, timeout=30)
+            self.assertEqual(0, result.returncode, result.stderr)
+            report = output.read_bytes()
+            self.assertIn("session_header_check", json.loads(report))
+            # Exclusive output creation applies to the bound mode too.
+            self.assertEqual(2, subprocess.run(command + options, capture_output=True, timeout=30).returncode)
+            self.assertEqual(report, output.read_bytes())
+            output.unlink()
+            for extra in (options[:2], options[2:], options[:3] + ["0" * 64]):
+                rejected = subprocess.run(command + extra, capture_output=True, timeout=30)
+                self.assertEqual(2, rejected.returncode, rejected.stderr)
+                self.assertNotIn(b"Traceback", rejected.stderr)
+                self.assertFalse(output.exists())
+            self.assertEqual(original, source.read_bytes())
+            self.assertEqual(manifest, build.read_bytes())
+            source.write_bytes(b"".join(encode(self.events[:-1])))
+            rejected = subprocess.run(command + options, capture_output=True, timeout=30)
+            self.assertEqual(2, rejected.returncode, rejected.stderr)
+            self.assertNotIn(b"Traceback", rejected.stderr)
+            self.assertFalse(output.exists())
 
     def test_cli_rejects_deep_json_without_traceback_or_output(self):
         with tempfile.TemporaryDirectory() as directory:
