@@ -1,5 +1,6 @@
 """Exercise the actual workflow shell selector for isolated measurement edits."""
 import os
+import shutil
 import subprocess
 import tempfile
 import textwrap
@@ -32,9 +33,41 @@ class HeartSelectorTest(unittest.TestCase):
         for name in ('BenchmarkApplication', 'HeadlessGameRunner', 'ShapeCompletionTelemetry', 'GameBenchmarkResult'):
             paths += [f'src/main/java/xyz/xuminghai/tetris/ai/benchmark/{name}.java',
                       f'src/test/java/xyz/xuminghai/tetris/ai/benchmark/{name}Test.java']
-        for path in paths:
-            with self.subTest(path=path), tempfile.NamedTemporaryFile() as output:
-                env = dict(os.environ, TEST_CHANGED_FILES=path, GITHUB_OUTPUT=output.name)
-                subprocess.run(['bash', '-c', shell], env=env, check=True,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                self.assertIn('benchmark=heart-baseline', Path(output.name).read_text())
+        paths += [str(path).replace('\\', '/') for path in Path('scripts').glob('*goal_window*.py')]
+        # Mixed changes must still select just the higher-priority HEART path.
+        paths += ['scripts/check_goal_window_session_header.py\n'
+                  'src/main/java/xyz/xuminghai/tetris/ai/PreviewRescueActionPlanningAgent.java']
+        cases = [(path, 'heart-baseline') for path in paths]
+        cases += [('README.md', 'none'), ('scripts/unrelated.py', 'none')]
+        for path, expected in cases:
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / 'output'
+                env = dict(os.environ, TEST_CHANGED_FILES=path, GITHUB_OUTPUT=str(output))
+                # stdin avoids command-line length limits in Windows Bash launchers.
+                result = subprocess.run([shutil.which('bash') or 'bash'], input=shell.encode(), env=env,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(['benchmark=' + expected],
+                                 [line for line in output.read_text().splitlines()
+                                  if line.startswith('benchmark=')])
+
+    def test_goal_window_discovery_is_required_before_collection(self):
+        workflow = Path('.github/workflows/ai-benchmark.yml').read_text()
+        step = workflow.split('      - name: Validate fixed HEART protocol and summary tests\n', 1)[1]
+        body = step.split('        run: |\n', 1)[1].split('          production_base=', 1)[0]
+        shell = textwrap.dedent(body)
+        # Execute the actual pre-collection commands using a recording Python stub.
+        # A failed GoalWindow suite must stop the shell before any collection.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            stub = ('python3() { printf "%s\\n" "$*" >> "$DISCOVERY_LOG"; '
+                    'case "$*" in *goal_window*) return "$GOAL_EXIT";; esac; };\n')
+            for exit_code in ('0', '73'):
+                log = root / ('log-' + exit_code)
+                env = dict(os.environ, DISCOVERY_LOG=str(log), GOAL_EXIT=exit_code)
+                result = subprocess.run([shutil.which('bash') or 'bash'], input=(stub + shell).encode(), env=env,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                self.assertEqual(int(exit_code), result.returncode, result.stderr)
+                self.assertEqual(['-m unittest discover -s scripts -p test_*heart*.py',
+                                  '-m unittest discover -s scripts -p test_*goal_window*.py'],
+                                 log.read_text().splitlines())

@@ -102,6 +102,8 @@ UI 采集还保存移动／落地中途、暂停（若未结束）、手动与�
 
 `.github/workflows/ai-benchmark.yml` 是手动/reusable benchmark 命令、参数校验和 artifact 收集的唯一维护位置；`.github/workflows/ai-benchmark-pr.yml` 是自动选择顺序与固定协议的事实来源。每个 revision 最多选一个 deterministic benchmark，新 push 取消旧 run；自动路径只接受以当前 default branch 为目标的 same-repository PR，不调用 Jev、不读取 provider secret。PR shape-feasibility 保持 viability depth 4 / beam 32 / greedy depth 24，深校准走手动 workflow。feasibility depth/beam 必须独立于 gameplay piece limit。保留各模式的逐 decision / game / witness / audit / recovery CSV artifact，不提交生成结果；target-aware counterfactual 必须显式标记。实验导航见 [研究索引](docs/research/README.md)。固定 HEART 阶段的 [验收协议](docs/research/heart-acceptance-v1.md) / [数值](docs/research/heart-acceptance-v1.json) 先于采集提交；自动 `heart-baseline` 在采集前 fetch 协议的 `production_base_sha`，拒绝除 `ai/benchmark` 测量层外的生产源码、资源与构建输入差异，并保存校验 SHA 证据；测量入口、runner、协议、解析器及共享 workflow 变更均选择此路径。它仅运行开发/校准 80 局并验证数据完整性，不以新候选的目标判定旧 baseline 失败。独立 validation 必须等设计与候选冻结、前置任务被接受，不得让 seed/最终结果进入在线策略。Jev 手动 workflow（含 compare）必须显式确认外部调用成本并存在 repository secret，单次最多 200 个潜在 decision。
 
+GoalWindow 的 `scripts/*goal_window*.py`（包括对应测试）同样选择 `heart-baseline`；共享 workflow 在原生产 guard 和固定 baseline 采集前执行 HEART 与 GoalWindow 两套 Python 测试，任一失败即停止。该路径不启动 GoalWindow 双臂采集，不提供候选采用或 runtime 权限。
+
 由于仓库是 public repository：
 - 自动 PR 工作流继续只接受同仓库 PR；迁移 runner 不扩大外部 fork PR 的执行范围。
 - 保留 workflow 中对同仓库 PR 的限制，除非安全模型被明确重新设计。

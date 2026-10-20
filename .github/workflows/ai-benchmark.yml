@@ -213,6 +213,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m unittest discover -s scripts -p 'test_*heart*.py'
+          python3 -m unittest discover -s scripts -p 'test_*goal_window*.py'
           production_base=$(python3 -c "import json; print(json.load(open('docs/research/heart-acceptance-v1.json'))['production_base_sha'])")
           [[ "$production_base" =~ ^[0-9a-f]{40}$ ]] || { echo '::error::Invalid production_base_sha'; exit 1; }
           git fetch --no-tags origin "$production_base"
