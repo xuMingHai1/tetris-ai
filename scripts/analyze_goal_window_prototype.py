@@ -132,6 +132,8 @@ def main():
         parser.error('provide both development and calibration, or --bundle')
     try:
         if args.bundle is not None:
+            paired.require(not args.output.resolve().is_relative_to(args.bundle.resolve()),
+                           'report output must be outside the immutable bundle')
             # Consume the reader's verified snapshots; reopening files would break
             # the link between bundle validation, analysis and reported hashes.
             files = read_bundle(args.bundle)['files']

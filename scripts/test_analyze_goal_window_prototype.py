@@ -147,6 +147,22 @@ class PrototypeTests(unittest.TestCase):
             self.assertEqual({name: hashlib.sha256(files[name + '.json']).hexdigest()
                               for name in prototype.POPULATIONS}, report['input_files_sha256'])
 
+    def test_bundle_cli_refuses_report_inside_immutable_evidence(self):
+        from write_goal_window_bundle import write_bundle, json_bytes
+
+        records, metadata = bundle_inputs(inputs())
+        with tempfile.TemporaryDirectory() as temporary:
+            bundle = Path(temporary) / 'bundle'
+            write_bundle(json_bytes(records), json_bytes(metadata), PROTOCOL_BYTES, bundle)
+            before = {p.name: p.read_bytes() for p in bundle.iterdir()}
+            for output in (bundle / 'report.json', bundle / 'nested' / 'report.json'):
+                with self.subTest(output=output):
+                    completed = subprocess.run([sys.executable, str(Path(prototype.__file__)),
+                        '--bundle', str(bundle), '--output', str(output)], capture_output=True, text=True)
+                    self.assertEqual(2, completed.returncode, completed.stderr)
+                    self.assertIn('outside the immutable bundle', completed.stderr)
+                    self.assertEqual(before, {p.name: p.read_bytes() for p in bundle.iterdir()})
+
     def test_one_actual_clean_can_pass_prototype_while_frozen_adoption_gates_fail(self):
         report = self.report()
         self.assertTrue(report['prototype_gates_pass'])

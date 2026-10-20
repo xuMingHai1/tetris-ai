@@ -72,7 +72,8 @@ python3 scripts/analyze_goal_window_prototype.py --bundle target/benchmark/bundl
 `--bundle` 先复用 `read_bundle` 核对固定布局、文件 hash，并从保留的 records/metadata
 重新派生两组 envelope 与 baseline CSV；随后仅用 reader 返回的同一内存 bytes 进行判定和
 输入 hash 记录，不重新打开 envelope。协议也使用 bundle 内已校验的 bytes；不能同时传入
-envelope 路径或 `--protocol`。原双文件入口及其默认协议保持兼容；没有选定完整输入模式则退出2。
+envelope 路径或 `--protocol`。报告必须位于 bundle 目录之外，避免新增报告破坏固定证据布局；
+bundle 内的直接或嵌套输出路径均拒绝。原双文件入口及其默认协议保持兼容；没有选定完整输入模式则退出2。
 旧格式 bundle 可以通过 reader，但若缺少共同 session 引用仍不能通过本分析器。
 bundle 内部一致性不认证实际 raw/build；报告所有来源/runtime 权限仍为 false。
 
