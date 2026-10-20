@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 import analyze_goal_window_prototype as prototype
 import analyze_heart_paired as paired
@@ -36,9 +37,115 @@ def replace(data, arm, index, **kwargs):
     data['arms'][arm]['games'][index] = game(old['seed'], arm, **values)
 
 
+def bundle_inputs(data):
+    metadata = copy.deepcopy(data[0])
+    del metadata['population']
+    for arm in metadata['arms'].values():
+        del arm['games']
+    games = {arm: {g['seed']: g for envelope in data for g in envelope['arms'][arm]['games']}
+             for arm in ('baseline', 'candidate')}
+    records = []
+    for seed in range(20000, 20080):
+        order = ('baseline', 'candidate') if seed % 2 == 0 else ('candidate', 'baseline')
+        records.extend({'arm': arm, 'game': games[arm][seed]} for arm in order)
+    return records, metadata
+
+
 class PrototypeTests(unittest.TestCase):
     def report(self, data=None):
         return prototype.analyze(*(inputs() if data is None else data), PROTOCOL_BYTES)
+
+    def test_bundle_cli_preserves_verified_bytes_and_gate_exit_codes(self):
+        from write_goal_window_bundle import write_bundle, json_bytes
+
+        for passing in (True, False):
+            with self.subTest(passing=passing), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                data = inputs()
+                if not passing:
+                    replace(data[0], 'candidate', 0, clean_at=-1)
+                records, metadata = bundle_inputs(data)
+                bundle, output = root / 'bundle', root / 'report.json'
+                write_bundle(json_bytes(records), json_bytes(metadata), PROTOCOL_BYTES, bundle)
+                before = {p.name: p.read_bytes() for p in bundle.iterdir()}
+                command = [sys.executable, str(Path(prototype.__file__)), '--bundle', str(bundle),
+                           '--output', str(output)]
+                completed = subprocess.run(command, capture_output=True, text=True)
+                self.assertEqual(0 if passing else 1, completed.returncode, completed.stderr)
+                report = json.loads(output.read_bytes())
+                self.assertEqual(self.report(data), {k: v for k, v in report.items()
+                                                    if k != 'input_files_sha256'})
+                self.assertEqual({name: hashlib.sha256(before[name + '.json']).hexdigest()
+                                  for name in prototype.POPULATIONS}, report['input_files_sha256'])
+                self.assertEqual(before, {p.name: p.read_bytes() for p in bundle.iterdir()})
+                original = output.read_bytes()
+                self.assertEqual(2, subprocess.run(command, capture_output=True).returncode)
+                self.assertEqual(original, output.read_bytes())
+
+    def test_bundle_cli_rejects_incomplete_hash_and_rederived_tampering(self):
+        from write_goal_window_bundle import write_bundle, json_bytes
+
+        records, metadata = bundle_inputs(inputs())
+        for kind in ('incomplete', 'hash', 'rederived', 'session'):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                bundle, output = root / 'bundle', root / 'reports' / 'report.json'
+                manifest = write_bundle(json_bytes(records), json_bytes(metadata), PROTOCOL_BYTES, bundle)
+                if kind == 'incomplete':
+                    (bundle / 'INCOMPLETE').write_bytes(b'incomplete')
+                else:
+                    path = bundle / 'development.json'
+                    value = json.loads(path.read_bytes())
+                    value['goal_window_session']['raw_sha256'] = 'd' * 64
+                    raw = json_bytes(value)
+                    path.write_bytes(raw)
+                    if kind != 'hash':
+                        manifest['files'][path.name] = {'bytes': len(raw), 'sha256': hashlib.sha256(raw).hexdigest()}
+                        (bundle / 'manifest.json').write_bytes(json_bytes(manifest))
+                    if kind == 'session':
+                        # A valid old-format bundle still lacks the prototype's
+                        # mandatory session link; reader success is not gate success.
+                        del metadata['goal_window_session']
+                        bundle = root / 'unlinked'
+                        write_bundle(json_bytes(records), json_bytes(metadata), PROTOCOL_BYTES, bundle)
+                before = {p.name: p.read_bytes() for p in bundle.iterdir()}
+                completed = subprocess.run([sys.executable, str(Path(prototype.__file__)),
+                    '--bundle', str(bundle), '--output', str(output)], capture_output=True, text=True)
+                self.assertEqual(2, completed.returncode, completed.stderr)
+                self.assertNotIn('Traceback', completed.stderr)
+                self.assertFalse(output.parent.exists())
+                self.assertEqual(before, {p.name: p.read_bytes() for p in bundle.iterdir()})
+
+    def test_bundle_cli_rejects_ambiguous_modes_before_creating_report(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'reports' / 'report.json'
+            for arguments in ([], ['development'], ['--bundle', 'bundle', 'development'],
+                              ['--bundle', 'bundle', 'development', 'calibration'],
+                              ['--bundle', 'bundle', '--protocol', 'protocol']):
+                with self.subTest(arguments=arguments):
+                    completed = subprocess.run([sys.executable, str(Path(prototype.__file__)),
+                        *arguments, '--output', str(output)], capture_output=True, text=True)
+                    self.assertEqual(2, completed.returncode)
+                    self.assertNotIn('Traceback', completed.stderr)
+                    self.assertFalse(output.parent.exists())
+
+    def test_bundle_analysis_uses_reader_snapshots_without_reopening_inputs(self):
+        data = inputs()
+        files = {name + '.json': json.dumps(value).encode('utf-8')
+                 for name, value in zip(prototype.POPULATIONS, data)}
+        files['protocol.json'] = PROTOCOL_BYTES
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / 'report.json'
+            with mock.patch.object(sys, 'argv', ['prototype', '--bundle', 'unavailable',
+                                                '--output', str(output)]), \
+                 mock.patch.object(prototype, 'read_bundle', return_value={'files': files}) as reader, \
+                 mock.patch.object(Path, 'read_bytes', side_effect=AssertionError('reopened input')), \
+                 mock.patch('builtins.print'):
+                self.assertEqual(0, prototype.main())
+                reader.assert_called_once_with(Path('unavailable'))
+            report = json.loads(output.read_bytes())
+            self.assertEqual({name: hashlib.sha256(files[name + '.json']).hexdigest()
+                              for name in prototype.POPULATIONS}, report['input_files_sha256'])
 
     def test_one_actual_clean_can_pass_prototype_while_frozen_adoption_gates_fail(self):
         report = self.report()

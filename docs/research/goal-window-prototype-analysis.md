@@ -62,6 +62,20 @@ python3 scripts/analyze_goal_window_prototype.py \
 python3 -m unittest discover -s scripts -p 'test_analyze_goal_window_prototype.py'
 ```
 
+也可直接消费已完成的 [derived bundle](goal-window-bundle-reader.md)：
+
+```bash
+python3 scripts/analyze_goal_window_prototype.py --bundle target/benchmark/bundle \
+  --output target/benchmark/new-prototype-report.json
+```
+
+`--bundle` 先复用 `read_bundle` 核对固定布局、文件 hash，并从保留的 records/metadata
+重新派生两组 envelope 与 baseline CSV；随后仅用 reader 返回的同一内存 bytes 进行判定和
+输入 hash 记录，不重新打开 envelope。协议也使用 bundle 内已校验的 bytes；不能同时传入
+envelope 路径或 `--protocol`。原双文件入口及其默认协议保持兼容；没有选定完整输入模式则退出2。
+旧格式 bundle 可以通过 reader，但若缺少共同 session 引用仍不能通过本分析器。
+bundle 内部一致性不认证实际 raw/build；报告所有来源/runtime 权限仍为 false。
+
 报告保留两个完整分组诊断、合并逐seed配对、每臂汇总及每项observed/threshold/pass，schema为
 `goal-window-prototype-v1`。CLI从同一bytes快照解析并记录两份输入的SHA256，不用重新读取的
 文件给已经检查的数据标记hash。输出使用新文件，拒绝覆盖旧报告；无效输入不会创建成功报告。
@@ -75,6 +89,10 @@ python3 -m unittest discover -s scripts -p 'test_analyze_goal_window_prototype.p
 本轮测试仅使用明确synthetic的20+60 envelope，没有运行warmup/planner、收集population或
 使用独立/Windows seeds。原始JSONL转换、baseline兼容日志、真实文件来源认证、完整driver、
 workflow/selector及最终整体实现Review仍待交付；#95/#96没有解锁。
+
+bundle 接线回归通过真实 writer→reader→prototype CLI 验证数值通过/失败退出码、报告输入
+hash、证据 bytes 不变与拒绝覆盖；另验证 INCOMPLETE、hash 篡改、重算 hash 后仍与原始输入
+不一致、缺少 session 和混合模式均退出2且不创建报告。它不等于完整采集 driver 验收。
 
 生产结构/运行方式不变，无需新增ADR或修改生产README/AGENTS；本页记录分析工具契约。
 本地Python结果与JDK27 CI分开报告；#120合并后其`test_*goal_window*.py`发现模式会包含本测试，

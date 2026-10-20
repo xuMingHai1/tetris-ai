@@ -10,6 +10,7 @@ import statistics
 
 import analyze_heart_paired as paired
 from prepare_goal_window_build import EXPECTED_CONFIG
+from read_goal_window_bundle import read_bundle
 
 POPULATIONS = ('development', 'calibration')
 SESSION_FIELD = 'goal_window_session'
@@ -118,15 +119,28 @@ def parse_envelope(raw):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('development', type=Path)
-    parser.add_argument('calibration', type=Path)
-    parser.add_argument('--protocol', type=Path, default=paired.PROTOCOL)
+    parser.add_argument('development', type=Path, nargs='?')
+    parser.add_argument('calibration', type=Path, nargs='?')
+    parser.add_argument('--bundle', type=Path, help='validate and analyze a complete derived bundle')
+    parser.add_argument('--protocol', type=Path)
     parser.add_argument('--output', type=Path, required=True, help='new report file; existing results are never overwritten')
     args = parser.parse_args()
+    if args.bundle is not None:
+        if any(value is not None for value in (args.development, args.calibration, args.protocol)):
+            parser.error('--bundle cannot be combined with envelope paths or --protocol')
+    elif args.development is None or args.calibration is None:
+        parser.error('provide both development and calibration, or --bundle')
     try:
-        # Parse and hash the same byte snapshots, even if a producer later replaces its files.
-        raw = [path.read_bytes() for path in (args.development, args.calibration)]
-        report = analyze(*(parse_envelope(content) for content in raw), args.protocol.read_bytes())
+        if args.bundle is not None:
+            # Consume the reader's verified snapshots; reopening files would break
+            # the link between bundle validation, analysis and reported hashes.
+            files = read_bundle(args.bundle)['files']
+            raw = [files[name + '.json'] for name in POPULATIONS]
+            protocol_bytes = files['protocol.json']
+        else:
+            raw = [path.read_bytes() for path in (args.development, args.calibration)]
+            protocol_bytes = (args.protocol or paired.PROTOCOL).read_bytes()
+        report = analyze(*(parse_envelope(content) for content in raw), protocol_bytes)
         report['input_files_sha256'] = {name: hashlib.sha256(content).hexdigest()
                                        for name, content in zip(POPULATIONS, raw)}
         serialized = json.dumps(report, indent=2, ensure_ascii=False, allow_nan=False) + '\n'
