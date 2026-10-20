@@ -35,7 +35,7 @@ truth of the prediction or board/type comparison. Nanosecond inputs are bounded
 to the nonnegative Java `long` range before CSV formatting.
 Only a final session-complete event with all 180 games permits success.
 
-Missing/truncated lines, excessively nested JSON, duplicate JSON keys, non-finite numbers, verify-only,
+Missing/truncated lines, excessively nested JSON, duplicate JSON keys, non-finite numbers (including exponent overflow such as `1e400` in nested uninterpreted fields), verify-only,
 failure events, trailing events, missing games and contradictory summaries are
 rejected. Exit 0 writes a new report exclusively; exit 2 rejects invalid input
 or output errors. Existing reports and raw inputs are not overwritten. The

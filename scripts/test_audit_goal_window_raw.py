@@ -275,6 +275,31 @@ class RawAuditTests(unittest.TestCase):
             target[field] = 10**400
             self.reject()
 
+    def test_exponent_overflow_rejected_in_uninterpreted_nested_fields(self):
+        lines = encode(self.events)
+        header = lines[0].rstrip(b"\n")
+        # Keep the original event valid and insert an uninterpreted manifest claim.
+        for number in (b"1e400", b"-1e400", b"1.25", b"-2.5e10"):
+            changed = header.replace(b'"manifest":{}', b'"manifest":{"nested":[{"cost":' + number + b'}]}') + b"\n"
+            self.assertNotEqual(changed, lines[0])
+            if b"400" in number:
+                with self.assertRaisesRegex(ValueError, "non-finite JSON"):
+                    raw.audit([changed, *lines[1:]])
+            else:
+                self.assertTrue(raw.audit([changed, *lines[1:]])["structurally_complete"])
+        with tempfile.TemporaryDirectory() as directory:
+            source, output = Path(directory) / "raw.jsonl", Path(directory) / "audit.json"
+            command = [sys.executable, str(Path(raw.__file__)), "--input", str(source), "--output", str(output)]
+            for number in (b"1e400", b"-1e400"):
+                first = header.replace(b'"manifest":{}', b'"manifest":{"cost":' + number + b'}') + b"\n"
+                original = b"".join([first, *lines[1:]])
+                source.write_bytes(original)
+                rejected = subprocess.run(command, capture_output=True, timeout=30)
+                self.assertEqual(2, rejected.returncode, rejected.stderr)
+                self.assertNotIn(b"Traceback", rejected.stderr)
+                self.assertFalse(output.exists())
+                self.assertEqual(original, source.read_bytes())
+
     def test_bound_header_and_completeness_use_one_stream(self):
         manifest, header = header_fixture()
         self.events[0] = header

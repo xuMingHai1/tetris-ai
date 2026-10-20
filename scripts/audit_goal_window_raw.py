@@ -3,6 +3,7 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 from pathlib import Path
 import sys
 
@@ -20,6 +21,12 @@ def unique_object(pairs):
 
 def reject_constant(value):
     raise ValueError(f"non-finite JSON: {value}")
+
+
+def finite_float(value):
+    parsed = float(value)
+    require(math.isfinite(parsed), "non-finite JSON number")
+    return parsed
 
 
 def expected_game(index):
@@ -147,7 +154,7 @@ def audit(lines, *, manifest_bytes=None, expected_manifest_sha256=None):
         digest.update(raw)
         size += len(raw)
         event = json.loads(raw.decode("utf-8"), object_pairs_hook=unique_object,
-                           parse_constant=reject_constant)
+                           parse_constant=reject_constant, parse_float=finite_float)
         require(isinstance(event, dict) and set(event) == {"schema", "sequence", "type", "data"}, "invalid event")
         sequence += 1
         require(event["schema"] == "goal-window-raw-v1" and integer(event["sequence"], 1) == sequence,
