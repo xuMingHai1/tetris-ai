@@ -1,5 +1,9 @@
 """Synthetic assembly/consumer checks; no JVM, warmup or population is executed."""
 import copy
+import hashlib
+import json
+from pathlib import Path
+import tempfile
 import unittest
 
 import analyze_heart_paired as paired
@@ -46,6 +50,67 @@ class EnvelopeTests(unittest.TestCase):
                 self.assertEqual(envelope["arms"][arm]["warmup"], metadata["arms"][arm]["warmup"])
             report = paired.analyze(envelope, PROTOCOL_BYTES)
             self.assertFalse(report["eligible_for_runtime_validation"])
+
+    def test_session_reference_preserved_without_aliasing_or_authentication(self):
+        records, metadata = inputs()
+        reference = {"raw_sha256": "b" * 64, "manifest_sha256": "c" * 64}
+        metadata["goal_window_session"] = copy.deepcopy(reference)
+        result = self.assemble(records, metadata)
+        for envelope in result.values():
+            self.assertEqual(envelope["goal_window_session"], reference)
+            self.assertFalse(paired.analyze(envelope, PROTOCOL_BYTES)["eligible_for_runtime_validation"])
+        result["development"]["goal_window_session"]["raw_sha256"] = "d" * 64
+        self.assertEqual(result["calibration"]["goal_window_session"], reference)
+        self.assertEqual(metadata["goal_window_session"], reference)
+
+    def test_malformed_session_reference_rejected(self):
+        reference = {"raw_sha256": "b" * 64, "manifest_sha256": "c" * 64}
+        invalid = [None, [], "session", {}, {"raw_sha256": "b" * 64},
+                   dict(reference, authenticated=True)]
+        for key in reference:
+            invalid.extend(dict(reference, **{key: value})
+                           for value in (True, 1, None, [], "A" * 64, "g" * 64, "b" * 63, "b" * 65))
+        for value in invalid:
+            with self.subTest(reference=value):
+                records, metadata = inputs()
+                metadata["goal_window_session"] = value
+                with self.assertRaises(ValueError): self.assemble(records, metadata)
+
+    def test_optional_session_does_not_allow_unknown_metadata_fields(self):
+        for linked in (False, True):
+            records, metadata = inputs()
+            if linked:
+                metadata["goal_window_session"] = {"raw_sha256": "b" * 64, "manifest_sha256": "c" * 64}
+            metadata["provenance_authenticated"] = True
+            with self.assertRaises(ValueError): self.assemble(records, metadata)
+
+    def test_linked_bundle_roundtrip_and_rehashed_session_tampering(self):
+        from read_goal_window_bundle import read_bundle
+        from write_goal_window_bundle import json_bytes, write_bundle
+
+        records, metadata = inputs()
+        reference = {"raw_sha256": "b" * 64, "manifest_sha256": "c" * 64}
+        metadata["goal_window_session"] = reference
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "bundle"
+            manifest = write_bundle(json_bytes(records), json_bytes(metadata), PROTOCOL_BYTES, output)
+            before = {p.name: p.read_bytes() for p in output.iterdir()}
+            result = read_bundle(output)
+            self.assertEqual(before, {p.name: p.read_bytes() for p in output.iterdir()})
+            for group in ("development", "calibration"):
+                self.assertEqual(json.loads(result["files"][group + ".json"])["goal_window_session"], reference)
+            self.assertFalse(result["manifest"]["provenance_authenticated"])
+            self.assertFalse(result["manifest"]["eligible_for_runtime_validation"])
+            # A matching file hash cannot hide a session reference inconsistent
+            # with the retained metadata; the reader must still rederive it.
+            changed = json.loads(before["development.json"])
+            changed["goal_window_session"]["raw_sha256"] = "d" * 64
+            raw = json_bytes(changed)
+            (output / "development.json").write_bytes(raw)
+            manifest["files"]["development.json"] = {"bytes": len(raw), "sha256": hashlib.sha256(raw).hexdigest()}
+            (output / "manifest.json").write_bytes(json_bytes(manifest))
+            with self.assertRaisesRegex(ValueError, "derived envelope mismatch"):
+                read_bundle(output)
 
     def test_raw_adapter_through_assembly_and_frozen_baseline_consumer(self):
         records, metadata = inputs()
