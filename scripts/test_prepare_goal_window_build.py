@@ -1,6 +1,7 @@
 """Synthetic temp-directory provenance tests; no Maven build or population collection."""
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -20,10 +21,15 @@ class GoalWindowBuildTest(unittest.TestCase):
         self.git('init', '-q')
         self.git('config', 'user.email', 'test@example.invalid')
         self.git('config', 'user.name', 'Test')
+        # Keep this disposable repository independent of global newline conversion.
+        self.git('config', 'core.autocrlf', 'false')
         self.write('.gitignore', 'target/\n*.class\n')
         self.write(build.CONFIG, json.dumps(build.EXPECTED_CONFIG))
         protocol = Path(__file__).resolve().parents[1] / build.PROTOCOL
-        self.write(build.PROTOCOL, protocol.read_text())
+        # The frozen digest covers bytes; text I/O would translate LF on Windows.
+        destination = self.root / build.PROTOCOL
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(protocol, destination)
         self.write('pom.xml', '<project xmlns="http://maven.apache.org/POM/4.0.0"><properties>'
                    '<maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>'
                    '</properties></project>')
@@ -119,7 +125,7 @@ class GoalWindowBuildTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'wrong frozen protocol'):
             build.source_state(self.root)
 
-    def test_dirty_or_ignored_source_and_symlinked_classes_fail(self):
+    def test_dirty_or_ignored_source_fails(self):
         self.write('src/test/java/New.java', 'untracked')
         with self.assertRaisesRegex(ValueError, 'checkout must be clean'):
             build.source_state(self.root)
@@ -127,9 +133,27 @@ class GoalWindowBuildTest(unittest.TestCase):
         self.write('src/test/java/Injected.class', 'ignored')
         with self.assertRaisesRegex(ValueError, 'ignored source/build'):
             build.source_state(self.root)
-        (self.root / 'target/classes/linked').symlink_to(self.root / 'target/test-classes', target_is_directory=True)
+
+    def test_symlinked_classes_fail(self):
+        try:
+            (self.root / 'target/classes/linked').symlink_to(
+                self.root / 'target/test-classes', target_is_directory=True)
+        except OSError as error:
+            if os.name == 'nt' and error.winerror == 1314:
+                self.skipTest('Windows account lacks symbolic-link creation privilege')
+            raise
         with self.assertRaisesRegex(ValueError, 'symlink'):
             build.class_inventory(self.root)
+
+    def test_protocol_fixture_keeps_frozen_bytes_and_crlf_is_rejected(self):
+        protocol = self.root / build.PROTOCOL
+        self.assertEqual(build.PROTOCOL_SHA, build.digest(protocol))
+        build.source_state(self.root)
+        protocol.write_bytes(protocol.read_bytes().replace(b'\n', b'\r\n'))
+        self.git('add', '.')
+        self.git('commit', '-qm', 'changed protocol line endings')
+        with self.assertRaisesRegex(ValueError, 'wrong frozen protocol'):
+            build.source_state(self.root)
 
     def test_prepare_requires_clean_compile_and_invalidates_old_certificate_on_failure(self):
         old, _ = self.manifest()
