@@ -10,7 +10,9 @@ def assemble_envelopes(records, metadata, protocol_bytes):
     Each record is {"arm": "baseline" | "candidate", "game": <#105 game>}.
     Records must retain observed seed/parity order. Metadata is one shared #105
     header, without population or arm games; warmup references describe the same
-    session in both outputs. Claimed evidence kind is preserved, never upgraded.
+    session in both outputs. An optional goal_window_session reference preserves
+    caller-supplied raw/manifest digests, without authenticating those files.
+    Claimed evidence kind is preserved, never upgraded.
     The caller must separately audit raw completeness and authenticate provenance.
     """
     try:
@@ -22,8 +24,16 @@ def assemble_envelopes(records, metadata, protocol_bytes):
 def _assemble(records, metadata, protocol_bytes):
     header_keys = {"schema", "protocol_sha256", "evidence_kind", "timing_scope",
                    "input_boundary", "reset_strategy_per_game", "environment", "arms"}
-    paired.require(isinstance(metadata, dict) and set(metadata) == header_keys,
+    paired.require(isinstance(metadata, dict)
+                   and set(metadata) in (header_keys, header_keys | {"goal_window_session"}),
                    "expected shared paired metadata without population/games")
+    if "goal_window_session" in metadata:
+        reference = metadata["goal_window_session"]
+        paired.require(isinstance(reference, dict)
+                       and set(reference) == {"raw_sha256", "manifest_sha256"},
+                       "expected raw/manifest session digests")
+        for digest in reference.values():
+            paired.sha(digest, 64)
     paired.require(isinstance(metadata["arms"], dict)
                    and set(metadata["arms"]) == {"baseline", "candidate"}, "expected both arm headers")
     arm_keys = {"source_sha", "config", "config_sha256", "production_base_sha", "warmup"}
