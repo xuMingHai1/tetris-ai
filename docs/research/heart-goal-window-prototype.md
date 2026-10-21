@@ -23,12 +23,17 @@
 
 - 原 guard 拒绝的 immediate Q 与稳定 rank 选择；
 - rank-1 setup、DANGER 拒绝非 baseline setup、真实下一 snapshot 重算 Q；
+- LOW/BALANCED 下 rank 2–5 setup 的实际准入、生产 replay 与完整 preview 枚举；
+- 非 DANGER 且位于 top-5 的 setup，仅因新增一个 hole 超出原 budget 被拒绝；
 - 窗口丢失后重新选择；clean 非 Q 与实际 completion 口径分离；
 - REQUIRED/FORBIDDEN、三类额外 holes、高度、真实消行后的 anchor；
 - 缺 preview、无 landing、部分播放方向/坐标、重复及变更 snapshot。
 
 这些 fixture 展示新选择干预及规则边界，**不证明从空棋盘可达，不是 population 数据、
 存活或计时证据**。测试中的执行观测不替代未来 runner 的 actual-clean/非法计划记账。
+新增准入 fixture 没有 terminal window，最终仍返回原 greedy；它验证非 baseline 分支确实
+被检查，不声称已经展示非 baseline setup 被选择后完成 Q。预算反例的高度与 bumpiness
+都在原限额内，排除 DANGER、rank 和其他预算维度共同拒绝而掩盖 hole 边界的情况。
 
 ## 第二阶段：实际落地证据与配对编排
 

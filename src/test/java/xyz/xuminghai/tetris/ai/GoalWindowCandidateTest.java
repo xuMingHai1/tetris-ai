@@ -177,6 +177,80 @@ class GoalWindowCandidateTest {
     }
 
     @Test
+    void nonBaselineSetupsWithinTheOriginalBudgetAreReplayedAndEnumerated() {
+        var snapshot = snapshot(new boolean[20][10], TetrominoType.O, Optional.of(TetrominoType.I));
+        var ranked = ActionPlanCandidates.ranked(snapshot);
+        var observed = new AtomicReference<GoalWindowCandidate.Observation>();
+        var plan = new GoalWindowCandidate(observed::set).plan(snapshot);
+        var observation = observed.get();
+
+        assertTrue(ranked.size() >= 5);
+        assertEquals(5, observation.setups().size());
+        assertEquals(7, observation.enumerations());
+        assertEquals(5, observation.replays());
+        for (int index = 0; index < 5; index++) {
+            var setup = observation.setups().get(index);
+            assertEquals(index + 1, setup.currentRank());
+            assertTrue(setup.allowed());
+            assertFalse(setup.originalGuard().outsideTopFive());
+            assertFalse(setup.originalGuard().danger());
+            assertTrue(setup.originalGuard().budgetAllowed());
+            assertEquals("LOW", setup.originalGuard().risk());
+            assertEquals("BALANCED", setup.originalGuard().profile());
+            var replayed = ActionPlanSimulator.requireTerminalPlacement(snapshot, ranked.get(index).plan());
+            assertTrue(Arrays.deepEquals(ranked.get(index).placement().resultingBoard(), replayed.resultingBoard()));
+            assertEquals(GoalWindowCandidate.terminal(replayed.resultingBoard()), setup.resultingFacts());
+        }
+        // Admission and preview enumeration are exercised even when no terminal window exists.
+        assertTrue(observation.windows().isEmpty());
+        assertEquals(GoalWindowCandidate.Choice.BASELINE_CHOICE, observation.choice());
+        assertEquals(new BuildShapeActionPlanningAgent().plan(snapshot), plan);
+        assertNotNull(ActionPlanSimulator.requireTerminalPlacement(snapshot, plan));
+    }
+
+    @Test
+    void nonBaselineSetupsWithOneNewHoleAreRejectedWithoutDangerOrRankExclusion() {
+        var board = new boolean[20][10];
+        // Only columns 0/1 have equal heights. Every other O landing bridges a one-cell well.
+        for (int col = 2; col < 10; col += 2) board[19][col] = true;
+        var snapshot = snapshot(board, TetrominoType.O, Optional.of(TetrominoType.I));
+        var ranked = ActionPlanCandidates.ranked(snapshot);
+        assertTrue(ranked.size() >= 5);
+        var baseline = ranked.getFirst().placement();
+        var risk = ObjectiveRiskController.adaptive().decide(baseline);
+        assertEquals(ObjectiveRiskController.RiskLevel.LOW, risk.level());
+        assertEquals(0, baseline.holes());
+        var observed = new AtomicReference<GoalWindowCandidate.Observation>();
+        var plan = new GoalWindowCandidate(observed::set).plan(snapshot);
+        var observation = observed.get();
+
+        assertEquals(5, observation.setups().size());
+        assertTrue(observation.setups().getFirst().allowed());
+        for (int index = 1; index < 5; index++) {
+            var setup = observation.setups().get(index);
+            var replayed = ActionPlanSimulator.requireTerminalPlacement(snapshot, ranked.get(index).plan());
+            var assessment = risk.profile().budget().assess(baseline, replayed);
+            assertEquals(index + 1, setup.currentRank());
+            assertFalse(setup.originalGuard().outsideTopFive());
+            assertFalse(setup.originalGuard().danger());
+            assertEquals(1, assessment.holesDelta());
+            assertEquals(assessment.holesDelta(), setup.originalGuard().holesDelta());
+            assertTrue(assessment.aggregateHeightDelta() <= risk.profile().budget().maxAggregateHeightDelta());
+            assertTrue(assessment.bumpinessDelta() <= risk.profile().budget().maxBumpinessDelta());
+            assertFalse(assessment.allowed());
+            assertFalse(setup.originalGuard().budgetAllowed());
+            assertFalse(setup.allowed());
+        }
+        assertEquals(3, observation.enumerations());
+        assertEquals(1, observation.replays());
+        assertTrue(observation.windows().isEmpty());
+        assertEquals(GoalWindowCandidate.Choice.BASELINE_CHOICE, observation.choice());
+        assertEquals(ranked.getFirst().plan(), plan);
+        assertEquals(new BuildShapeActionPlanningAgent().plan(snapshot), plan);
+        assertNotNull(ActionPlanSimulator.requireTerminalPlacement(snapshot, plan));
+    }
+
+    @Test
     void impossibleSnapshotRetainsNoLandingSemanticsAndRejectsProtocolDimensions() {
         var board = new boolean[20][10];
         Arrays.stream(board).forEach(row -> Arrays.fill(row, true));
