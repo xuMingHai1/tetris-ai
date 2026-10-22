@@ -92,4 +92,4 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 
 ## GoalWindow 原型实施中
 
-#116 已接受设计；[#94 采集前置实施状态](heart-goal-window-prototype.md) 记录 test-only 候选、真实 replay、paired runner、逐 turn JSONL 与构建/加载来源校验。第四阶段补充干净构建到普通 JVM 的 verify-only 预检、外部进程监督及失败证据保留；实际端到端验证结论以该 revision 的 JDK27 测试日志为准。baseline 兼容日志、envelope/继续门与 workflow 尚未交付，不运行 population，不关闭 #94；#95/#96 与 runtime 继续停止。
+#116 已接受设计；[#94 采集前置实施状态](heart-goal-window-prototype.md) 记录 test-only 候选、真实 replay、paired runner、逐 turn JSONL 与构建/加载来源校验。[session driver](goal-window-driver.md) 现串联干净构建预检、进程监督、raw 审计、baseline 兼容 CSV、两组 envelope/bundle 与 prototype 继续门，默认只做 verify-only。synthetic 完整链路不等于真实测量通过，实际预检以最终 revision 的 JDK27 日志为准。双臂 workflow、最终整体验收与一次实际配对采集仍待完成；#94 保持 open，#95/#96、reserved 与 runtime 继续停止。

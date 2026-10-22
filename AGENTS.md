@@ -55,8 +55,8 @@ Linux 的 `GoalWindowPreflightTest` 还需要 Git/Python 3：从当前提交建�
 - 默认使用短生命周期 branch，并通过 Draft PR 交付。
 - 一个 PR 尽量只处理一个主要问题，不混入无关重构、格式化或资源清理。
 - PR 仍 open 且属于同一问题时，可以继续使用当前 branch；PR merged / closed 后停止使用旧 branch。
-- Merge 由用户执行；未经授权不 merge，也不启用 auto-merge。
-- GitHub inline comment 视为正式 Review 意见。接受则修改并说明；不接受则给出技术原因；默认不 Resolve conversation。
+- 在用户已授权的连续 PR 开发循环中，最终提交的必需 CI 成功、独立 Review 无阻断、diff 范围正确且 GitHub 保护规则允许时，可正常 squash merge；不绕过保护规则或启用 auto-merge。其他范围仍须用户授权。
+- GitHub inline comment 视为正式 Review 意见。接受则修改并说明；不接受则给出技术原因。用户已于 2026-10-22 授权：已修复、经最终提交独立复审确认且相关 CI 通过的讨论，可由 Codex 自行 Resolve；有争议或尚未完成验证的讨论保留。
 - 创建或更新 PR 后检查最终 `default-branch...head` diff，确认没有 unrelated changes、误删资源或遗漏测试/文档。
 - CI 失败先定位真实原因，不为让 CI 变绿而关闭检查或修改无关代码。
 

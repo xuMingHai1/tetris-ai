@@ -57,7 +57,7 @@ warmup 提前死亡也失败，不缩短为成功；首个异常立即中止，�
 拒绝已返回计划时计 illegal plan。缺失/重复/跨臂候选观测是 evidence failure，
 不会复用上一步观测或伪装成非法计划。异常对象保存已完整记录的前缀、失败分类与
 primary/illegal 计数，失败局没有正常 `GameBenchmarkResult`，也不填成 bounded miss。
-逐 turn 持久化已在第三阶段实现；外部总超时与全轮 driver 接线仍待下一阶段落实。
+逐 turn 持久化已在第三阶段实现；外部监督与完整 driver 的后续接线见第四、五阶段。
 
 新增行为验证使用人工 HEART board、调度 stub 和最多三步的生产 loop smoke，覆盖
 clean 非 Q、预测与下一实际完成、上下文变化、完整 nanos、真实 validator 拒绝、
@@ -124,7 +124,7 @@ flush 保障进程中断前缀可读，不声称断电 fsync 持久性。外部�
 
 新增 7 项 Java 行为检验与 6 项 Python 反例只使用小规模生产调用、当前 class 来源和临时
 合成构建文件；没有执行完整 warmup、真实 clean-build 认证或人口采集。完整环境信息、baseline
-兼容日志、#105 envelope 和原型继续门由后续 driver 交付，raw event 本身不是验收报告。
+兼容日志、#105 envelope 和原型继续门在第五阶段接入 driver，raw event 本身不是验收报告。
 
 ## 第四阶段：干净构建预检与外部进程监督
 
@@ -148,7 +148,7 @@ python3 scripts/supervise_goal_window.py --root "$PWD" --output /tmp/new-goal-wi
 构建阶段单独上限为300秒，预检 JVM 总上限为120秒；可供后续完整 driver 调用的 `launch_prepared(..., verify_only=False)`
 仍固定2700秒，包含同一 JVM 的 warmup，且不允许每 seed 重启或超时重跑。该函数只返回
 `EXITED/TIMEOUT/INTERRUPTED` 的进程结果；**exit 0 不等于完整测量或验收通过**。测量 driver
-尚未交付，本阶段不调用测量分支。Linux 父进程在超时、SIGTERM/SIGINT 或异常退出时终止
+已在第五阶段接线；此处预检路径不调用测量分支。Linux 父进程在超时、SIGTERM/SIGINT 或异常退出时终止
 构建或 JVM process group，短暂 TERM 清理后 KILL 剩余后代，清理期间忽略重复 TERM/INT。
 启动期间先取得子进程句柄再处理取消，保留所有已写 prefix/截断尾行和
 两路输出。父进程遭 SIGKILL/宿主丢失时无法保证收尾；预先写入的报告仍是 INCOMPLETE。
@@ -159,7 +159,7 @@ python3 scripts/supervise_goal_window.py --root "$PWD" --output /tmp/new-goal-wi
 收益、全轮来源认证、稳定 HEART 或 runtime permission。
 
 `GoalWindowPreflightTest` 在标准 Linux Wrapper 测试中建立当前提交的独立干净 checkout，
-真实编译后执行上述命令，并检查实际来源、两条事件/无游戏及保留产物；嵌套构建只到
+真实编译后执行第五阶段 driver 的默认预检入口，并检查实际来源、两条事件/无游戏及保留产物；嵌套构建只到
 test-compile，不递归执行测试。浅 checkout 缺少 frozen base 时只 fetch 协议登记的 public
 commit。另一测试把 Python 构建来源/进程反例接入标准套件。Windows/macOS 跳过这一 Linux
 预检测试，不以此替代 #96。Python 反例运行真实子进程验证超时、TERM 忽略后代、父进程中断、
@@ -169,16 +169,26 @@ commit。另一测试把 Python 构建来源/进程反例接入标准套件。Wi
 本地只有 JDK17，因此尚无本地真实 clean-build + JDK27 预检通过结论；实际端到端是否通过
 须读取本 revision 的 JDK27 CI 日志。没有运行固定80局或为测量来源/候选收益提供认证。
 
+## 第五阶段：完整 session driver
+
+[driver 接口与权限](goal-window-driver.md) 记录 scripts/drive_goal_window.py 的默认预检、
+显式固定采集入口、构建前后复核、同一 raw snapshot 的完整审计/逐局转换、两组 envelope、
+不可变 bundle、原 baseline analyzer 兼容 CSV 与合并 prototype 门。warmup 元数据从已审计
+完成记录累计，raw/build 引用、真实环境和原始 nanos 沿链路保留；纯 helper 不认证导入数据。
+
+新增 synthetic 全链路与失败反例覆盖默认不测量、固定单次启动、超时/取消/退出错误、
+截断流、错误 loaded class、构建或 raw 改变、晚到取消、门禁失败与不覆盖旧证据。
+标准 Linux 测试现执行 driver 默认入口的真实 clean-build/JVM 预检；最终 revision
+是否通过必须读取实际 CI。没有执行真实双臂 warmup/population，也没有收益或延迟结论。
+
 ## 剩余门禁，禁止采集
 
-本次是 #94 第四阶段，不关闭 #94。仍需在同一问题下完成：
+本次完成 #94 driver 接线，不关闭 #94。仍需在同一问题下完成：
 
-1. 读取真实 clean build + 普通 JVM preflight 的 JDK27 结果；完整 driver 复用监督组件，
-   保留原 baseline analyzer 可核验的兼容日志及全轮失败状态。
-2. 专属 driver/两个 #105 envelope/80局合并 prototype 继续门及其负面数据验证。
-3. 既有 reusable workflow 内的显式双臂模式、selector 回归；原 shared-only
+1. 最终 driver revision 的实际 JDK27 默认预检、负面接线测试与完整独立 Review。
+2. 既有 reusable workflow 内的显式双臂模式、selector 回归；原 shared-only
    heart-baseline、guard、v1.1 与 #105 分析器保持不变。
-4. 最终实现 revision 独立 Review 和适用 CI 成功后，才运行一次已登记开发/校准
+3. 最终整体实现 revision 独立 Review 和适用 CI 成功后，才运行一次已登记开发/校准
    20000–20079 双臂测量；单直接 JVM、45分钟总上限、60分钟 job。
 
 本次没有执行 candidate/baseline population，也没有新增 Actions 采集路径。
