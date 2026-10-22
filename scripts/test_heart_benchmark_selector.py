@@ -33,11 +33,17 @@ class HeartSelectorTest(unittest.TestCase):
         for name in ('BenchmarkApplication', 'HeadlessGameRunner', 'ShapeCompletionTelemetry', 'GameBenchmarkResult'):
             paths += [f'src/main/java/xyz/xuminghai/tetris/ai/benchmark/{name}.java',
                       f'src/test/java/xyz/xuminghai/tetris/ai/benchmark/{name}Test.java']
-        paths += [str(path).replace('\\', '/') for path in Path('scripts').glob('*goal_window*.py')]
-        # Mixed changes must still select just the higher-priority HEART path.
-        paths += ['scripts/check_goal_window_session_header.py\n'
-                  'src/main/java/xyz/xuminghai/tetris/ai/PreviewRescueActionPlanningAgent.java']
         cases = [(path, 'heart-baseline') for path in paths]
+        dedicated = [str(path).replace('\\', '/') for path in Path('scripts').glob('*goal_window*.py')]
+        dedicated += [str(path).replace('\\', '/') for path in
+                      Path('src/test/java/xyz/xuminghai/tetris/ai').glob('GoalWindow*.java')]
+        dedicated += ['docs/research/heart-goal-window-config.json']
+        cases += [(path, 'heart-terminal-paired') for path in dedicated]
+        # Dedicated + shared or other categories must emit only the paired mode,
+        # regardless of path order. Shared-only edits retain the original baseline.
+        for shared in paths + ['src/main/java/xyz/xuminghai/tetris/ai/PreviewRescueActionPlanningAgent.java']:
+            for mixed in (dedicated[0] + '\n' + shared, shared + '\n' + dedicated[0]):
+                cases.append((mixed, 'heart-terminal-paired'))
         cases += [('README.md', 'none'), ('scripts/unrelated.py', 'none')]
         for path, expected in cases:
             with self.subTest(path=path), tempfile.TemporaryDirectory() as directory:

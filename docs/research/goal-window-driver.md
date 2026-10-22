@@ -46,5 +46,25 @@ build_revalidated_before_and_after 与 raw_header_bound 描述可信本机父进
 和现有 audit/bundle/prototype 的不认证标记均保留；导入 synthetic 数据不能凭内部一致性
 获得实际执行来源。原型通过最多支持后续证据评审，runtime_permission 始终 false。
 
-双臂 reusable workflow/selector 的最终接线与实际采集仍须另外完成原前置。
+## Reusable workflow 与 selector
+
+`ai-benchmark.yml` 的 `heart-terminal-paired` 复用本 driver。PR 专属脚本、test-only
+GoalWindow Java 或 config 改动优先选择该模式；混合共享文件同样只执行一个模式。
+仅共享 workflow/HEART 测量路径仍走旧 `heart-baseline`，不替换其原采集及分析器。
+
+两模式先运行 HEART/GoalWindow Python 回归、fetch 固定 production base 并执行原 guard，
+校验80局/1000块/20000起始 seed。paired 默认不传 `--collect`，因此只预检；
+自动 PR 显式固定 `goal_window_collect=false`，保持同仓库/default-target 与新revision取消旧run。
+
+最终整体 Review/适用 CI/采集前置全部满足后，可在当前默认分支手动 dispatch
+`heart-terminal-paired`，固定上述参数并显式设置 `goal_window_collect=true`。
+PR、push 或非默认分支的 collect 请求均失败。此开关只是显式执行入口，不是前置验收证明。
+实际采集仍只能按已登记开发/校准执行一次，不因失败重跑或改 seed。
+
+workflow 不用普通 CSV grep 或额外 baseline JVM 处理 paired 结果；driver 自己保存并分析
+同一 raw。checkout 外 `$RUNNER_TEMP/goal-window-session` 完整目录由 always artifact 保存30天，
+包括 INCOMPLETE、构建/进程日志、manifest、环境、raw、bundle/envelope 与两份分析报告。
+默认预检 artifact 只有预检证据，不伪造测量报告；失败退出保持失败。
+
+本次接线仍须最终 revision 独立 Review 和适用 CI；本次没有执行真实 warmup/population。
 #94 不关闭；#95/#96、reserved 样本、provider 及 runtime/default adoption 不解锁。
