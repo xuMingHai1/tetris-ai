@@ -43,10 +43,13 @@ python3 -m unittest discover -s scripts -p test_goal_window_paired_format.py -v
 
 全部输入是明确synthetic人工记录。另以20个合成seed的双臂输出接入未修改的#105分析器，
 检查接口兼容与诊断权限。没有启动planner/JVM、warmup或population。
-当前main尚未包含#120的`test_*goal_window*.py`自动发现接线；本PR的本地Python结果
-与现有JDK27 CI分开报告，后续集成需确认本测试确实执行。
+`scripts/*goal_window*.py`（包括测试）的变更由 PR selector 选择 `heart-baseline`；
+共享 workflow 在生产 guard 和固定 HEART baseline 采集前自动发现并执行
+`test_*heart*.py` 与 `test_*goal_window*.py`，任一失败即停止。本测试属于后者。
+本地 Python、实际 CI 执行与 JDK27 验证结果仍须分别报告；该接线不启动 GoalWindow 双臂采集。
 
 这是与#120进程监督、#121合并继续门及raw完整性审计文件独立的组件，不是完整driver交付。
-剩余工作仍包括来源认证、全session审计接线、两组envelope、baseline兼容日志、workflow/
-selector及整体最终Review；#94不关闭，#95/#96、reserved与runtime/default继续停止。
+剩余工作仍包括来源认证、全session审计接线、两组envelope、baseline兼容日志、完整双臂采集
+workflow及整体最终Review；Python 测试发现与 selector 接线已完成，不代表完整driver交付。
+#94不关闭，#95/#96、reserved与runtime/default继续停止。
 生产结构、依赖和运行方式未变化；文档影响限定在本接口说明，无需新增ADR或修改生产README。
