@@ -71,7 +71,7 @@ jobs:
             [ -z "$file" ] && continue
 
             case "$file" in
-              scripts/*goal_window*.py|src/test/java/xyz/xuminghai/tetris/ai/GoalWindow*.java|docs/research/heart-goal-window-config.json)
+              scripts/*goal_window*.py|src/test/java/xyz/xuminghai/tetris/ai/GoalWindow*.java|src/test/java/xyz/xuminghai/tetris/ai/benchmark/GoalWindow*.java|docs/research/heart-goal-window-config.json)
                 goal_window_changed=true
                 ;;
 

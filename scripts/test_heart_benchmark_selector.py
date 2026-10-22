@@ -36,7 +36,7 @@ class HeartSelectorTest(unittest.TestCase):
         cases = [(path, 'heart-baseline') for path in paths]
         dedicated = [str(path).replace('\\', '/') for path in Path('scripts').glob('*goal_window*.py')]
         dedicated += [str(path).replace('\\', '/') for path in
-                      Path('src/test/java/xyz/xuminghai/tetris/ai').glob('GoalWindow*.java')]
+                      Path('src/test/java/xyz/xuminghai/tetris/ai').rglob('GoalWindow*.java')]
         dedicated += ['docs/research/heart-goal-window-config.json']
         cases += [(path, 'heart-terminal-paired') for path in dedicated]
         # Dedicated + shared or other categories must emit only the paired mode,
