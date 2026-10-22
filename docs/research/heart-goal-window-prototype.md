@@ -181,7 +181,14 @@ commit。另一测试把 Python 构建来源/进程反例接入标准套件。Wi
 标准 Linux 测试现执行 driver 默认入口的真实 clean-build/JVM 预检；最终 revision
 是否通过必须读取实际 CI。没有执行真实双臂 warmup/population，也没有收益或延迟结论。
 
-## 剩余门禁，禁止采集
+## 后续交付与唯一实测（2026-10-22）
+
+下述剩余事项是driver阶段的历史断点，现已由#137及唯一登记的实测完成；
+不要据此重复接线或再次采集。[结果与证据索引](heart-goal-window-result.md)记录完整80配对、
+两个envelope和合并prototype：双臂0 clean，两个收益门失败，候选停止。
+#95/#96、reserved/provider/runtime继续停止。
+
+### Driver阶段的剩余门禁（历史）
 
 本次完成 #94 driver 接线，不关闭 #94。仍需在同一问题下完成：
 
