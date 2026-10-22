@@ -66,5 +66,6 @@ workflow 不用普通 CSV grep 或额外 baseline JVM 处理 paired 结果；dri
 包括 INCOMPLETE、构建/进程日志、manifest、环境、raw、bundle/envelope 与两份分析报告。
 默认预检 artifact 只有预检证据，不伪造测量报告；失败退出保持失败。
 
-本次接线仍须最终 revision 独立 Review 和适用 CI；本次没有执行真实 warmup/population。
-#94 不关闭；#95/#96、reserved 样本、provider 及 runtime/default adoption 不解锁。
+#137最终revision独立Review与适用CI完成后，唯一登记的真实双臂采集已执行，
+结果为PROTOTYPE_FAILED，候选停止；[结果与证据索引](heart-goal-window-result.md)保存具体失败门。
+本页的显式采集入口说明不构成再次执行许可。#95/#96、reserved 样本、provider及runtime/default adoption不解锁。

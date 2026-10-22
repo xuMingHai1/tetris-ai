@@ -90,6 +90,6 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 当前没有可直接采用的普通 frozen-warning recovery discriminator。不得继续从原 seed 调 rank cap、persistence N 或 guard 比例来“救活”已否决设计。若有新假设，先冻结可观测特征与协议，再收集独立证据。
 
 
-## GoalWindow 原型实施中
+## GoalWindow 原型已测量，候选停止
 
-#116 已接受设计；[#94 采集前置实施状态](heart-goal-window-prototype.md) 记录 test-only 候选、真实 replay、paired runner、逐 turn JSONL 与构建/加载来源校验。[session driver](goal-window-driver.md) 现串联干净构建预检、进程监督、raw 审计、baseline 兼容 CSV、两组 envelope/bundle 与 prototype 继续门，默认只做 verify-only。synthetic 完整链路不等于真实测量通过，实际预检以最终 revision 的 JDK27 日志为准。双臂 workflow、最终整体验收与一次实际配对采集仍待完成；#94 保持 open，#95/#96、reserved 与 runtime 继续停止。
+#116 已接受设计；[#94 实施记录](heart-goal-window-prototype.md) 与 [session driver](goal-window-driver.md) 保留测试原型及完整接线说明。#137 后唯一登记的80配对实测已完成，双臂均0 clean，candidate全部68,706次决策为BASELINE_CHOICE；前500块clean与配对clean净收益两个门失败，候选停止，不重跑或调参。详见[实际结果与证据索引](heart-goal-window-result.md)。实现/预检成功不等于候选收益通过；#95/#96、reserved、provider与runtime/default adoption继续停止。
