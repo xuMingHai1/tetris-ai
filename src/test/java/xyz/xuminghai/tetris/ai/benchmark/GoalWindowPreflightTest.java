@@ -43,7 +43,7 @@ class GoalWindowPreflightTest {
                     "https://github.com/xuMingHai1/tetris-ai.git", base), "pinned-base-fetch");
         }
         var output = directory.resolve("preflight");
-        run(checkout, List.of("python3", "scripts/supervise_goal_window.py", "--root", checkout.toString(),
+        run(checkout, List.of("python3", "scripts/drive_goal_window.py", "--root", checkout.toString(),
                 "--output", output.toString()), "preflight");
         var report = mapper.readTree(Files.readString(output.resolve("report.json")));
         assertEquals("VERIFIED", report.get("status").asText());
