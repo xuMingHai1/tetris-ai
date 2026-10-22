@@ -257,6 +257,8 @@ GitHub Actions 对同仓库、目标为当前 default branch 的 PR 自动选择
 
 可从 GitHub Actions 手动运行 [AI Benchmark](.github/workflows/ai-benchmark.yml)。普通 gameplay 默认 `20 games / 500 max pieces / seed 1000`，artifact 保留 30 天。常用模式包括 `compare-objective`、`compare-adaptive`、`compare-shape`、`shape-feasibility` 和 `preview-rescue-paired`；完整实验协议、入口与结论见 [研究索引](docs/research/README.md)。feasibility 使用独立 depth/beam 参数，不能把普通 gameplay 的 500-piece limit 当搜索深度。
 
+GoalWindow 的 test-only `heart-terminal-paired` 模式默认仅执行干净构建/普通 JVM 预检，PR 同样不启动双臂 population。只有最终整体 Review、适用 CI 和冻结前置通过后，才可从当前默认分支手动选择该模式、填写 `80 games / 1000 max pieces / seed 20000` 并显式启用 `goal_window_collect`。完整 session 固定单直接 JVM/2700秒，无 seed 或超时覆盖和失败重试；artifact 保存原始证据及失败前缀。预检成功不代表双臂收益或 runtime 采用，详见 [driver 与 workflow 边界](docs/research/goal-window-driver.md)。
+
 Jev workflow 不会自动执行。选择 `jev`、`jev-action`、`compare` 或 `compare-action` 时必须同时：
 
 1. 在 repository Actions secrets 中配置 `TYPESAFE_API_KEY`；

@@ -57,6 +57,11 @@ on:
         required: false
         default: false
         type: boolean
+      goal_window_collect:
+        description: Explicit fixed GoalWindow collection after final review and CI; PRs remain verify-only
+        required: false
+        default: false
+        type: boolean
     secrets:
       TYPESAFE_API_KEY:
         required: false
@@ -77,6 +82,7 @@ on:
           - adaptive-tuck-hunter
           - build-shape
           - heart-baseline
+          - heart-terminal-paired
           - build-shape-preview
           - shape-feasibility
           - action-provenance
@@ -157,6 +163,12 @@ on:
         default: false
         type: boolean
 
+      goal_window_collect:
+        description: Collect GoalWindow only after accepted prerequisites (80 games, 1000 pieces, seed 20000)
+        required: false
+        default: false
+        type: boolean
+
 permissions:
   contents: read
 
@@ -204,7 +216,7 @@ jobs:
           fi
 
       - name: Validate fixed HEART protocol and summary tests
-        if: ${{ inputs.agent == 'heart-baseline' }}
+        if: ${{ inputs.agent == 'heart-baseline' || inputs.agent == 'heart-terminal-paired' }}
         shell: bash
         env:
           GAMES: ${{ inputs.games }}
@@ -230,13 +242,40 @@ jobs:
           expected = (development['games'] + calibration['games'], protocol['piece_horizon'], development['seed_start'])
           actual = tuple(int(os.environ[name]) for name in ('GAMES', 'MAX_PIECES', 'SEED'))
           if actual != expected or calibration['seed_start'] != development['seed_start'] + development['games']:
-              raise SystemExit('heart-baseline requires the fixed development + calibration population: ' + str(expected))
+              raise SystemExit('fixed HEART modes require the development + calibration population: ' + str(expected))
           with open(os.environ['GITHUB_ENV'], 'a') as output:
               output.write('TETRIS_BENCHMARK_WARMUP_GAMES=' + str(protocol['warmup']['games']) + '\n')
               output.write('TETRIS_BENCHMARK_WARMUP_PIECES=' + str(protocol['warmup']['max_pieces']) + '\n')
               output.write('TETRIS_BENCHMARK_WARMUP_SEED=' + str(protocol['warmup']['seed_start']) + '\n')
           print('HEART_PROTOCOL_SHA256=' + hashlib.sha256(raw).hexdigest())
           PY
+
+      - name: Validate GoalWindow collection boundary
+        if: ${{ inputs.agent == 'heart-terminal-paired' }}
+        shell: bash
+        env:
+          COLLECT: ${{ inputs.goal_window_collect }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          if [ "$COLLECT" = "true" ] && { [ "$EVENT_NAME" != "workflow_dispatch" ] || [ "$REF" != "refs/heads/$DEFAULT_BRANCH" ]; }; then
+            echo '::error::GoalWindow collection requires explicit dispatch on the current default branch after accepted prerequisites'
+            exit 1
+          fi
+
+      - name: Run supervised GoalWindow session
+        if: ${{ inputs.agent == 'heart-terminal-paired' }}
+        shell: bash
+        env:
+          COLLECT: ${{ inputs.goal_window_collect }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "$COLLECT" = "true" ]; then args+=(--collect); fi
+          python3 scripts/drive_goal_window.py --root "$GITHUB_WORKSPACE" \
+            --output "$RUNNER_TEMP/goal-window-session" "${args[@]}"
 
       - name: Validate shape feasibility inputs
         if: ${{ inputs.agent == 'shape-feasibility' || inputs.agent == 'recovery-robustness' || inputs.agent == 'recovery-reserve-lead-time' || inputs.agent == 'recovery-reserve-validation' }}
@@ -653,6 +692,7 @@ jobs:
             javafx:run | tee "$RUNNER_TEMP/benchmark-output.log"
 
       - name: Collect benchmark results
+        if: ${{ inputs.agent != 'heart-terminal-paired' }}
         shell: bash
         env:
           AGENT: ${{ inputs.agent }}
@@ -759,6 +799,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish benchmark summary
+        if: ${{ inputs.agent != 'heart-terminal-paired' }}
         shell: bash
         run: |
           {
@@ -772,7 +813,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload benchmark results
-        if: ${{ always() }}
+        if: ${{ always() && inputs.agent != 'heart-terminal-paired' }}
         uses: actions/upload-artifact@v4
         with:
           name: ai-benchmark-${{ inputs.agent }}-${{ github.run_id }}
@@ -822,5 +863,14 @@ jobs:
             target/benchmark/summary.txt
             target/benchmark/metadata.txt
             target/benchmark/raw.log
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload GoalWindow session evidence
+        if: ${{ always() && inputs.agent == 'heart-terminal-paired' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: goal-window-session-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/goal-window-session/
           if-no-files-found: warn
           retention-days: 30
