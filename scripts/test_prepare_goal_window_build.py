@@ -3,6 +3,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -184,6 +185,17 @@ class GoalWindowBuildTest(unittest.TestCase):
                 build.clean_environment()
         with self.assertRaisesRegex(ValueError, 'duplicate JSON'):
             build.read_json(self.write('target/duplicate.json', '{"source_sha":"a","source_sha":"b"}'))
+
+    def test_streamed_command_preserves_failed_console_and_refuses_existing_log(self):
+        log = self.root / 'target' / 'stream.log'
+        args = [sys.executable, '-u', '-c', 'import sys; print("build prefix"); sys.exit(7)']
+        with self.assertRaises(subprocess.CalledProcessError) as raised:
+            build.command(self.root, args, log_path=log)
+        self.assertEqual(7, raised.exception.returncode)
+        self.assertEqual('build prefix\n', raised.exception.output)
+        self.assertEqual(raised.exception.output, log.read_text())
+        with self.assertRaises(FileExistsError):
+            build.command(self.root, args, log_path=log)
 
 
 if __name__ == '__main__':

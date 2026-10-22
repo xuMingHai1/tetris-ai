@@ -43,6 +43,10 @@ AI 已通过 `GameSnapshot -> TetrisAgent -> AiMove` 建立最小边界。新增
 
 Windows 对应使用 `mvnw.cmd`。
 
+Linux 的 `GoalWindowPreflightTest` 还需要 Git/Python 3：从当前提交建立独立干净 checkout，
+嵌套执行 Wrapper `clean test-compile` 后运行普通 JVM verify-only，不执行游戏。
+浅 checkout 缺少原协议 base 时只 fetch 固定 public commit；非 Linux 跳过该进程监督测试。
+
 不要依赖开发机全局 Maven 版本；CI 和文档应优先使用 Wrapper。
 
 ## Development and Review Rules
