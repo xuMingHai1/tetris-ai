@@ -98,3 +98,13 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 - 每步不可变记录 type、真实 spawn cells/rotation、绝对四格、动作、完整200-bit post-board 与 clearedLines。独立 checker 不读取 solver 状态、缓存 board 或枚举器；从空棋盘逐步核验 bag、spawn、域内四格/不重叠，生产 replay 验证实际无消行及完整 board，最后检查 REQUIRED 并返回原 `GoalWindowCandidate.terminal` 事实。调用者必须额外要求 `terminal.accepted()`，不能把人工域 cover 的通过当作真实 Q。记录截断、伪造 spawn/actions/cells/board 和消行均拒绝。
 
 后续独立短 PR 承接普通 classpath clean-build/provenance、全局监督与实际接线的 Review。完整实现最终 Review、适用 CI 与原 frozen guard 通过之前，不执行完整 HEART 静态搜索、顺序诊断或新 population；保留原120秒/512m/10分钟及一次执行停止边界。
+
+## #140 普通 classpath 预检（阶段三第一部分）
+
+`TerminalCertificatePreflight` 仅接受普通 JDK27 JVM 的 `-Xmx512m -cp <classpath> xyz.xuminghai.tetris.ai.TerminalCertificatePreflight --verify-only <checkout-root>`。没有 collect/default/search 模式，不调用几何或顺序求解。拒绝命名模块、额外 JVM 参数、环境注入、错误 checkout、关键类重复资源、链接目录和来源不符；记录关键生产/测试 class 的真实目录与 SHA-256。仅加载类而不初始化，不用私有成员反射。
+
+执行范围为可提供 `ProcessHandle.Info.arguments()` 的 Linux JDK27；当前 Windows JDK不提供该字段，必须拒绝，不能猜测参数或忽略校验。标准测试在 Linux 启动真实普通 JVM 验证来源、shadow、错误根目录及参数拒绝；Windows 专门验证参数不可得时拒绝，在 Windows 上明确跳过三个 Linux 专属场景。所有平台均验证禁止隐式/collect入口。这些测试不执行完整 HEART 搜索。
+
+输出始终标记 `diagnostic_started=false`、`provenance_authenticated=false`、`eligible_for_runtime_validation=false`。观察到的 hash 不证明 target 新鲜、源码对应或独立来源认证；干净构建与外部 manifest 比对、旧 target 拒绝、构建前后原 guard、120秒/10分钟监督、独占完整输出和一次显式诊断仍待后续交付。不得用本入口成功代替这些门。
+
+本阶段不改变 workflow/selector；标准 CI 的 Java/build 路径通过 Wrapper verify 实际执行本测试，benchmark selector 仍为 none。生产结构与默认运行不变，README/AGENTS 无需同步；本节记录新增测试工具的运行限制。
