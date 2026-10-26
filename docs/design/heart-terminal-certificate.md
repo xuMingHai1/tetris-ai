@@ -87,3 +87,14 @@ GoalWindow 在 greedy 轨迹附近截获当前或一步 preview 的精确终局�
 上述顺序与计数在完整诊断前冻结，不因结果改变。完整运行的 TIMEOUT/来源/重放错误优先按原设计记 INCOMPLETE/ERROR；正常计数停止且无完整证书才记 BOUNDED_MISS，不能仅凭静态 `Result` 生成诊断成功/失败结论。后续接线须证明干净 Wrapper/普通 classpath 同包调用、独立 replay、原 guard 与最终 Review/适用 CI，才可执行一次登记诊断。
 
 CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动，会执行 Wrapper verify、SpotBugs、核心 PIT 与相应质量门。本阶段没有修改 selector/workflow；`ai-benchmark-pr.yml` 未识别 TerminalCertificate 路径，预期 benchmark=none，不声称运行新工具或固定人口。专用 verify-only/显式诊断与 artifact 接线另行审查，不能借 none 绕过执行前的原 frozen guard。
+
+## #140 顺序与独立 replay 实现冻结（阶段二）
+
+本阶段的 `TerminalCertificateOrder`、`TerminalCertificateStep` 和 `TerminalCertificateChecker` 仍仅在正常同包测试源码。没有 CLI、来源监督、完整诊断接线或登记执行；人工小域找到 order 不表示 HEART Q 或诊断成功。生产结构与默认运行方式不变，无需修改 README/AGENTS。
+
+- 每个静态 cover 先验证工厂生成 tile 身份、无重叠、REQUIRED 全覆盖、无满域行及最多16块，再按 type/四格坐标全序遍历。DFS 从真实空20×10棋盘开始，当前7-bag内重复 type 不进入边；七种齐全才清空 bag。每条边使用原 spawn 后首次 down 的 snapshot，调用一次完整 `ActionPlanCandidates.ranked`，按原排名取第一条无消行且 resultingBoard 等于预期 union 的路径。相同 union 的其余路径不改变后继状态，不重复展开。
+- 同一个顺序求解器实例拥有跨 cover 累积枚举/replay计数，最多2,000次完整枚举。枚举前增加枚举计数；匹配边在生产 `ActionPlanSimulator` 再验证前增加 replay计数，异常原样抛出，不能降为 miss。仅人工 fixture 可降低 cap，不能提高。单次完整枚举内部成本仍由后续父进程墙钟监督控制。
+- 第2,000次枚举可以完成当前匹配边并返回完整 order，但不能进入下一条边或兄弟。达到上限时 `Result.stop=ENUMERATION_LIMIT` 优先于 `ORDER_FOUND`，完整 order 可同时存在；后续接线必须先独立检查该 order、终态 Q 和来源，再作成功判定，否则按整个诊断的数量停止规则结束。不能为下一 cover 新建实例获得额外额度。异常优先于一切正常停止。
+- 每步不可变记录 type、真实 spawn cells/rotation、绝对四格、动作、完整200-bit post-board 与 clearedLines。独立 checker 不读取 solver 状态、缓存 board 或枚举器；从空棋盘逐步核验 bag、spawn、域内四格/不重叠，生产 replay 验证实际无消行及完整 board，最后检查 REQUIRED 并返回原 `GoalWindowCandidate.terminal` 事实。调用者必须额外要求 `terminal.accepted()`，不能把人工域 cover 的通过当作真实 Q。记录截断、伪造 spawn/actions/cells/board 和消行均拒绝。
+
+后续独立短 PR 承接普通 classpath clean-build/provenance、全局监督与实际接线的 Review。完整实现最终 Review、适用 CI 与原 frozen guard 通过之前，不执行完整 HEART 静态搜索、顺序诊断或新 population；保留原120秒/512m/10分钟及一次执行停止边界。
