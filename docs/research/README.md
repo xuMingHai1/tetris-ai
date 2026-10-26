@@ -23,6 +23,10 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 [#111 每步几何域诊断的审查记录](heart-prefix-diagnostic.md) 保留 0/20 witness 与固定源码出处；后续 #113 找回全部 23 份既有文件，登记 hash、逐 seed 记录和汇总通过只读日志完整性核验，构建来源及 seed 生成仍未认证。原实现 #112 因冻结目录冲突不予合并，最终只接受归档与核验工具；保持既有 guard / v1.1，停止该域的在线推进。不重跑或放宽原域；该诊断本身不解锁在线任务。#116 后仅 #94 的新 GoalWindow 测试原型获准，#95/#96 继续停止。
 
+## 下一构造方向（已接受受限离线诊断）
+
+[GoalWindow机理复核](heart-goal-window-mechanism.md)只读复算既有raw：搜索范围内零Q，guard缩小setup入口，不能推断被拒路径是否有clean。[终态分解与落子顺序证书](../design/heart-terminal-certificate.md)已于2026-10-27按用户连续研究授权接受一次固定预算的test-only离线诊断；设计最终Review/CI与合并完成后继续单独实施，实现最终Review/CI通过后才执行。本次未实现或运行诊断，不是GoalWindow重跑、在线策略或population许可。#95/#96、reserved/provider/runtime继续停止。
+
 ## 已完成实验
 
 以下协议是**历史结果所用的固定样本**，不是所有入口的当前默认值。`g×p` 表示局数×piece limit；同 seed 保证 7-bag 序列，不保证 JavaFX 时序。表中入口类位于 `xyz.xuminghai.tetris.ai.benchmark`，可从 [源码目录](../../src/main/java/xyz/xuminghai/tetris/ai/benchmark) 查阅。目的、关键结果和采用结论逐行列出；完整观测值与局限见 [详细记录](ai-experiment-history.md)。
