@@ -23,9 +23,9 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 [#111 每步几何域诊断的审查记录](heart-prefix-diagnostic.md) 保留 0/20 witness 与固定源码出处；后续 #113 找回全部 23 份既有文件，登记 hash、逐 seed 记录和汇总通过只读日志完整性核验，构建来源及 seed 生成仍未认证。原实现 #112 因冻结目录冲突不予合并，最终只接受归档与核验工具；保持既有 guard / v1.1，停止该域的在线推进。不重跑或放宽原域；该诊断本身不解锁在线任务。#116 后仅 #94 的新 GoalWindow 测试原型获准，#95/#96 继续停止。
 
-## 下一构造方向（Pending）
+## 下一构造方向（已接受受限离线诊断）
 
-[GoalWindow机理复核](heart-goal-window-mechanism.md)只读复算既有raw：搜索范围内零Q，guard缩小setup入口，不能推断被拒路径是否有clean。[终态分解与落子顺序证书](../design/heart-terminal-certificate.md)提议先做一次受限test-only离线诊断，等待新假设接受；不是GoalWindow重跑、策略实现或population许可。#95/#96、reserved/provider/runtime继续停止。
+[GoalWindow机理复核](heart-goal-window-mechanism.md)只读复算既有raw：搜索范围内零Q，guard缩小setup入口，不能推断被拒路径是否有clean。[终态分解与落子顺序证书](../design/heart-terminal-certificate.md)已于2026-10-27按用户连续研究授权接受一次固定预算的test-only离线诊断；设计最终Review/CI与合并完成后继续单独实施，实现最终Review/CI通过后才执行。本次未实现或运行诊断，不是GoalWindow重跑、在线策略或population许可。#95/#96、reserved/provider/runtime继续停止。
 
 ## 已完成实验
 

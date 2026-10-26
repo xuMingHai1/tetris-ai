@@ -2,7 +2,7 @@
 
 关联 [#91](https://github.com/xuMingHai1/tetris-ai/issues/91)，承接 [GoalWindow 停止结果](../research/heart-goal-window-result.md)与[机理复核](../research/heart-goal-window-mechanism.md)。
 
-**状态：待用户接受的设计 Draft，不是新的候选许可。** 核对主干 `dc98424d808b6da462c0fd1bdb9a56720c4bc8a8`。本次仅分析和设计；GoalWindow 保持否决，不重跑、不改 Q/rank/seed/budget。#95/#96、reserved/provider/runtime/default adoption 全部保持停止。独立设计 Review 的无阻断结论只证明稿件可评审，不能代替新假设的接受。
+**接受范围：2026-10-27 按用户连续研究授权，接受一次受限 test-only 离线诊断。** 核对设计基线 `dc98424d808b6da462c0fd1bdb9a56720c4bc8a8`；Codex 依据本稿的替代方案、固定投入和停止条件选择该研究问题。设计最终独立 Review、适用 CI 通过并合并后，允许另行实施；实现最终 revision 的独立 Review/适用 CI 通过后才执行一次登记诊断。本稿不表示工具已实现或诊断已执行。GoalWindow 保持否决，不重跑、不改 Q/rank/seed/budget；#95/#96、reserved/provider/runtime/default adoption 全部保持停止。
 
 ## 问题与已有证据
 
@@ -37,9 +37,9 @@ GoalWindow 在 greedy 轨迹附近截获当前或一步 preview 的精确终局�
 
 找到第一条完整可重放证书即停止，不按长度、历史witness、seed或收益挑优。分解与顺序搜索都必须有明确计数和截断原因；有限投入未找到只记 `BOUNDED_MISS`，超时/错误记 `INCOMPLETE/ERROR`，不能写无解。
 
-## 实现范围与冻结边界（仅在接受之后）
+## 已接受的实现范围与冻结边界
 
-建议新建独立诊断任务，不重开#111或把它计作#94的继续采集：
+从设计合并后的最新 default branch 新建独立诊断任务，不重开#111或把它计作#94的继续采集：
 
 - `src/test/java/xyz/xuminghai/tetris/ai/TerminalCertificate*.java`：同包test-only几何分解、顺序诊断、生产replay及人工反例；使用正常包路径，不shadow/reflection，不修改生产API。
 - 专属 `scripts/*terminal_certificate*.py`：监督、输入/输出与证书核验；复用已交付build/provenance的可复用部分，不能假称GoalWindow固定人口driver已经支持新诊断。
@@ -53,6 +53,8 @@ GoalWindow 在 greedy 轨迹附近截获当前或一步 preview 的精确终局�
 
 拟议一次诊断的共同预算：几何递归展开最多200,000节点、完整分解最多128个；全部分解共享最多2,000次生产枚举调用，终态最多16步。按固定次序，达到任一数量上限立即停止整个诊断，不跳过昂贵分支后挑剩余winner。它们是成本上限，不是经验安全阈值或完备性保证。
 
+实际实现 PR 必须在执行前明确冻结静态分解遍历、optional-only tile 的处理与遍历顺序，以及数量上限/时间/错误的停止判定顺序，并经过最终独立 Review；本次设计接受不替代这些实现细节的核对。
+
 一个普通直接JVM、`-Xmx512m`，父进程120秒墙钟上限（含求解和最终replay），总job最多10分钟含clean-build/preflight；不重试、不加节点/时间或换排序救结果。枚举次数不限制单次搜索内部成本，进程超时保留partial，不计正常miss；Xmx不是总RSS上限，需记录实际peak RSS或明确unavailable。若正常干净构建就超预算，记环境/集成失败，不压缩检查。
 
 保存源码/协议/配置SHA、干净checkout、依赖classpath和JDK/JVM、关键class来源/hash、节点/分解/枚举/replay计数、bag边界、每步type/四格/动作/棋盘/角色holes/原guard拒绝原因、终态和停止状态。生产replay必须从空棋盘、原spawn-gravity边界重新验证，不仅相信求解器输出。生产guard对精确构建前后都须通过。沿用完整目录always artifact与独占输出思想，但现有helper的文件一致性标记不能冒充新的构建来源认证。
@@ -65,8 +67,8 @@ GoalWindow 在 greedy 轨迹附近截获当前或一步 preview 的精确终局�
 
 无证书、超时、来源/集成/重放失败均停止这个假设的实施路径，保留证据，不修改原投入重跑。成功也不解锁#95/#96：先分析证书中哪些前缀必须违反普通guard、需多少额外hole及未知下一块会破坏哪些义务；这些是描述，不据此选阈值。之后才另交在线策略设计，明确不读证书未来序列、不沿seed硬编码、如何放弃/重算以及独立构造安全边界。若无法建立有根据的中间安全条件，可明确否决在线化。
 
-## 需要接受的唯一决策
+## 接受决议与下一步
 
-是否接受上述**一次受限test-only终态分解/顺序证书诊断**，允许后续单独实现及最终review后执行？推荐接受此诊断问题；当前不请求接受在线策略、放宽safety或启动新population。若不接受，保留本次机理分析，继续比较其他建设假设。
+依据用户2026-10-27对固定预算、test-only、无新增外部费用的离线研究自主决策授权，接受上述一次终态分解/顺序证书诊断。下一步为单独实现、验证、独立 Review 和适用 CI，完成后执行一次登记诊断；无须再为该研究问题重复等待用户确认。原节点/分解/枚举/内存/时间预算和失败停止条件不变；不接受在线策略、放宽 safety 或启动新 population。后续若提出实质不同的离线假设，仍须先记录证据与协议，通过相同设计审查流程，不能换名挽救本次失败结果。
 
-README/AGENTS生产结构、配置与运行能力未改变，无额外架构/ADR修改；研究索引新增本稿为Pending，不能把“设计可评审”写成“HEART构造已实现”。
+生产结构、配置与运行能力不变；AGENTS 同步离线研究授权与阶段推进规则，研究索引同步本稿的接受范围，无需新增 ADR。设计接受不能写成“HEART构造已实现”。
