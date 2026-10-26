@@ -72,3 +72,18 @@ GoalWindow 在 greedy 轨迹附近截获当前或一步 preview 的精确终局�
 依据用户2026-10-27对固定预算、test-only、无新增外部费用的离线研究自主决策授权，接受上述一次终态分解/顺序证书诊断。下一步为单独实现、验证、独立 Review 和适用 CI，完成后执行一次登记诊断；无须再为该研究问题重复等待用户确认。原节点/分解/枚举/内存/时间预算和失败停止条件不变；不接受在线策略、放宽 safety 或启动新 population。后续若提出实质不同的离线假设，仍须先记录证据与协议，通过相同设计审查流程，不能换名挽救本次失败结果。
 
 生产结构、配置与运行能力不变；AGENTS 同步离线研究授权与阶段推进规则，研究索引同步本稿的接受范围，无需新增 ADR。设计接受不能写成“HEART构造已实现”。
+
+## #140 静态分解实现冻结（阶段一）
+
+`TerminalCertificateGeometry` 仅放正常同包测试源码。本阶段没有 CLI、顺序求解器、独立证书 checker、来源监督或完整诊断执行入口；标准测试只枚举人工小域，HEART 仅核对角色 mask，不进行登记搜索。它输出的是静态 cover，不是终态 Q、7-bag 可行、可落或构造成功证明。
+
+- 局部坐标为底部八行的 `(row, col)`，row 0 对应真实 board row 12。required/allowed mask 从生产 HEART 角色读取，allowed 包含 required、support、outside；不包含 forbidden。
+- 每种 type 按生产 enum 顺序 I/J/L/O/S/T/Z；从工厂 spawn 开始连续四次顺时针旋转，按最小 row/col 归一化，去重后遍历全部域内平移。tile 全序为 type 后四个 row/col 排序坐标的字典序；HashSet 只检测重复，不提供遍历次序。静态 mask 不判落地、支撑或动作可达性。
+- DFS 从空集合开始，每次选择 row-major 最小未覆盖 REQUIRED，按上述 tile 全序尝试覆盖它的 tile。重叠、越 allowed、或 union 满行的分支不进入递归；满行检查只是拒绝无消行终态几何族，不实现消行规则。每个 cover 的 required-touching tile 因 anchor 顺序只生成一次。
+- REQUIRED 全覆盖时先同步交给 consumer 一个不可变 tile 列表，然后继续枚举 optional-only tile 的所有互不重叠子集，按 tile 全序递增索引加入，先短前缀后其 DFS 扩展。optional-only 指四格均非 REQUIRED；它们只在 required cover 后加入，避免排列重复，不省略零个 optional tile 的 cover。最多16 tile；每个 cover 都消耗分解计数，包括将来被 Q/7-bag/动作 checker 拒绝的 cover，不通过后验结果改变遍历。
+- 节点计数包含空根和每个实际进入的非重叠、无满行递归状态；扫描失败的 tile 不计节点。达到第200,000个节点仍处理该节点，之后不扩展或访问兄弟。分解计数包含每个 REQUIRED 全覆盖节点（含 optional 扩展），第128个仍同步交给 consumer，之后停止整轮。consumer 必须在同一调用链中运行未来的顺序检查；不能先采满128个后再另开一轮筛选。
+- 同一节点的停止优先级：异常直接向上抛出，不能降为 miss；同步 consumer 返回后先记分解上限，其次 consumer 主动停止，再记节点上限；最后才继续扩展。`CONSUMER_STOP` 本身不表示成功，必须由独立 checker 结果证明；`EXHAUSTED` 也仅表示此静态域遍历完。父进程120秒/JVM512m/总job10分钟、全局2,000次生产枚举仍待完整监督与顺序实现，不用这里的计数冒充进程边界已执行。
+
+上述顺序与计数在完整诊断前冻结，不因结果改变。完整运行的 TIMEOUT/来源/重放错误优先按原设计记 INCOMPLETE/ERROR；正常计数停止且无完整证书才记 BOUNDED_MISS，不能仅凭静态 `Result` 生成诊断成功/失败结论。后续接线须证明干净 Wrapper/普通 classpath 同包调用、独立 replay、原 guard 与最终 Review/适用 CI，才可执行一次登记诊断。
+
+CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动，会执行 Wrapper verify、SpotBugs、核心 PIT 与相应质量门。本阶段没有修改 selector/workflow；`ai-benchmark-pr.yml` 未识别 TerminalCertificate 路径，预期 benchmark=none，不声称运行新工具或固定人口。专用 verify-only/显式诊断与 artifact 接线另行审查，不能借 none 绕过执行前的原 frozen guard。
