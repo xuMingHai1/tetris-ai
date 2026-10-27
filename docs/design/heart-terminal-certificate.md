@@ -136,3 +136,13 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 `TerminalCertificateReplay --check <certificate-steps.json>` 仅做显式离线文件核验，不调用几何/顺序搜索。从真实空棋盘按原spawn-gravity边界调用独立checker，逐步核验7-bag、四格/动作/完整post-board、无消行，并额外要求固定HEART域和最终Q。只有全部通过才输出 REPLAYED_Q 与重新计算的终态事实、checker replay计数和final_board；人工小域、失败Q或篡改文件不能产生此结果。输出始终 diagnostic_started=false、provenance_authenticated=false、eligible_for_runtime_validation=false。它不认证源码、实际类来源、预算、求解过程或记录生产者，不能视为一次登记诊断成功。
 
 标准Wrapper测试只对人工小域执行往返与生产replay，覆盖截断/重复字段/类型/动作/棋盘篡改、超大输入、独占输出和禁止collect入口。尚无真实HEART证书，因此本阶段没有CLI成功路径的真实HEART证据。未改普通preflight的17类清单、build manifest、supervisor或selector；新类的实际来源认证、逐步role-hole/原guard事实、完整搜索CLI、全局计数与失败raw接线仍须后续短PR完成。只有整体最终revision独立Review/适用CI/原guard通过后才执行一次登记诊断。生产结构与默认运行未变，README/AGENTS无需同步；不解锁population或runtime。
+
+## #140 同步求解 session 与逐步事实（阶段四第二部分）
+
+`TerminalCertificateSession` 在正常测试包中同步连接静态 cover consumer、单一 `TerminalCertificateOrder` 与独立 checker。同一个 Order 实例跨全部 cover 累计2,000次生产枚举；几何200,000节点/128分解/16步不变。仅人工小域允许降低上限，不能提高。标准测试不调用完整 HEART 搜索，没有公开 CLI 或 collect 接线。
+
+每个 cover 的完整 order（包括最后允许的一次枚举刚好完成的 order）先从空棋盘独立 replay，再判断终态 Q，最后返回 consumer 停止信号。只有固定 HEART domain 且 Q 通过才返回内部 `Q_FOUND`；人工域的完整重放仍为 `BOUNDED_MISS`。数量上限不抹掉已核验的 Q：若 Q 与枚举/分解/节点上限同时发生，保留 Q 和原几何 stop/枚举上限标记。没有 Q 才按数量停止或该受限域遍历结束记录 miss；checker、生产搜索、观察输出异常直接传播，不能转换成正常 miss。`Q_FOUND` 仅表示内存中的求解/重放结果，不包含来源认证、记录持久化或完整诊断成功。
+
+每条所选完整路径附带不可变逐步事实：连续 index、7-bag 前后 mask（第七种后清零）、SURVIVAL rank、原 `GoalWindowCandidate.guard` 的 top-5/DANGER/budget及三个delta/risk/profile、生产board的角色 holes/高度/clean facts。FORBIDDEN holes 为 raw减REQUIRED/SUPPORT/OUTSIDE；bag事实与动作/棋盘记录逐项对齐。guard与角色事实直接取自该边已计数的完整候选枚举及生产replay，不另开枚举、不影响遍历或 admission；普通 baseline rank1 保持生产无条件允许的描述口径。回溯时同步丢弃未选路径事实，后续 cover 不继承旧事实；搜索/replay计数则不清零。
+
+观察者在同一 cover 调用链内接收 attempt（含累计计数、完整order/facts与独立checker结果），先于几何数量停止返回；失败直接终止调用链。它为后续原始文件输出保留同步接点，本阶段没有持久化 attempt/raw/session envelope，也不提供异常/超时完整报告、真实诊断类来源或墙钟监督。现有严格 steps-v1 不变；新 session/facts 尚未纳入17类预检清单。上述缺口须在后续完整CLI/来源/外部监督接线中交付并对最终整体revision独立Review、适用CI与原guard，通过后才登记一次诊断。README/AGENTS的生产结构及运行方式未变，无额外采用权限。
