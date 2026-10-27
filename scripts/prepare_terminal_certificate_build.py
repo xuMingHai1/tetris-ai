@@ -205,12 +205,21 @@ def main():
     parser.add_argument('--output', type=Path)
     parser.add_argument('--verify', type=Path)
     parser.add_argument('--manifest-sha256')
+    parser.add_argument('--authenticate-only', action='store_true',
+                        help='authenticate build bytes/guard without launching any JVM')
     args = parser.parse_args()
     if args.verify:
         require(args.output is None, 'output is only valid for preparation')
-        print(json.dumps(preflight(args.verify.absolute(), args.manifest_sha256)))
+        if args.authenticate_only:
+            require(sys.platform == 'linux', 'Linux execution host required')
+            manifest = verify_build(args.verify.absolute(), args.manifest_sha256)
+            print(json.dumps({'status': 'BUILD_AUTHENTICATED', 'source_sha': manifest['source_sha'],
+                              'diagnostic_started': False, 'eligible_for_runtime_validation': False}))
+        else:
+            print(json.dumps(preflight(args.verify.absolute(), args.manifest_sha256)))
     else:
-        require(args.output is not None and args.manifest_sha256 is None, 'new output directory required')
+        require(args.output is not None and args.manifest_sha256 is None and not args.authenticate_only,
+                'new output directory required')
         print(json.dumps(prepare(args.root, args.output)))
 
 
