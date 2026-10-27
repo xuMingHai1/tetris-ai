@@ -35,13 +35,24 @@ final class TerminalCertificateOrder {
 
     enum Stop { ORDER_FOUND, EXHAUSTED, ENUMERATION_LIMIT }
     record Result(Stop stop, Optional<List<TerminalCertificateStep>> order,
-                  int enumerations, int replays) {
-        Result { order = order.map(List::copyOf); }
+                  int enumerations, int replays, List<StepFacts> facts) {
+        Result {
+            order = order.map(List::copyOf);
+            facts = List.copyOf(facts);
+        }
+    }
+
+    /** Descriptive facts from the already counted enumeration, never a search admission rule. */
+    record StepFacts(int index, int bagBefore, int bagAfter, int survivalRank,
+                     GoalWindowCandidate.Guard originalGuard, GoalWindowCandidate.Terminal resultingFacts) {
+        // Production always permits its survival top choice, even in DANGER.
+        boolean ordinaryAllowed() { return survivalRank == 1 || originalGuard.ordinaryAllowed(); }
     }
 
     private final int limit;
     private int enumerations;
     private int replays;
+    private List<StepFacts> foundFacts = List.of();
 
     TerminalCertificateOrder() { this(ENUMERATION_LIMIT); }
 
@@ -54,17 +65,21 @@ final class TerminalCertificateOrder {
     Result search(TerminalCertificateGeometry.Domain domain,
                   List<TerminalCertificateGeometry.Tile> cover) {
         var tiles = validateCover(domain, cover);
+        foundFacts = List.of();
         var order = visit(domain, tiles, new boolean[tiles.size()], new boolean[20][10],
-                0, new ArrayList<>());
+                0, new ArrayList<>(), new ArrayList<>());
         var stop = enumerations == limit ? Stop.ENUMERATION_LIMIT
                 : order != null ? Stop.ORDER_FOUND : Stop.EXHAUSTED;
-        return new Result(stop, Optional.ofNullable(order), enumerations, replays);
+        return new Result(stop, Optional.ofNullable(order), enumerations, replays, foundFacts);
     }
 
     private List<TerminalCertificateStep> visit(TerminalCertificateGeometry.Domain domain,
             List<TerminalCertificateGeometry.Tile> tiles, boolean[] used, boolean[][] board,
-            int bagMask, List<TerminalCertificateStep> path) {
-        if (path.size() == tiles.size()) return List.copyOf(path);
+            int bagMask, List<TerminalCertificateStep> path, List<StepFacts> facts) {
+        if (path.size() == tiles.size()) {
+            foundFacts = List.copyOf(facts);
+            return List.copyOf(path);
+        }
         if (enumerations == limit) return null;
         for (int i = 0; i < tiles.size(); i++) {
             var tile = tiles.get(i);
@@ -78,7 +93,8 @@ final class TerminalCertificateOrder {
                     .map(c -> new BoardPosition(c.row() + 20 - domain.rows(), c.col())).toList();
             for (var cell : absoluteCells) expected[cell.row()][cell.col()] = true;
             var expectedBits = TerminalCertificateStep.boardBits(expected);
-            for (var candidate : candidates) {
+            for (int rank = 0; rank < candidates.size(); rank++) {
+                var candidate = candidates.get(rank);
                 if (candidate.placement().clearedLines() != 0
                         || !TerminalCertificateStep.boardBits(candidate.placement().resultingBoard())
                         .equals(expectedBits)) continue;
@@ -94,10 +110,16 @@ final class TerminalCertificateOrder {
                 used[i] = true;
                 int nextBag = bagMask | typeBit;
                 if (nextBag == 127) nextBag = 0;
+                var baseline = candidates.getFirst().placement();
+                facts.add(new StepFacts(path.size() - 1, bagMask, nextBag, rank + 1,
+                        GoalWindowCandidate.guard(rank + 1, baseline, candidate.placement(),
+                                ObjectiveRiskController.adaptive().decide(baseline)),
+                        GoalWindowCandidate.terminal(replay.resultingBoard())));
                 // The last permitted enumeration may finish a cover, but never opens another edge.
-                var found = visit(domain, tiles, used, replay.resultingBoard(), nextBag, path);
+                var found = visit(domain, tiles, used, replay.resultingBoard(), nextBag, path, facts);
                 used[i] = false;
                 path.removeLast();
+                facts.removeLast();
                 if (found != null) return found;
                 break;
             }
