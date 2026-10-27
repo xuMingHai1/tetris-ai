@@ -128,3 +128,11 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 标准 Linux `TerminalCertificateBuildTest` 的实际独立 clean-build/17类核验改由此入口完成，继续验证随后篡改资源被拒绝；另从标准测试运行人工阶段/总预算/错误结果/独占输出及真实超时、非零退出的Python反例。Windows跳过真实进程组场景。selector/workflow不变，benchmark none不算运行诊断。生产与运行结构未变，无需更改README/AGENTS。
 
 本阶段仍没有完整HEART静态搜索、求解CLI、逐步证书输出或最终checker接线。完整诊断的单直接JVM120秒（含独立checker）、实际诊断类来源核验、全局计数、完整raw/schema和显式一次执行，须后续独立短PR冻结并通过最终Review/适用CI/原guard；不能拿本次普通预检监督冒充已经满足全部执行门。
+
+## #140 原始逐步证书与独立文件核验（阶段四第一部分）
+
+`TerminalCertificateRecords` 定义 `terminal-certificate-steps-v1`：根字段仅有 schema、step_count、steps；每步按连续零起点 index 保存 type、spawn_cells、spawn_rotation、绝对 cells、actions、完整200-bit post_board（小写十六进制、无前导零）和 cleared_lines=0。保留原列表顺序，不排序或补齐输入。只接受1–16步、四个不同坐标、整数和已知枚举；拒绝截断、重复/缺失/未知字段、尾随JSON、类型强制转换、超界棋盘及超过1MiB的文件。1MiB仅限制记录解析资源，不改变搜索预算。独占创建文件，不覆盖此前失败前缀；文件完整性不证明搜索完整性。
+
+`TerminalCertificateReplay --check <certificate-steps.json>` 仅做显式离线文件核验，不调用几何/顺序搜索。从真实空棋盘按原spawn-gravity边界调用独立checker，逐步核验7-bag、四格/动作/完整post-board、无消行，并额外要求固定HEART域和最终Q。只有全部通过才输出 REPLAYED_Q 与重新计算的终态事实、checker replay计数和final_board；人工小域、失败Q或篡改文件不能产生此结果。输出始终 diagnostic_started=false、provenance_authenticated=false、eligible_for_runtime_validation=false。它不认证源码、实际类来源、预算、求解过程或记录生产者，不能视为一次登记诊断成功。
+
+标准Wrapper测试只对人工小域执行往返与生产replay，覆盖截断/重复字段/类型/动作/棋盘篡改、超大输入、独占输出和禁止collect入口。尚无真实HEART证书，因此本阶段没有CLI成功路径的真实HEART证据。未改普通preflight的17类清单、build manifest、supervisor或selector；新类的实际来源认证、逐步role-hole/原guard事实、完整搜索CLI、全局计数与失败raw接线仍须后续短PR完成。只有整体最终revision独立Review/适用CI/原guard通过后才执行一次登记诊断。生产结构与默认运行未变，README/AGENTS无需同步；不解锁population或runtime。
