@@ -146,6 +146,18 @@ class TerminalCertificateJournalReaderTest {
     }
 
     @Test
+    void embeddedStepsKeepTheirOwnOneMibLimitWithinTwoMibJournalLine() throws Exception {
+        var original = journal();
+        var actions = JSON.createArrayNode();
+        for (int i = 0; i < 160_000; i++) actions.add("LEFT");
+        var path = changed(original, 1, n -> ((ObjectNode) n.get("data").get("steps").get("steps").get(0))
+                .set("actions", actions));
+        assertTrue(Files.readAllLines(path).get(1).length() < TerminalCertificateJournalReader.MAX_LINE_BYTES);
+        var failure = assertThrows(IllegalArgumentException.class, () -> TerminalCertificateJournalReader.read(path));
+        assertEquals("embedded steps too large", failure.getMessage());
+    }
+
+    @Test
     void rootNodeCapDoesNotNeedAnInventedAttempt() throws Exception {
         var path = directory.resolve("root.jsonl");
         TerminalCertificateJournal.run(path, TerminalCertificateGeometry.Domain.heart(),

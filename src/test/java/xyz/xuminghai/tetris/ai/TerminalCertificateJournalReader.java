@@ -141,7 +141,10 @@ final class TerminalCertificateJournalReader {
                 return;
             }
             require(stop != TerminalCertificateOrder.Stop.EXHAUSTED, "complete order stop");
-            var steps = TerminalCertificateRecords.parse(data.get("steps").toString());
+            var stepText = data.get("steps").toString();
+            require(stepText.getBytes(StandardCharsets.UTF_8).length + 1 <= TerminalCertificateRecords.MAX_BYTES,
+                    "embedded steps too large");
+            var steps = TerminalCertificateRecords.parse(stepText);
             require(steps.size() <= limits.steps() && facts.size() == steps.size(), "facts/step count");
             var checked = TerminalCertificateChecker.check(domain, steps);
             var c = data.get("checked");
