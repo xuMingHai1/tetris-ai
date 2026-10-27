@@ -166,3 +166,13 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 返回COMPLETE只表示有完整finish且上述文件/重放核验通过，既不是诊断成功，也不是来源认证。空文件、缺finish或未换行/截断末行返回INCOMPLETE，最后attempt/Q不能补全它；显式error返回ERROR；完整但损坏/矛盾的事件抛出错误，由未来外层监督保存为失败，不能转成正常miss。terminal事件后的任意字节（包括空行、截断JSON）拒绝。读取失败不覆盖原文件或重试搜索。
 
 标准Wrapper人工小域测试覆盖真实journal往返和独立replay、各事件边界及截断finish、setup ERROR、终态后字节、重复/未知/缺失/错误类型、权限提升、计数/stop/证书矛盾、board/bag/角色事实篡改、非法UTF-8与超大行；一节点零尝试fixture只验证停止记录，不执行完整HEART搜索。本阶段仍没有公开诊断CLI、实际新类来源认证或完整120秒/512m/600秒诊断监督接线；整体最终Review/适用CI/原guard通过前不执行一次登记诊断。生产结构/运行方式未变，README/AGENTS无需同步；不解锁95/96/reserved/provider/runtime。
+
+## #140 显式 CLI 与实际 session 类来源（阶段五第一部分）
+
+`TerminalCertificateApplication` 仅接受普通 JDK27 的 `-Xmx512m -cp <classpath> xyz.xuminghai.tetris.ai.TerminalCertificateApplication --collect <checkout-root> <new-external-output>`。没有隐式模式、verify/search 混合模式或参数预算覆盖；固定 HEART 域和已登记的200,000节点/128分解/2,000枚举/16步。同 JVM 先观察真实类来源，独占新建 checkout 外的规范目录，保存 observation、INCOMPLETE started、原 forced journal，再由严格 reader 独立文件重放。所有计算、两次 checker 和文件读写均属于后续父进程的同一个120秒诊断窗口，不能给 reader 追加预算。
+
+只有 journal 完整且其计数与内存 session 一致才独占写入 completion.json；状态为 SESSION_COMPLETE，内部 search_status 保留 Q_FOUND/BOUNDED_MISS，provenance_authenticated 和 eligible_for_runtime_validation 仍为 false。完成文件不是来源或诊断成功证明。异常尽力保存 error.json、原样传播，不写正常 completion、不重试；目录存在时在任何写入前拒绝，保留原失败字节。缺 completion（包括终止/截断）保持未完成；force 的宿主/文件系统局限与原 journal 相同。无 CLI 成功路径的真实 HEART 证据，本阶段测试只运行人工小域。
+
+普通 Preflight 的公开入口仍仅为 verify-only，不调用 solver；共享内部参数/来源观察用于显式 CLI。Java 与 Python 外部 manifest 清单从17项扩至23项，新增 Application、Session、Order$StepFacts、Records、Journal、JournalReader；嵌套 StepFacts 使用实际二进制名。全部编译字节清单继续绑定其余嵌套类。Linux 独立 clean-build 测试实际核对23类，普通 JVM 用逐个额外同名资源反例拒绝六种新类 shadow；仅加载、不初始化这些类，预检不会执行完整 HEART 搜索。
+
+完整父进程 collect 模式尚未交付：仍须在同一总600秒窗口内串接 clean build、外部 manifest digest、CLI 前后来源/原guard核验、单直接512m JVM120秒（含reader/checker）、完整失败前缀和最终诊断报告。现有 supervisor 继续只执行 verify-only，不因新增 CLI 自动执行诊断。整体最终 revision 独立Review、适用CI及原guard通过前不登记一次运行。本阶段未改变生产、原guard、冻结协议或workflow/selector；README/AGENTS所述生产结构和默认行为不变，无95/96/reserved/provider/runtime授权。

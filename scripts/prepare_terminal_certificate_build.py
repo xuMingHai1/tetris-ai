@@ -32,7 +32,10 @@ OBSERVED = {
     **{name: 'target/test-classes' for name in (
         'ai.TerminalCertificatePreflight', 'ai.TerminalCertificateGeometry',
         'ai.TerminalCertificateOrder', 'ai.TerminalCertificateStep',
-        'ai.TerminalCertificateChecker', 'ai.GoalWindowCandidate')},
+        'ai.TerminalCertificateChecker', 'ai.GoalWindowCandidate',
+        'ai.TerminalCertificateApplication', 'ai.TerminalCertificateSession',
+        'ai.TerminalCertificateOrder$StepFacts', 'ai.TerminalCertificateRecords',
+        'ai.TerminalCertificateJournal', 'ai.TerminalCertificateJournalReader')},
 }
 
 
