@@ -1,0 +1,107 @@
+name: Terminal Certificate Diagnostic
+
+# Deliberately no pull_request, push, schedule or workflow_call entry point.
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full reviewed default-branch SHA (must still be current)
+        required: true
+        type: string
+      collect:
+        description: Execute the once-registered diagnostic after final independent review and CI
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+# Queue instead of cancelling a session and losing its failure prefix.
+concurrency:
+  group: terminal-certificate-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  diagnostic:
+    name: Bounded terminal certificate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+      COLLECT: ${{ inputs.collect }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      EVENT_NAME: ${{ github.event_name }}
+      SOURCE_REF: ${{ github.ref }}
+      SOURCE_SHA: ${{ github.sha }}
+      SESSION_ROOT: ${{ runner.temp }}/terminal-certificate-${{ github.run_id }}-${{ github.run_attempt }}
+
+    steps:
+      - name: Save dispatch context and reject unregistered launch contexts
+        shell: python
+        run: |
+          import json
+          import os
+          from pathlib import Path
+          import re
+
+          context = {key: os.environ[key] for key in (
+              'EXPECTED_SHA', 'COLLECT', 'DEFAULT_BRANCH', 'EVENT_NAME', 'SOURCE_REF',
+              'SOURCE_SHA', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT')}
+          output = Path(os.environ['SESSION_ROOT'])
+          output.mkdir()  # Keep every failed prefix; never overwrite a previous attempt.
+          (output / 'dispatch.json').write_text(json.dumps({
+              'schema': 'terminal-certificate-dispatch-v1', 'status': 'INCOMPLETE',
+              'context': context, 'eligible_for_runtime_validation': False,
+          }, indent=2) + '\n', encoding='utf-8')
+          if not (context['EVENT_NAME'] == 'workflow_dispatch'
+                  and context['GITHUB_REPOSITORY'] == 'xuMingHai1/tetris-ai'
+                  and context['SOURCE_REF'] == 'refs/heads/' + context['DEFAULT_BRANCH']
+                  and re.fullmatch(r'[0-9a-f]{40}', context['EXPECTED_SHA'])
+                  and context['SOURCE_SHA'] == context['EXPECTED_SHA']
+                  and context['COLLECT'] in ('true', 'false')
+                  and (context['COLLECT'] == 'false' or context['GITHUB_RUN_ATTEMPT'] == '1')):
+              raise SystemExit('Rejected context/SHA or collect rerun; no diagnostic launched')
+
+      - name: Checkout exact dispatch revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Java 27
+        uses: actions/setup-java@v6
+        with:
+          distribution: oracle-openjdk
+          java-version: '27'
+
+      - name: Verify current default SHA and run fixed supervisor once
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha=$(git rev-parse HEAD)
+          default_sha=$(git ls-remote --exit-code origin "refs/heads/$DEFAULT_BRANCH" | cut -f1)
+          printf '%s\n' "$default_sha" > "$SESSION_ROOT/default-sha.txt"
+          if [ "$actual_sha" != "$EXPECTED_SHA" ] || [ "$default_sha" != "$EXPECTED_SHA" ]; then
+            echo 'Default branch advanced or checkout mismatch; no diagnostic launched' >&2
+            exit 1
+          fi
+          args=()
+          if [ "$COLLECT" = 'true' ]; then args+=(--collect); fi
+          # Clean build and pre/post guard checks are inside the supervisor's 600s
+          # window. One direct -Xmx512m diagnostic JVM has at most 120s, including
+          # all checkers and the raw reader. No retry, warmup or population command.
+          python3 scripts/supervise_terminal_certificate.py \
+            --root "$GITHUB_WORKSPACE" --output "$SESSION_ROOT/session" "${args[@]}" \
+            2>&1 | tee "$SESSION_ROOT/supervisor.log"
+
+      - name: Save complete external evidence including failed prefixes
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-certificate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.SESSION_ROOT }}/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30

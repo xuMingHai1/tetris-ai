@@ -186,3 +186,15 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 父进程将CLI observation与23类manifest逐项比对，核对独占四文件、INCOMPLETE start、stdout/completion一致、完整journal首尾与固定计数预算，并逐行有界记录全部raw的SHA-256。完整语义/生产replay由同一已认证JVM中的独立Java reader负责，Python不复制游戏规则或rank/guard判定。只有前后认证和文件绑定全部成功，父报告才接受Q_FOUND/BOUNDED_MISS；TIMEOUT、缺completion、截断、来源错误或总deadline耗尽均为INCOMPLETE。eligible_for_runtime_validation始终false。peak RSS明确unavailable（生命周期工具未采样），Xmx不表示总RSS。此本地主机认证不抵御恶意宿主/编译器，也不承诺对不可中断IO硬实时终止。
 
 标准测试只用人工worker/files验证命令、计数/类hash/预算/截断反例、前置失败不启动、超时后认证、不重试和输出独占；Linux原有真实clean-build预检与真实进程组超时测试继续执行。没有完整HEART搜索、collect成功路径实测或登记诊断结果。本阶段不修改生产、旧guard/冻结协议、GoalWindow helper或workflow/selector；README/AGENTS生产结构和默认行为不变。整体最终revision独立Review、适用CI及原guard通过后才可按既定协议执行一次诊断。
+
+## #140 Linux 显式执行接线（阶段五第三部分）
+
+专属 `.github/workflows/terminal-certificate.yml` 只提供 `workflow_dispatch`，没有 PR/push/schedule/reusable 入口；不修改既有 benchmark selector、GoalWindow workflow、协议或原 guard。`collect=false` 为默认值，仅运行已交付的 clean-build/普通 JVM verify-only。显式 `collect=true` 才执行一次既定诊断，参数不能覆盖域、节点、枚举、内存或时间预算。
+
+入口限制同一仓库、当前 default branch ref、完整 lowercase `expected_sha` 等于 dispatch SHA/checkout SHA，并在启动前读取远端 default ref 再次核对；分支已推进即停止，不静默换 revision。collect 拒绝 `run_attempt != 1` 的 Actions rerun；静态 concurrency 排队而不取消运行中的 session。它不阻止有权限的操作者另开一次 dispatch，所以必须先在 #140 登记唯一执行的精确 SHA、最终整体独立 Review、适用 CI 与已冻结预算，再显式启动；结果失败/超时后不得另开 dispatch 重试。新增入口不替代这些前置。
+
+runner 固定 `ubuntu-24.04`/JDK27，token 只有 contents:read、checkout 不保留凭据，不读取 provider secret。整个 Actions job 上限10分钟（含 setup/上传），父监督仍为600秒总窗口、120秒单直接512m诊断JVM，均不追加时间；平台 job deadline 可能更早中止 supervisor，必须记为 INCOMPLETE。预检不表示完整诊断执行。未增加 population/seed/warmup、外部费用或 runtime/default adoption 权限。
+
+checkout 外独占 run-id/attempt 目录先写 INCOMPLETE dispatch context；包括 supervisor report、build/manifest、前后 guard/来源观察、完整 stdout/stderr、raw journal/completion/error/失败前缀在内的整个目录由 `always()` artifact 保存30天，包含隐藏文件。没有成功报告时不能把 workflow绿色、artifact存在或内部 Q 当作成功。硬 job timeout、宿主中断或 artifact 服务失败仍可能使 always 上传无法完成；此时来源/结果保持未核验，不允许因此重跑诊断。平台耗时与报告的 supervisor elapsed 分开解释。
+
+这是执行接线交付，尚未登记或执行完整 HEART 诊断。必须先以最终整体 revision 独立 Review/适用 CI/原 guard 确认触发、权限、失败产物与整条来源链，再合并至 default branch。生产结构/默认运行方式不变，README/AGENTS无需同步；#95/#96/reserved/provider/runtime继续停止。
