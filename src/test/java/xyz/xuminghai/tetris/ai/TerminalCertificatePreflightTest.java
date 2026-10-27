@@ -53,6 +53,23 @@ class TerminalCertificatePreflightTest {
 
     @Test
     @EnabledOnOs(OS.LINUX)
+    void rejectsShadowOfEveryNewSessionClassWithoutStartingSearch() throws Exception {
+        for (var suffix : List.of("TerminalCertificateApplication", "TerminalCertificateSession",
+                "TerminalCertificateOrder$StepFacts", "TerminalCertificateRecords",
+                "TerminalCertificateJournal", "TerminalCertificateJournalReader")) {
+            var extra = Files.createDirectory(directory.resolve(suffix));
+            var relative = "xyz/xuminghai/tetris/ai/" + suffix + ".class";
+            var shadow = extra.resolve(relative);
+            Files.createDirectories(shadow.getParent());
+            Files.copy(root().resolve("target/test-classes").resolve(relative), shadow);
+            var result = probe(List.of("-Xmx512m"), extra, "--verify-only", root().toString());
+            assertNotEquals(0, result.code());
+            assertTrue(result.output().contains("shadow class: xyz.xuminghai.tetris.ai." + suffix), result.output());
+        }
+    }
+
+    @Test
+    @EnabledOnOs(OS.LINUX)
     void rejectsOtherCheckoutAndUnsupportedJvmFlags() throws Exception {
         var other = directory.resolve("other");
         Files.createDirectories(other.resolve("target/classes"));

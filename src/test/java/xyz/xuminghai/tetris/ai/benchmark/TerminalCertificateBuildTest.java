@@ -56,7 +56,9 @@ class TerminalCertificateBuildTest {
                 manifest.toString(), "--manifest-sha256", prepared.get("manifest_sha256").asText());
         assertFalse(supervision.get("eligible_for_runtime_validation").asBoolean());
         var observed = mapper.readTree(Files.readString(evidence.resolve("build/preflight.json")));
-        assertEquals(17, observed.get("loaded_classes").size());
+        assertEquals(23, observed.get("loaded_classes").size());
+        assertTrue(observed.get("loaded_classes").has("xyz.xuminghai.tetris.ai.TerminalCertificateApplication"));
+        assertTrue(observed.get("loaded_classes").has("xyz.xuminghai.tetris.ai.TerminalCertificateOrder$StepFacts"));
         Files.writeString(checkout.resolve("target/classes/injected.properties"), "changed");
         var log = directory.resolve("changed.log");
         var process = new ProcessBuilder(verify).directory(checkout.toFile()).redirectErrorStream(true)

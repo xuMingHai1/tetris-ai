@@ -28,7 +28,9 @@ public final class TerminalCertificatePreflight {
             "core.TetrisFactory", "core.TetrominoType");
     static final List<String> TEST = List.of("ai.TerminalCertificatePreflight", "ai.TerminalCertificateGeometry",
             "ai.TerminalCertificateOrder", "ai.TerminalCertificateStep", "ai.TerminalCertificateChecker",
-            "ai.GoalWindowCandidate");
+            "ai.GoalWindowCandidate", "ai.TerminalCertificateApplication", "ai.TerminalCertificateSession",
+            "ai.TerminalCertificateOrder$StepFacts", "ai.TerminalCertificateRecords", "ai.TerminalCertificateJournal",
+            "ai.TerminalCertificateJournalReader");
 
     private TerminalCertificatePreflight() { }
 
@@ -41,15 +43,20 @@ public final class TerminalCertificatePreflight {
     }
 
     static Map<String, Object> inspect(Path checkout) throws Exception {
+        return inspect(checkout, TerminalCertificatePreflight.class.getName(),
+                List.of("--verify-only", checkout.toString()));
+    }
+
+    /** Shared observation only; the caller still needs external provenance and deadline supervision. */
+    static Map<String, Object> inspect(Path checkout, String entrypoint, List<String> arguments) throws Exception {
         require(!TerminalCertificatePreflight.class.getModule().isNamed(), "ordinary classpath required");
         require(Runtime.version().feature() == 27, "JDK 27 required");
         var argv = List.of(ProcessHandle.current().info().arguments()
                 .orElseThrow(() -> new IllegalStateException("JVM arguments unavailable")));
-        require(argv.size() == 6 && argv.get(0).equals("-Xmx512m") && argv.get(1).equals("-cp")
+        require(argv.size() == 4 + arguments.size() && argv.get(0).equals("-Xmx512m") && argv.get(1).equals("-cp")
                 && argv.get(2).equals(System.getProperty("java.class.path"))
-                && argv.get(3).equals(TerminalCertificatePreflight.class.getName())
-                && argv.get(4).equals("--verify-only") && Path.of(argv.get(5)).equals(checkout),
-                "only -Xmx512m and the explicit classpath verify-only command are supported");
+                && argv.get(3).equals(entrypoint) && argv.subList(4, argv.size()).equals(arguments),
+                "only -Xmx512m and the explicit classpath command are supported");
         var flags = List.of("-Xmx512m");
         for (var name : List.of("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "CLASSPATH")) {
             require(System.getenv(name) == null || System.getenv(name).isEmpty(), "injected environment: " + name);

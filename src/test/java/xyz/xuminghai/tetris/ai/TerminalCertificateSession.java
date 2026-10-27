@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 
 /**
  * Synchronous test-only search/check chain. It is not an authenticated diagnostic entry point.
- * No CLI invokes it: the direct-JVM provenance, deadlines and durable raw envelope remain required.
+ * The explicit test CLI invokes it; external provenance and deadline supervision remain required.
  */
 final class TerminalCertificateSession {
     private TerminalCertificateSession() { }
