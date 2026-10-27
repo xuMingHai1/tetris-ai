@@ -42,18 +42,20 @@ class TerminalCertificateBuildTest {
                     "https://github.com/xuMingHai1/tetris-ai.git", base), "base-fetch");
         }
         var evidence = directory.resolve("evidence");
-        var prepared = mapper.readTree(run(checkout, List.of("python3", "scripts/prepare_terminal_certificate_build.py",
-                "--root", checkout.toString(), "--output", evidence.toString()), "prepare"));
+        var supervised = mapper.readTree(run(checkout, List.of("python3", "scripts/supervise_terminal_certificate.py",
+                "--root", checkout.toString(), "--output", evidence.toString()), "supervised"));
+        assertEquals("VERIFIED", supervised.get("status").asText());
+        assertFalse(supervised.get("diagnostic_started").asBoolean());
+        var supervision = mapper.readTree(Files.readString(evidence.resolve("report.json")));
+        assertTrue(supervision.get("provenance_authenticated").asBoolean());
+        assertEquals(2, supervision.get("processes").size());
+        var prepared = supervision.get("build");
         assertEquals(sha, prepared.get("source_sha").asText());
-        var manifest = evidence.resolve("build-manifest.json");
+        var manifest = evidence.resolve("build/build-manifest.json");
         var verify = List.of("python3", "scripts/prepare_terminal_certificate_build.py", "--verify",
                 manifest.toString(), "--manifest-sha256", prepared.get("manifest_sha256").asText());
-        var report = mapper.readTree(run(checkout, verify, "verify"));
-        assertEquals("VERIFIED", report.get("status").asText());
-        assertTrue(report.get("provenance_authenticated").asBoolean());
-        assertFalse(report.get("diagnostic_started").asBoolean());
-        assertFalse(report.get("eligible_for_runtime_validation").asBoolean());
-        var observed = mapper.readTree(Files.readString(evidence.resolve("preflight.json")));
+        assertFalse(supervision.get("eligible_for_runtime_validation").asBoolean());
+        var observed = mapper.readTree(Files.readString(evidence.resolve("build/preflight.json")));
         assertEquals(17, observed.get("loaded_classes").size());
         Files.writeString(checkout.resolve("target/classes/injected.properties"), "changed");
         var log = directory.resolve("changed.log");
@@ -68,6 +70,12 @@ class TerminalCertificateBuildTest {
     void artificialProvenanceCounterexamplesRunInRegularSuite() throws Exception {
         assertTrue(run(source, List.of("python3", "-m", "unittest", "discover", "-s", "scripts",
                 "-p", "test_prepare_terminal_certificate_build.py"), "python-tests").contains("OK"));
+    }
+
+    @Test
+    void verifyOnlySupervisorProcessBoundariesRunInRegularSuite() throws Exception {
+        assertTrue(run(source, List.of("python3", "-m", "unittest", "discover", "-s", "scripts",
+                "-p", "test_supervise_terminal_certificate.py"), "supervisor-tests").contains("OK"));
     }
 
     private String run(Path cwd, List<String> command, String name) throws Exception {

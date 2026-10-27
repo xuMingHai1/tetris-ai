@@ -118,3 +118,13 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 标准 Wrapper verify 中新增 Linux `TerminalCertificateBuildTest`：在独立干净 checkout 做真实 clean build/普通 JVM 认证并拒绝后加编译资源，同时执行 Python 人工来源反例。浅 checkout 只在缺少原协议 base 时 fetch 固定 public commit；非 Linux 跳过此真实构建测试。人工反例包括旧 target 清除、构建失败前缀、manifest/源码/资源篡改、类和依赖 shadow、classpath 顺序、观察来源缺失/多余/hash错误及链接拒绝。人工 fixture 不替代真实 Linux 认证。
 
 本阶段没有更改旧 GoalWindow helper、原 guard、冻结协议或 benchmark selector。新的 Java 测试触发常规 CI；benchmark 仍为 none。生产结构/默认行为不变，README/AGENTS 无需同步。120秒（含独立 checker）父进程监督、512m诊断 JVM、总job10分钟、完整失败输出与显式一次诊断接线仍待下一阶段，不能用本工具的认证成功代替完整诊断或采用门。
+
+## #140 verify-only 进程监督（阶段三第三部分）
+
+`scripts/supervise_terminal_certificate.py --root <checkout> --output <外部新目录>` 仅在 Linux 运行，不接受 collect/solver 模式。外部目录独占创建，先保存 INCOMPLETE report，再监督专属 prepare worker；从其输出单独保存 manifest digest，交给 verify worker。verify worker 仍调用既有固定 `-Xmx512m` 普通直接 JVM 预检，前后核验来源；整个 verify worker（含来源核验）最多120秒。每个 worker 与其 Maven/JVM/git 后代共用独立 POSIX 进程组，复用旧 supervisor 的生命周期函数，未复用 GoalWindow 启动、配置或来源判定，也未修改旧 helper。
+
+总job从输出创建后计时600秒，两个阶段共享剩余预算，固定预留10秒用于进程组 TERM/KILL、回收与报告落盘；每个阶段只得到 `min(阶段上限, 总剩余-10秒)`，不能追加预算或重试。到时保留 stdout/stderr、外部 build.log/manifest 及所有已有失败前缀，报告原始进程 state/returncode；TIMEOUT、INTERRUPTED、非零退出、错误JSON/来源或deadline耗尽均是 INCOMPLETE，绝不标为 BOUNDED_MISS。成功仅为 verify-only VERIFIED / provenance_authenticated=true，始终 diagnostic_started=false / eligible_for_runtime_validation=false。peak RSS 明确 unavailable；这不是未来真实诊断的RSS证据，也不宣称能对宿主停顿或不可中断内核IO提供硬实时保证。
+
+标准 Linux `TerminalCertificateBuildTest` 的实际独立 clean-build/17类核验改由此入口完成，继续验证随后篡改资源被拒绝；另从标准测试运行人工阶段/总预算/错误结果/独占输出及真实超时、非零退出的Python反例。Windows跳过真实进程组场景。selector/workflow不变，benchmark none不算运行诊断。生产与运行结构未变，无需更改README/AGENTS。
+
+本阶段仍没有完整HEART静态搜索、求解CLI、逐步证书输出或最终checker接线。完整诊断的单直接JVM120秒（含独立checker）、实际诊断类来源核验、全局计数、完整raw/schema和显式一次执行，须后续独立短PR冻结并通过最终Review/适用CI/原guard；不能拿本次普通预检监督冒充已经满足全部执行门。
