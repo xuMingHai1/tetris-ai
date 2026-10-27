@@ -108,3 +108,13 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 输出始终标记 `diagnostic_started=false`、`provenance_authenticated=false`、`eligible_for_runtime_validation=false`。观察到的 hash 不证明 target 新鲜、源码对应或独立来源认证；干净构建与外部 manifest 比对、旧 target 拒绝、构建前后原 guard、120秒/10分钟监督、独占完整输出和一次显式诊断仍待后续交付。不得用本入口成功代替这些门。
 
 本阶段不改变 workflow/selector；标准 CI 的 Java/build 路径通过 Wrapper verify 实际执行本测试，benchmark selector 仍为 none。生产结构与默认运行不变，README/AGENTS 无需同步；本节记录新增测试工具的运行限制。
+
+## #140 干净构建来源认证（阶段三第二部分）
+
+`scripts/prepare_terminal_certificate_build.py` 是 Linux 专属 verify-only 工具。`--root <checkout> --output <外部新目录>` 要求干净源码（含未跟踪、ignored source/build input、index 隐藏标记与链接检查），前后执行原 HEART production guard；用固定 Wrapper 3.9.16 执行 `clean test-compile` 和固定版本依赖清单命令。外部目录独占创建，保留失败 build.log 前缀，不覆盖已有尝试。编译后的全部文件（包括资源）、显式依赖 JAR、源码、设计/原协议、JDK 身份、构建命令和日志绑定到独立 `terminal-certificate-build-v1` manifest。拒绝主/测试类 shadow、依赖中的项目类及 JAR manifest 隐式 Class-Path。
+
+调用方须在目录之外保留准备命令返回的 `manifest_sha256`，再以 `--verify <manifest> --manifest-sha256 <digest>` 核验源码和全部构建字节，启动固定 `-Xmx512m` 普通 JVM 预检，并逐项比对17个类的真实来源/hash；预检后再次核验构建。成功只标记本地未被修改构建的来源认证，不认证恶意宿主、编译器或依赖发布者；不执行求解器，`diagnostic_started=false`、`eligible_for_runtime_validation=false`。
+
+标准 Wrapper verify 中新增 Linux `TerminalCertificateBuildTest`：在独立干净 checkout 做真实 clean build/普通 JVM 认证并拒绝后加编译资源，同时执行 Python 人工来源反例。浅 checkout 只在缺少原协议 base 时 fetch 固定 public commit；非 Linux 跳过此真实构建测试。人工反例包括旧 target 清除、构建失败前缀、manifest/源码/资源篡改、类和依赖 shadow、classpath 顺序、观察来源缺失/多余/hash错误及链接拒绝。人工 fixture 不替代真实 Linux 认证。
+
+本阶段没有更改旧 GoalWindow helper、原 guard、冻结协议或 benchmark selector。新的 Java 测试触发常规 CI；benchmark 仍为 none。生产结构/默认行为不变，README/AGENTS 无需同步。120秒（含独立 checker）父进程监督、512m诊断 JVM、总job10分钟、完整失败输出与显式一次诊断接线仍待下一阶段，不能用本工具的认证成功代替完整诊断或采用门。
