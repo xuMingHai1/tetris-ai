@@ -34,7 +34,6 @@ jobs:
       EVENT_NAME: ${{ github.event_name }}
       SOURCE_REF: ${{ github.ref }}
       SOURCE_SHA: ${{ github.sha }}
-      SESSION_ROOT: ${{ runner.temp }}/terminal-certificate-${{ github.run_id }}-${{ github.run_attempt }}
 
     steps:
       - name: Save dispatch context and reject unregistered launch contexts
@@ -48,7 +47,11 @@ jobs:
           context = {key: os.environ[key] for key in (
               'EXPECTED_SHA', 'COLLECT', 'DEFAULT_BRANCH', 'EVENT_NAME', 'SOURCE_REF',
               'SOURCE_SHA', 'GITHUB_REPOSITORY', 'GITHUB_RUN_ID', 'GITHUB_RUN_ATTEMPT')}
-          output = Path(os.environ['SESSION_ROOT'])
+          # runner context is unavailable in job-level env; use the runtime variable.
+          output = Path(os.environ['RUNNER_TEMP']) / (
+              'terminal-certificate-' + context['GITHUB_RUN_ID'] + '-' + context['GITHUB_RUN_ATTEMPT'])
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as environment:
+              environment.write('SESSION_ROOT=' + str(output) + '\n')
           output.mkdir()  # Keep every failed prefix; never overwrite a previous attempt.
           (output / 'dispatch.json').write_text(json.dumps({
               'schema': 'terminal-certificate-dispatch-v1', 'status': 'INCOMPLETE',
