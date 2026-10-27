@@ -176,3 +176,13 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 普通 Preflight 的公开入口仍仅为 verify-only，不调用 solver；共享内部参数/来源观察用于显式 CLI。Java 与 Python 外部 manifest 清单从17项扩至23项，新增 Application、Session、Order$StepFacts、Records、Journal、JournalReader；嵌套 StepFacts 使用实际二进制名。全部编译字节清单继续绑定其余嵌套类。Linux 独立 clean-build 测试实际核对23类，普通 JVM 用逐个额外同名资源反例拒绝六种新类 shadow；仅加载、不初始化这些类，预检不会执行完整 HEART 搜索。
 
 完整父进程 collect 模式尚未交付：仍须在同一总600秒窗口内串接 clean build、外部 manifest digest、CLI 前后来源/原guard核验、单直接512m JVM120秒（含reader/checker）、完整失败前缀和最终诊断报告。现有 supervisor 继续只执行 verify-only，不因新增 CLI 自动执行诊断。整体最终 revision 独立Review、适用CI及原guard通过前不登记一次运行。本阶段未改变生产、原guard、冻结协议或workflow/selector；README/AGENTS所述生产结构和默认行为不变，无95/96/reserved/provider/runtime授权。
+
+## #140 父进程 collect 监督（阶段五第二部分）
+
+`supervise_terminal_certificate.py` 默认仍为 verify-only；只有显式 `--collect` 选择固定预算诊断。独占外部目录后先写 INCOMPLETE report，在原600秒总窗口（含固定10秒终止/落盘预留）中顺序执行 prepare、before认证、单直接诊断JVM、after认证。before/after 使用新增 `prepare_terminal_certificate_build.py --verify ... --manifest-sha256 ... --authenticate-only`，核对同一独立保留digest、源码/完整编译字节/依赖/JDK及原生产guard，不启动preflight或solver。JDK身份核对仍执行 `java -XshowSettings:properties -version` 探针，其成本包含在对应认证worker和600秒总窗口内；它不是诊断JVM，也不运行搜索。默认 verify-only worker 行为不变。
+
+诊断命令固定 `-Xmx512m -cp <manifest classpath> TerminalCertificateApplication --collect <root> <外部raw新目录>`，整个直接JVM最多120秒，包含session、内存checker和严格文件reader；每阶段仍受总剩余减预留约束。只有这一处诊断启动，不重试、不更换顺序/预算。即使JVM超时或非零退出，也在剩余总预算内尝试after认证；若无剩余预算则记录未完成，不能追加时间。原始进程state/returncode、所有stdout/stderr及build/raw失败前缀原位保留；无法确定是否成功启动时 diagnostic_started=null。
+
+父进程将CLI observation与23类manifest逐项比对，核对独占四文件、INCOMPLETE start、stdout/completion一致、完整journal首尾与固定计数预算，并逐行有界记录全部raw的SHA-256。完整语义/生产replay由同一已认证JVM中的独立Java reader负责，Python不复制游戏规则或rank/guard判定。只有前后认证和文件绑定全部成功，父报告才接受Q_FOUND/BOUNDED_MISS；TIMEOUT、缺completion、截断、来源错误或总deadline耗尽均为INCOMPLETE。eligible_for_runtime_validation始终false。peak RSS明确unavailable（生命周期工具未采样），Xmx不表示总RSS。此本地主机认证不抵御恶意宿主/编译器，也不承诺对不可中断IO硬实时终止。
+
+标准测试只用人工worker/files验证命令、计数/类hash/预算/截断反例、前置失败不启动、超时后认证、不重试和输出独占；Linux原有真实clean-build预检与真实进程组超时测试继续执行。没有完整HEART搜索、collect成功路径实测或登记诊断结果。本阶段不修改生产、旧guard/冻结协议、GoalWindow helper或workflow/selector；README/AGENTS生产结构和默认行为不变。整体最终revision独立Review、适用CI及原guard通过后才可按既定协议执行一次诊断。
