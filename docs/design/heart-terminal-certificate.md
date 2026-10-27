@@ -156,3 +156,13 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 标准测试只执行小人工域，验证真实生产文件 replay、完整与未完成 order、计数停止、零尝试节点停止、错误传播与独占输出；没有完整 HEART 诊断、人口或成功证书数据。所有事件保持 provenance_authenticated=false 和 eligible_for_runtime_validation=false；本组件不认证来源、进程预算或最终诊断。steps-v1 的文件写入与 journal 嵌入共用同一严格验证和1MiB记录上限，不改变格式或搜索预算。
 
 生产结构及默认行为不变，README/AGENTS无需同步；workflow/selector仍不变。公开诊断CLI、完整失败目录/原始完整性核验、实际新类来源认证和512m直接JVM/120秒含checker/600秒总监督尚待完整接线，整体最终独立Review、适用CI与原guard通过后才可登记一次执行。本阶段不授予95/96/reserved/provider/runtime权限。
+
+## #140 journal 严格消费与独立文件重放（阶段四第四部分）
+
+`TerminalCertificateJournalReader.read` 只读取既有 `terminal-certificate-session-v1`，不调用几何或顺序搜索。按行读取，单行最多2MiB、最多130条完整事件（start、128 attempts、finish）；不把整个文件装入内存。2MiB是1MiB steps-v1加最多16条事实和信封的解析上限，不扩大搜索预算。完整行严格解码UTF-8、拒绝重复字段/尾随JSON/未知或缺失字段、类型强制转换、非法枚举、超限/非规范mask和任何权限true声明。
+
+消费状态只能从start进入attempt，再到finish或error；setup异常允许单独error。连续decomposition、累计枚举/solver replay、checker计数、枚举上限、几何计数与停止优先级、Q与证书decomposition必须相互一致。每个完整order复用严格steps-v1，从空棋盘独立调用原checker，不重做候选枚举；比对完整final_board/终态、逐步bag与生产board角色holes事实，并检查rank/top-5/ordinary以及原guard字段类型、risk/profile内部一致性。rank、baseline与三个guard delta仍只是生产者声明；本读取器不重枚举以认证它们，也不能证明完整搜索覆盖或真实节点计数。文件可自洽但来源不可信，不能因此推断BOUNDED_MISS为登记诊断结论。
+
+返回COMPLETE只表示有完整finish且上述文件/重放核验通过，既不是诊断成功，也不是来源认证。空文件、缺finish或未换行/截断末行返回INCOMPLETE，最后attempt/Q不能补全它；显式error返回ERROR；完整但损坏/矛盾的事件抛出错误，由未来外层监督保存为失败，不能转成正常miss。terminal事件后的任意字节（包括空行、截断JSON）拒绝。读取失败不覆盖原文件或重试搜索。
+
+标准Wrapper人工小域测试覆盖真实journal往返和独立replay、各事件边界及截断finish、setup ERROR、终态后字节、重复/未知/缺失/错误类型、权限提升、计数/stop/证书矛盾、board/bag/角色事实篡改、非法UTF-8与超大行；一节点零尝试fixture只验证停止记录，不执行完整HEART搜索。本阶段仍没有公开诊断CLI、实际新类来源认证或完整120秒/512m/600秒诊断监督接线；整体最终Review/适用CI/原guard通过前不执行一次登记诊断。生产结构/运行方式未变，README/AGENTS无需同步；不解锁95/96/reserved/provider/runtime。

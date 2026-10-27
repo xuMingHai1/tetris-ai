@@ -92,7 +92,7 @@ final class TerminalCertificateJournal implements AutoCloseable {
                 "risk", guard.risk(), "profile", guard.profile());
     }
 
-    private static Map<String, Object> terminal(GoalWindowCandidate.Terminal terminal) {
+    static Map<String, Object> terminal(GoalWindowCandidate.Terminal terminal) {
         return Map.of("clean", terminal.clean(), "matched_required", terminal.matchedRequired(),
                 "forbidden_occupied", terminal.forbiddenOccupied(), "max_height", terminal.maxHeight(),
                 "raw_holes", terminal.rawHoles(), "required_holes", terminal.requiredHoles(),
