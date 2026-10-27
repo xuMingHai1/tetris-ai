@@ -179,7 +179,7 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 
 ## #140 父进程 collect 监督（阶段五第二部分）
 
-`supervise_terminal_certificate.py` 默认仍为 verify-only；只有显式 `--collect` 选择固定预算诊断。独占外部目录后先写 INCOMPLETE report，在原600秒总窗口（含固定10秒终止/落盘预留）中顺序执行 prepare、before认证、单直接诊断JVM、after认证。before/after 使用新增 `prepare_terminal_certificate_build.py --verify ... --manifest-sha256 ... --authenticate-only`，仅核对同一独立保留digest、源码/完整编译字节/依赖/JDK及原生产guard，不启动额外JVM或求解。默认 verify-only worker 行为不变。
+`supervise_terminal_certificate.py` 默认仍为 verify-only；只有显式 `--collect` 选择固定预算诊断。独占外部目录后先写 INCOMPLETE report，在原600秒总窗口（含固定10秒终止/落盘预留）中顺序执行 prepare、before认证、单直接诊断JVM、after认证。before/after 使用新增 `prepare_terminal_certificate_build.py --verify ... --manifest-sha256 ... --authenticate-only`，核对同一独立保留digest、源码/完整编译字节/依赖/JDK及原生产guard，不启动preflight或solver。JDK身份核对仍执行 `java -XshowSettings:properties -version` 探针，其成本包含在对应认证worker和600秒总窗口内；它不是诊断JVM，也不运行搜索。默认 verify-only worker 行为不变。
 
 诊断命令固定 `-Xmx512m -cp <manifest classpath> TerminalCertificateApplication --collect <root> <外部raw新目录>`，整个直接JVM最多120秒，包含session、内存checker和严格文件reader；每阶段仍受总剩余减预留约束。只有这一处诊断启动，不重试、不更换顺序/预算。即使JVM超时或非零退出，也在剩余总预算内尝试after认证；若无剩余预算则记录未完成，不能追加时间。原始进程state/returncode、所有stdout/stderr及build/raw失败前缀原位保留；无法确定是否成功启动时 diagnostic_started=null。
 

@@ -206,7 +206,7 @@ def main():
     parser.add_argument('--verify', type=Path)
     parser.add_argument('--manifest-sha256')
     parser.add_argument('--authenticate-only', action='store_true',
-                        help='authenticate build bytes/guard without launching any JVM')
+                        help='authenticate build bytes/guard without launching preflight or solver')
     args = parser.parse_args()
     if args.verify:
         require(args.output is None, 'output is only valid for preparation')

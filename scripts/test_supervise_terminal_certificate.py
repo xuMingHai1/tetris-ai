@@ -266,7 +266,7 @@ class CollectTest(Fixture):
         self.assertFalse(report['diagnostic_started'])
         self.assertEqual(self.calls, ['prepare-', 'before-'])
 
-    def test_authenticate_only_worker_never_launches_jvm(self):
+    def test_authenticate_only_worker_checks_build_without_preflight(self):
         args = ['prepare', '--verify', str(self.base / 'manifest.json'),
                 '--manifest-sha256', 'a' * 64, '--authenticate-only']
         with patch.object(sys, 'argv', args), \
