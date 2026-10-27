@@ -38,6 +38,12 @@ final class TerminalCertificateRecords {
 
     /** Exclusive creation preserves an earlier attempt, including an incomplete file. */
     static void write(Path path, List<TerminalCertificateStep> steps) throws IOException {
+        var text = JSON.writeValueAsString(value(steps)) + "\n";
+        Files.writeString(path, text, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+    }
+
+    /** Same validated wire claims embedded in a session attempt, without a second output file. */
+    static Map<String, Object> value(List<TerminalCertificateStep> steps) {
         steps = List.copyOf(steps);
         require(!steps.isEmpty() && steps.size() <= 16, "step count");
         var records = new ArrayList<Map<String, Object>>();
@@ -48,12 +54,12 @@ final class TerminalCertificateRecords {
                     "cells", cells(step.cells()), "actions", step.plan().actions().stream().map(Enum::name).toList(),
                     "post_board", step.postBoard().toString(16), "cleared_lines", step.clearedLines()));
         }
-        var text = JSON.writeValueAsString(Map.of("schema", SCHEMA, "step_count", steps.size(),
-                "steps", records)) + "\n";
+        var value = Map.<String, Object>of("schema", SCHEMA, "step_count", steps.size(), "steps", records);
+        var text = JSON.writeValueAsString(value) + "\n";
         // Apply the same wire validation before creating any output.
         parse(text);
         require(text.getBytes(StandardCharsets.UTF_8).length <= MAX_BYTES, "record too large");
-        Files.writeString(path, text, StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
+        return value;
     }
 
     static List<TerminalCertificateStep> read(Path path) throws IOException {
