@@ -146,3 +146,13 @@ CI 范围核对：现有 `ci.yml` 将 `src/test/java/*` 视为 Java/build 改动
 每条所选完整路径附带不可变逐步事实：连续 index、7-bag 前后 mask（第七种后清零）、SURVIVAL rank、原 `GoalWindowCandidate.guard` 的 top-5/DANGER/budget及三个delta/risk/profile、生产board的角色 holes/高度/clean facts。FORBIDDEN holes 为 raw减REQUIRED/SUPPORT/OUTSIDE；bag事实与动作/棋盘记录逐项对齐。guard与角色事实直接取自该边已计数的完整候选枚举及生产replay，不另开枚举、不影响遍历或 admission；普通 baseline rank1 保持生产无条件允许的描述口径。回溯时同步丢弃未选路径事实，后续 cover 不继承旧事实；搜索/replay计数则不清零。
 
 观察者在同一 cover 调用链内接收 attempt（含累计计数、完整order/facts与独立checker结果），先于几何数量停止返回；失败直接终止调用链。它为后续原始文件输出保留同步接点，本阶段没有持久化 attempt/raw/session envelope，也不提供异常/超时完整报告、真实诊断类来源或墙钟监督。现有严格 steps-v1 不变；新 session/facts 尚未纳入17类预检清单。上述缺口须在后续完整CLI/来源/外部监督接线中交付并对最终整体revision独立Review、适用CI与原guard，通过后才登记一次诊断。README/AGENTS的生产结构及运行方式未变，无额外采用权限。
+
+## #140 原始 session journal（阶段四第三部分）
+
+`TerminalCertificateJournal` 仅在测试包提供同步 session 的显式内部调用，不是公开 CLI。独占新建调用者指定文件，输出 `terminal-certificate-session-v1` JSONL：start 保存域、预算与 INCOMPLETE；每次同步 attempt 保存累计枚举/replay、order stop、原 steps-v1 完整声明、对应 bag/rank/原 guard/角色 holes/Q 事实及独立 checker 的结果。没有完整 order 的尝试明确 steps/checked=null、facts=[]，不伪填重放或终态事实。finish 保存原几何 nodes/decompositions/stop、全部最终计数、枚举上限及证书 decomposition；search_status 保留内部 Q_FOUND/BOUNDED_MISS，不将内部结果升级为诊断成功。
+
+每条完整事件写后执行 FileChannel.force(true)，不等待正常 close；进程中断、写失败或最后一行截断时保留已有前缀。没有完整 finish 必须视为 INCOMPLETE，不能以最后一个 attempt 或 Q 字段推断成功。捕获到的异常尽力追加 ERROR 与异常类，仍向上传播原异常；记录失败仅作为 suppressed，不生成正常 miss 或重试。文件系统/宿主故障不能保证最后一条事件或目录元数据持久性，force 不代替外部监督或完整性核验。已有文件（含失败/截断前缀）拒绝覆盖。
+
+标准测试只执行小人工域，验证真实生产文件 replay、完整与未完成 order、计数停止、零尝试节点停止、错误传播与独占输出；没有完整 HEART 诊断、人口或成功证书数据。所有事件保持 provenance_authenticated=false 和 eligible_for_runtime_validation=false；本组件不认证来源、进程预算或最终诊断。steps-v1 的文件写入与 journal 嵌入共用同一严格验证和1MiB记录上限，不改变格式或搜索预算。
+
+生产结构及默认行为不变，README/AGENTS无需同步；workflow/selector仍不变。公开诊断CLI、完整失败目录/原始完整性核验、实际新类来源认证和512m直接JVM/120秒含checker/600秒总监督尚待完整接线，整体最终独立Review、适用CI与原guard通过后才可登记一次执行。本阶段不授予95/96/reserved/provider/runtime权限。
