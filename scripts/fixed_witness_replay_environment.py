@@ -105,12 +105,13 @@ def controlled_environment(java_home, home, temporary):
     return {'JAVA_HOME': str(java_home), 'HOME': str(home), 'TMPDIR': str(temporary),
             'PATH': str(java_home / 'bin') + ':/usr/bin',
             'MAVEN_OPTS': ' '.join(options),
+            'MAVEN_SKIP_RC': '1',
             'LANG': 'C.UTF-8', 'LC_ALL': 'C.UTF-8', 'TZ': 'UTC'}
 
 
 def jvm_directory_options(home, temporary):
-    """Explicit JVM flags; restrict whitespace for Wrapper's shell expansion."""
+    """Explicit JVM flags; no word splitting or globbing in Maven's shell."""
     home, temporary = map(canonical, (home, temporary))
-    require(all(path.is_dir() and not any(c.isspace() for c in str(path))
-                for path in (home, temporary)), 'whitespace-free JVM directories required')
+    require(all(path.is_dir() and re.fullmatch(r'/[A-Za-z0-9_./-]+', str(path))
+                for path in (home, temporary)), 'shell-safe JVM directories required')
     return ['-Duser.home=' + str(home), '-Djava.io.tmpdir=' + str(temporary)]

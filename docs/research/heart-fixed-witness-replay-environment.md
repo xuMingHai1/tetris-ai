@@ -12,11 +12,13 @@ CI 与正常合并满足后才接受；它不登记 session，也不启动构建
 - Wrapper 的仓库脚本与 properties 字节纳入清单；版本 3.9.16、URL、发布包 SHA-256、
   wrapperVersion/distributionType 必须匹配当前源码中的完整固定四属性，不接受重复或额外属性。
 - `controlled_environment` 从零构造子进程环境，不读取、记录或复制 ambient 变量。
-  只含 JAVA_HOME、HOME、TMPDIR、固定 PATH、LANG、LC_ALL、TZ 与自行生成的 MAVEN_OPTS。
+  只含 JAVA_HOME、HOME、TMPDIR、固定 PATH、LANG、LC_ALL、TZ、自行生成的 MAVEN_OPTS
+  和 `MAVEN_SKIP_RC=1`（防止 Maven 全局/用户 mavenrc 重写受控参数）。
   不继承 JVM/loader 注入、provider 凭据、Maven 参数或用户 PATH。
 - HOME/TMPDIR 必须是当前 session 新建的空目录，和 JDK 两两不相交。调用者须在 checkout
   外创建并独占这些目录。生成的 MAVEN_OPTS 显式设置 `user.home`/`java.io.tmpdir`，因为
-  Java 不按 HOME 自动选择 user.home；目录不接受空白，避免 Wrapper shell 分词改变参数。
+  Java 不按 HOME 自动选择 user.home；目录仅接受 `/[A-Za-z0-9_./-]+`，避免 Maven shell
+  分词或 glob 展开改变参数。
   直接诊断 JVM 不读取 MAVEN_OPTS，必须另外传 `jvm_directory_options` 的两个显式 argv。
 
 身份必须由最终监督者独立保留，并在 build/使用前后重新计算比较。清单是字节身份，

@@ -42,10 +42,12 @@ class EnvironmentTest(unittest.TestCase):
             'GITHUB_TOKEN', 'HOME', 'PATH', 'BASH_ENV', 'ENV', 'MAVEN_USER_HOME')}
         with patch.dict(os.environ, poison, clear=True):
             env = controlled_environment(self.jdk, self.home, self.tmp)
-        self.assertEqual({'JAVA_HOME', 'HOME', 'TMPDIR', 'PATH', 'MAVEN_OPTS', 'LANG', 'LC_ALL', 'TZ'}, set(env))
+        self.assertEqual({'JAVA_HOME', 'HOME', 'TMPDIR', 'PATH', 'MAVEN_OPTS',
+                          'MAVEN_SKIP_RC', 'LANG', 'LC_ALL', 'TZ'}, set(env))
         self.assertNotIn('sentinel-private-value', json.dumps(env))
         self.assertEqual(str(self.jdk / 'bin') + ':/usr/bin', env['PATH'])
         self.assertEqual(' '.join(jvm_directory_options(self.home, self.tmp)), env['MAVEN_OPTS'])
+        self.assertEqual('1', env['MAVEN_SKIP_RC'])
 
     @unittest.skipUnless(os.name == 'posix', 'Linux environment paths required')
     def test_existing_home_configuration_and_tmp_are_rejected(self):
@@ -56,10 +58,11 @@ class EnvironmentTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'fresh empty'):
                     controlled_environment(self.jdk, self.home, self.tmp)
                 extra.unlink()
-        spaced = self.base / 'space dir'
-        spaced.mkdir()
-        with self.assertRaisesRegex(ValueError, 'whitespace-free'):
-            controlled_environment(self.jdk, spaced, self.tmp)
+        for name in ('space dir', 'star*', 'question?', 'bracket[x]'):
+            unsafe = self.base / name
+            unsafe.mkdir()
+            with self.assertRaisesRegex(ValueError, 'shell-safe'):
+                controlled_environment(self.jdk, unsafe, self.tmp)
 
     @unittest.skipUnless(os.name == 'posix', 'Linux environment paths required')
     def test_alias_and_nested_environment_directories_are_rejected(self):
