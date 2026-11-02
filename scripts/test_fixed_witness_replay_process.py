@@ -13,18 +13,23 @@ from fixed_witness_replay_process import OutputBudget, run_process
 
 
 def stopped_process(pid):
-    # Read once: init may reap a killed orphan between exists() and read_text().
+    # Reaping can remove the path before open (ENOENT) or the task during read
+    # (ESRCH). Neither means a live orphan; other I/O failures must propagate.
     try:
         state = (Path('/proc') / str(pid) / 'stat').read_text()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return True
     return state.rsplit(') ', 1)[1].startswith('Z')
 
 
 class BudgetTest(unittest.TestCase):
     def test_proc_reap_race_and_live_or_zombie_state(self):
-        with patch.object(Path, 'read_text', side_effect=FileNotFoundError):
-            self.assertTrue(stopped_process(123))
+        for error in (FileNotFoundError(), ProcessLookupError(3, 'No such process')):
+            with patch.object(Path, 'read_text', side_effect=error):
+                self.assertTrue(stopped_process(123))
+        with patch.object(Path, 'read_text', side_effect=PermissionError):
+            with self.assertRaises(PermissionError):
+                stopped_process(123)
         for state, expected in [('123 (child) S rest', False), ('123 (child) Z rest', True)]:
             with patch.object(Path, 'read_text', return_value=state):
                 self.assertEqual(stopped_process(123), expected)
