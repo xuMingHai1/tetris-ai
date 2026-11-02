@@ -103,11 +103,12 @@ for base, name in [('target/classes', 'Production.class'), ('target/test-classes
     path = root / base
     path.mkdir(parents=True)
     (path / name).write_bytes(b'artificial class bytes, never loaded')
-jar = pathlib.Path(os.environ['HOME']) / 'dependency.jar'
-with zipfile.ZipFile(jar, 'w') as archive:
-    archive.writestr('Dependency.class', b'artificial')
+jars = [pathlib.Path(os.environ['HOME']) / name for name in ('z-last.jar', 'a-first.jar')]
+for index, jar in enumerate(jars):
+    with zipfile.ZipFile(jar, 'w') as archive:
+        archive.writestr('Dependency' + str(index) + '.class', b'artificial')
 cp = next(a.split('=', 1)[1] for a in sys.argv if a.startswith('-Dmdep.outputFile='))
-pathlib.Path(cp).write_text(str(jar))
+pathlib.Path(cp).write_text(':'.join(map(str, jars)))
 ''')
         self.git('init', '-q')
         self.git('add', '.')
@@ -127,6 +128,8 @@ pathlib.Path(cp).write_text(str(jar))
             receipt = self.prepare()
             manifest = verify_prepared(self.root, self.jdk, receipt)
         self.assertFalse(manifest['diagnostic_started'])
+        self.assertEqual(['z-last.jar', 'a-first.jar'],
+                         [Path(p).name for p in manifest['classpath']['classpath'][2:]])
         self.assertEqual(3, len(manifest['processes']))
         self.assertTrue(all(p['state'] == 'EXITED' for p in manifest['processes']))
         (self.root / 'target/classes/Production.class').write_bytes(b'changed')

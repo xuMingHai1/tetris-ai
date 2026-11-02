@@ -47,6 +47,8 @@ def source_identity(root, *, environment=None):
     """
     root = canonical(root)
     def git(*args):
+        if environment is None:
+            return _git(root, *args)
         return _git(root, *args, environment=environment)
 
     require(Path(git('rev-parse', '--show-toplevel').strip()).resolve() == root,

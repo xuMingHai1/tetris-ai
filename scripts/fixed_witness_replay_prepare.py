@@ -135,5 +135,5 @@ def verify_prepared(root, java_home, receipt):
     verify_identity(manifest['source'], source_identity(root, environment=environment))
     verify_identity(manifest['toolchain'], toolchain_identity(root, java_home))
     verify_identity(manifest['classpath'], classpath_identity(
-        root, list(manifest['classpath']['dependencies'])))
+        root, manifest['classpath']['classpath'][2:]))
     return manifest
