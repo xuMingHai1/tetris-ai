@@ -90,6 +90,9 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 
 ## 后续稳定 HEART 的验收维度
 
+[实际进程观测组件](heart-fixed-witness-replay-observation.md)读取Linux实际argv/环境/executable/cwd与
+进程身份，人工子进程验证拒绝漂移；尚无JVM握手、loaded-class/网络证明或历史22步执行许可。
+
 [#115 无状态终局窗口设计评审](../design/heart-goal-window.md) 审查新的精确终局选择例外：非终态 setup 保留原 top-5/risk/budget，仅对当前或已知 preview 的真实 clean 终态使用事先冻结的几何条件。提议在正常测试源码中复用同包生产 API，保持 frozen source guard；不是继续原逐前缀域或把目标 holes 当安全证书。若经独立评审并合并接受，只允许 #94 的测试源码原型与开发/校准 paired 评估，#95/#96 继续停止；评审提交时尚无原型或新采集。实际接受状态以 issue/PR 最终决议为准。
 
 以下是长期验收维度；本阶段具体数值已在上面的 v1.1 协议中预注册并通过 #92 接受，能力仍未达到，不能宣称稳定 HEART。现有 clean witness 只证明存在可构造路径。
