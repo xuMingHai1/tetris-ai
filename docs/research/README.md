@@ -33,6 +33,8 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 设计已由 #155 接受；[输入与静态兼容性](heart-fixed-witness-replay-input.md)登记原22行的来源/hash、严格 test-only reader 和历史源码变化。[回放与逐步证据实现](heart-fixed-witness-replay-evidence.md)增加生产动作重放、独占 journal 和不重放动作的结构检查器；仍缺独立父监督、构建来源认证及唯一登记，没有完整历史回放结果或执行许可。完整历史输入不进入 synthetic/CI 诊断。
 
+[固定回放进程监督组件](heart-fixed-witness-replay-process.md)增加有界输出、timeout/中断和进程组清理的人工验证；普通JVM入口、来源认证、artifact总预算及唯一登记仍未完成，不执行历史22步。
+
 ## 已完成实验
 
 以下协议是**历史结果所用的固定样本**，不是所有入口的当前默认值。`g×p` 表示局数×piece limit；同 seed 保证 7-bag 序列，不保证 JavaFX 时序。表中入口类位于 `xyz.xuminghai.tetris.ai.benchmark`，可从 [源码目录](../../src/main/java/xyz/xuminghai/tetris/ai/benchmark) 查阅。目的、关键结果和采用结论逐行列出；完整观测值与局限见 [详细记录](ai-experiment-history.md)。
