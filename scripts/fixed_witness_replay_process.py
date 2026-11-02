@@ -72,13 +72,15 @@ def _cancellation():
             signal.signal(number, handler)
 
 
-def run_process(command, cwd, output, name, budget, *, seconds, total_deadline):
+def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, environment=None):
     """Run once, retain bounded binary prefixes and kill the entire owned group.
 
     Linux only; start_new_session creates a group even when the leader exits
     before a pipe-holding descendant. KILL also runs after normal leader exit.
     This supervises cooperative children, not adversarial setsid escapees or
     network access. Caller must provide the accepted offline JVM/environment.
+    environment=None preserves the existing helper's inherited-environment mode;
+    authenticated preparation and later diagnostics must pass an explicit dict.
     """
     if sys.platform != 'linux':
         raise RuntimeError('Linux process supervision required')
@@ -91,6 +93,10 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline):
         raise ValueError('explicit nonempty argv required')
     if not name or any(c not in 'abcdefghijklmnopqrstuvwxyz0123456789-' for c in name):
         raise ValueError('invalid stage name')
+    if environment is not None and (not isinstance(environment, dict) or any(
+            not isinstance(k, str) or not k or '=' in k or '\0' in k
+            or not isinstance(v, str) or '\0' in v for k, v in environment.items())):
+        raise ValueError('explicit string environment required')
     started = time.monotonic()
     if not isinstance(total_deadline, (int, float)) or isinstance(total_deadline, bool) or not math.isfinite(total_deadline):
         raise ValueError('finite absolute total deadline required')
@@ -111,7 +117,7 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline):
         try:
             process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                       start_new_session=True)
+                                       start_new_session=True, env=environment)
             result['pid'] = process.pid
             if cancellation['signal'] is not None:
                 raise InterruptedError('received signal during launch')

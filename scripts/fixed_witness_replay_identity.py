@@ -32,28 +32,32 @@ def sha256(path):
     return value.hexdigest()
 
 
-def _git(root, *args):
+def _git(root, *args, environment=None):
     result = subprocess.run(['git', *args], cwd=root, check=True,
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
+                            env=environment)
     return result.stdout.decode('utf-8', errors='strict')
 
 
-def source_identity(root):
+def source_identity(root, *, environment=None):
     """Bind every tracked byte; reject dirty/hidden inputs and linked paths.
 
     Commands are small inventory reads, not the build supervisor. Ignored files
     under source/build configuration directories can silently affect compilation.
     """
     root = canonical(root)
-    require(Path(_git(root, 'rev-parse', '--show-toplevel').strip()).resolve() == root,
+    def git(*args):
+        return _git(root, *args, environment=environment)
+
+    require(Path(git('rev-parse', '--show-toplevel').strip()).resolve() == root,
             'checkout root must be Git top-level')
-    sha = _git(root, 'rev-parse', 'HEAD').strip()
+    sha = git('rev-parse', 'HEAD').strip()
     require(re.fullmatch('[0-9a-f]{40}', sha), 'SHA-1 source commit required')
-    require(not _git(root, 'status', '--porcelain', '--untracked-files=all').strip(),
+    require(not git('status', '--porcelain', '--untracked-files=all').strip(),
             'dirty checkout')
-    entries = _git(root, 'ls-files', '-v', '-z').split('\0')
+    entries = git('ls-files', '-v', '-z').split('\0')
     require(all(entry.startswith('H ') for entry in entries if entry), 'hidden index flags')
-    require(not _git(root, 'ls-files', '--others', '--ignored', '--exclude-standard',
+    require(not git('ls-files', '--others', '--ignored', '--exclude-standard',
                      '--', 'src', '.mvn').strip(), 'ignored source/build input')
     names = [entry[2:] for entry in entries if entry]
     require(names and len(names) == len(set(names)), 'empty/duplicate source inventory')
