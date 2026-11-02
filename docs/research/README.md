@@ -31,7 +31,7 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 [固定既有动作回放设计](../design/heart-fixed-witness-replay.md)接续 #91 恢复的两条旧路径，提议仅在测试源码中回放固定22步，核对绝对消行与逐步post-clear棋盘；不重新生成seed、枚举或搜索。设计及实现分别完成最终独立Review/适用CI/正常合并后，才可登记唯一诊断；当前尚无新回放结果。它不复活终态证书或GoalWindow，不放宽Q/guard，不解锁#95/#96或runtime。
 
-设计已由 #155 接受；[输入与静态兼容性](heart-fixed-witness-replay-input.md)登记原22行的来源/hash、严格 test-only reader 和历史源码变化。当前阶段没有回放入口、父监督或执行许可，完整历史输入不进入 synthetic/CI 诊断。
+设计已由 #155 接受；[输入与静态兼容性](heart-fixed-witness-replay-input.md)登记原22行的来源/hash、严格 test-only reader 和历史源码变化。[回放与逐步证据实现](heart-fixed-witness-replay-evidence.md)增加生产动作重放、独占 journal 和不重放动作的结构检查器；仍缺独立父监督、构建来源认证及唯一登记，没有完整历史回放结果或执行许可。完整历史输入不进入 synthetic/CI 诊断。
 
 ## 已完成实验
 

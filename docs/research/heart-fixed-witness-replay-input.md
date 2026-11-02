@@ -1,6 +1,6 @@
 # 固定旧 witness 回放：输入与静态兼容性
 
-本阶段实施已接受的 [固定动作设计](../design/heart-fixed-witness-replay.md) 的输入前置：静态 fixture、逐行来源清单、严格 reader 和源码兼容性。**尚无回放入口、父监督、构建认证、报告检查器或唯一执行登记；不允许运行完整历史路径。** 不是新的搜索设计，也不是诊断结果。
+本文记录 #156 完成的 [固定动作设计](../design/heart-fixed-witness-replay.md) 输入前置：静态 fixture、逐行来源清单、严格 reader 和源码兼容性。后续 [回放与逐步证据实现](heart-fixed-witness-replay-evidence.md)已有回放组件与报告检查器；**仍无独立父监督、构建认证或唯一执行登记，不允许运行完整历史路径。** 不是新的搜索设计，也不是诊断结果。
 
 ## 固定输入
 
@@ -42,4 +42,4 @@ reader 没有读取 resource 的静态初始化、main、piece factory、棋盘�
 
 本阶段不改变架构、生产运行方式或 selector；新 `FixedWitnessInput*`/fixture/本文不命中现行 benchmark-sensitive 模式，预期 benchmark=none，仍需标准质量 CI。未修改 selector 以改变路由，也没有扩大 frozen guard。
 
-后续在最新主干完成同包逐步 replay/report、人工棋盘行为反例、独立父监督（build600s/JVM120s/parent180s/total900s、256/128MiB、10MiB输出）、真实 source/classpath/class认证和独立报告检查器。最终完整实现独立 Review、适用 CI、兼容性刷新和唯一执行登记前，不执行22步；本阶段合并不授予采集许可。#140/GoalWindow 停止，Q/原guard/冻结协议/#95/#96及runtime/default权限不变。
+同包逐步 replay/report、人工棋盘行为反例和独立报告检查器的接续见 [阶段二](heart-fixed-witness-replay-evidence.md)。后续仍须完成独立父监督（build600s/JVM120s/parent180s/total900s、256/128MiB、10MiB输出）、真实 source/classpath/class认证。最终完整实现独立 Review、适用 CI、兼容性刷新和唯一执行登记前，不执行22步；本阶段合并不授予采集许可。#140/GoalWindow 停止，Q/原guard/冻结协议/#95/#96及runtime/default权限不变。
