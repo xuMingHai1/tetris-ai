@@ -32,6 +32,11 @@ native/脚本漂移、额外文件及内部/外部/目录链接。Linux JUnit �
 skip；Windows 只运行适用的文件/配置用例，跳过部分不能作为 Linux 环境认证证据。
 人工文件不是 JDK，也没有执行 Java 或读取历史 fixture。
 
+本次额外修复 `test_fixed_witness_replay_process.py` 的既有测试辅助函数：真实 Linux CI
+读取已回收进程的 `/proc/<pid>/stat` 时还可能在 read 阶段抛 `ProcessLookupError`（ESRCH），
+原辅助函数只处理路径已移除的 `FileNotFoundError`。两种回收竞态均视为已停止；增加
+ESRCH 与权限异常必须传播的确定性反例，不改生产 process helper 或扩大异常吞并范围。
+
 仍缺：独立 clean Wrapper prepare、实际 JDK/Wrapper 版本进程观测与环境传递、普通 JVM
 verify-only/诊断入口、真实 argv/loaded-class 来源、前后 source/classpath/toolchain 清单绑定、
 独立保留 manifest digest、600/120/180/900 秒整体监督与 cleanup/finalize reserve、所有
