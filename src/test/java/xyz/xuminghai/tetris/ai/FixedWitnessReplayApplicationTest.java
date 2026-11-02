@@ -199,9 +199,7 @@ class FixedWitnessReplayApplicationTest {
     }
 
     private Process launch(Path root, Path output, List<String> extraFlags) throws Exception {
-        // The ordinary JVM needs the complete dependency classpath, not the modular test launcher.
-        var classpath = System.getProperty("surefire.test.class.path");
-        assertNotNull(classpath, "Surefire must provide the explicit dependency classpath");
+        var classpath = ordinaryClasspath();
         var home = Files.createTempDirectory(directory, "home").toRealPath();
         var temporary = Files.createTempDirectory(directory, "tmp").toRealPath();
         var args = new ArrayList<>(List.of(Path.of(System.getProperty("java.home"), "bin/java").toString(),
@@ -215,6 +213,29 @@ class FixedWitnessReplayApplicationTest {
         builder.environment().clear();
         builder.environment().put("LANG", "C.UTF-8");
         return builder.start();
+    }
+
+    @Test
+    void ordinaryClasspathContainsActualProductionAndJacksonModuleLocations() throws Exception {
+        var entries = List.of(ordinaryClasspath().split(java.util.regex.Pattern.quote(java.io.File.pathSeparator)));
+        for (var type : List.of(BoardSimulator.class, JsonMapper.class, FixedWitnessReplayApplication.class)) {
+            var origin = Path.of(type.getProtectionDomain().getCodeSource().getLocation().toURI()).toString();
+            assertTrue(entries.contains(origin), "missing actual dependency: " + type.getName());
+        }
+    }
+
+    private static String ordinaryClasspath() {
+        // Surefire separates named modules (including Jackson and production classes) from its
+        // test classpath. Flatten BOTH into the ordinary JVM; passing only test.class.path fails.
+        var entries = new java.util.LinkedHashSet<String>();
+        for (var key : List.of("jdk.module.path", "surefire.test.class.path")) {
+            var value = System.getProperty(key);
+            assertNotNull(value, "Surefire must provide " + key);
+            for (var entry : value.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator))) {
+                entries.add(Path.of(entry).toAbsolutePath().normalize().toString());
+            }
+        }
+        return String.join(java.io.File.pathSeparator, entries);
     }
 
     private String log(Path output) throws Exception {

@@ -34,6 +34,11 @@ Linux还以真实普通JVM检查READY等待、ACK后退出、EOF前缀保留、�
 Surefire使用named-module patch，人工class观察用独立普通loader，
 不放松入口的ordinary-classpath要求。
 
+首轮Linux CI在两项子JVM测试报 `NoClassDefFoundError: JsonMapper`；
+Surefire的test.class.path不含module path上的Jackson和生产class。
+本次新增修复把两组路径合成普通classpath，并增加实际生产/Jackson code source
+必须在子命令中的回归检查；不更改入口、依赖或构建配置，不重跑旧revision。
+
 class resource字节不是对内存bytecode的直接读取；严格无agent参数、父进程实际
 /proc观察、独立clean-build receipt和前后全部classpath/JDK/source身份须组合使用。
 这里不读取或认证receipt，不采RSS，不绑定环境allowlist或实际可执行文件，
