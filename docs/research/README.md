@@ -37,6 +37,8 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 [固定回放字节身份组件](heart-fixed-witness-replay-identity.md)绑定源码、编译资源和有序依赖字节，拒绝漂移与class shadow；尚未整合构建/加载观测/整体监督，不提供历史回放执行许可。
 
+[独立构建准备组件](heart-fixed-witness-replay-prepare.md)接通受控环境、实际Java/Maven版本观测和clean Wrapper构建的前后字节绑定；人工子进程不运行Java或历史22步，整体诊断来源/预算与唯一登记仍待完成。
+
 ## 已完成实验
 
 以下协议是**历史结果所用的固定样本**，不是所有入口的当前默认值。`g×p` 表示局数×piece limit；同 seed 保证 7-bag 序列，不保证 JavaFX 时序。表中入口类位于 `xyz.xuminghai.tetris.ai.benchmark`，可从 [源码目录](../../src/main/java/xyz/xuminghai/tetris/ai/benchmark) 查阅。目的、关键结果和采用结论逐行列出；完整观测值与局限见 [详细记录](ai-experiment-history.md)。

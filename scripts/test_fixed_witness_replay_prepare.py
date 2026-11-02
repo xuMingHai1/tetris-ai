@@ -1,0 +1,195 @@
+"""Artificial executables/classes only; no real build, Java or witness input."""
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import time
+import unittest
+from unittest.mock import patch
+
+from fixed_witness_replay_environment import WRAPPER_PROPERTIES
+from fixed_witness_replay_prepare import _dependencies, _versions, _write, prepare, verify_prepared
+from fixed_witness_replay_process import OutputBudget, run_process
+
+
+class FormatTest(unittest.TestCase):
+    def test_versions_bind_actual_major_release_and_runtime(self):
+        toolchain = {'java_version': '27.0.1', 'java_home': '/jdk'}
+        java = 'openjdk version "27.0.1" 2026\n'
+        maven = 'Apache Maven 3.9.16 (hash)\nJava version: 27.0.1, vendor: X, runtime: /jdk\n'
+        _versions(java, maven, toolchain)
+        for j, m in ((java.replace('27.0.1', '26'), maven),
+                     (java, maven.replace('3.9.16', '3.9.160')),
+                     (java, maven.replace('runtime: /jdk', 'runtime: /other')),
+                     (java, maven.replace('27.0.1', '27.0.2')),
+                     (java, '\x1b[0m' + maven)):
+            with self.subTest(java=j, maven=m), self.assertRaises(ValueError):
+                _versions(j, m, toolchain)
+
+    def test_manifest_digest_rejects_replacement_before_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory).resolve() / 'manifest.json'
+            _write(path, {'state': 'PREPARED'})
+            with self.assertRaisesRegex(ValueError, 'digest mismatch'):
+                verify_prepared(directory, directory, {'manifest': str(path), 'sha256': '0' * 64})
+            with self.assertRaises(FileExistsError):
+                _write(path, {})
+
+    def test_explicit_dependency_plugin_and_arguments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pom = root / 'pom.xml'
+            pom.write_text('<project xmlns="http://maven.apache.org/POM/4.0.0"><properties>'
+                           '<maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>'
+                           '</properties></project>')
+            args = _dependencies(root, root)
+            self.assertEqual(['clean', 'test-compile'], args[:2])
+            self.assertIn('org.apache.maven.plugins:maven-dependency-plugin:3.11.0:build-classpath', args)
+            pom.write_text('<project xmlns="http://maven.apache.org/POM/4.0.0"/>')
+            with self.assertRaisesRegex(ValueError, 'plugin version'):
+                _dependencies(root, root)
+
+
+@unittest.skipUnless(sys.platform == 'linux', 'real Linux process preparation required')
+class PreparationTest(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.base = Path(self.directory.name).resolve()
+        self.root, self.jdk, self.out = [self.base / name for name in ('source', 'jdk', 'output')]
+        for path in (self.root, self.jdk, self.out):
+            path.mkdir()
+        (self.root / '.mvn/wrapper').mkdir(parents=True)
+        (self.root / '.mvn/wrapper/maven-wrapper.properties').write_text(
+            ''.join(k + '=' + v + '\n' for k, v in WRAPPER_PROPERTIES.items()))
+        (self.root / '.gitignore').write_text('target/\n')
+        (self.root / 'pom.xml').write_text(
+            '<project xmlns="http://maven.apache.org/POM/4.0.0"><properties>'
+            '<maven-dependency-plugin.version>3.11.0</maven-dependency-plugin.version>'
+            '</properties></project>')
+        (self.jdk / 'release').write_text('JAVA_VERSION="27.0.1"\n')
+        for name in ('bin/java', 'bin/javac', 'lib/modules', 'lib/server/libjvm.so'):
+            path = self.jdk / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('artificial bytes')
+        self.executable(self.jdk / 'bin/java', 'print(\'openjdk version "27.0.1"\')')
+        self.wrapper('normal')
+
+    def executable(self, path, code):
+        path.write_text('#!' + sys.executable + '\n' + code + '\n')
+        path.chmod(0o755)
+
+    def wrapper(self, mode):
+        self.executable(self.root / 'mvnw', '''import os, sys, pathlib, zipfile
+root = pathlib.Path.cwd()
+mode = ''' + repr(mode) + '''
+assert 'PRIVATE_SENTINEL' not in os.environ
+assert 'JAVA_TOOL_OPTIONS' not in os.environ
+assert os.environ['MAVEN_SKIP_RC'] == '1'
+if '--version' in sys.argv:
+    print('Apache Maven 3.9.16 (artificial)')
+    print('Java version: 27.0.1, vendor: Artificial, runtime: ' + os.environ['JAVA_HOME'])
+    raise SystemExit(0)
+if mode == 'fail':
+    print('preserved failure prefix', flush=True)
+    raise SystemExit(7)
+if mode == 'source-drift':
+    (root / 'pom.xml').write_text('changed')
+if mode == 'toolchain-drift':
+    (pathlib.Path(os.environ['JAVA_HOME']) / 'lib/modules').write_text('changed')
+for base, name in [('target/classes', 'Production.class'), ('target/test-classes', 'Artificial.class')]:
+    path = root / base
+    path.mkdir(parents=True)
+    (path / name).write_bytes(b'artificial class bytes, never loaded')
+jars = [pathlib.Path(os.environ['HOME']) / name for name in ('z-last.jar', 'a-first.jar')]
+for index, jar in enumerate(jars):
+    with zipfile.ZipFile(jar, 'w') as archive:
+        archive.writestr('Dependency' + str(index) + '.class', b'artificial')
+cp = next(a.split('=', 1)[1] for a in sys.argv if a.startswith('-Dmdep.outputFile='))
+pathlib.Path(cp).write_text(':'.join(map(str, jars)))
+''')
+        self.git('init', '-q')
+        self.git('add', '.')
+        self.git('-c', 'user.name=Artificial', '-c', 'user.email=artificial@example.invalid',
+                 'commit', '-qm', 'artificial preparation fixture')
+
+    def git(self, *args):
+        subprocess.run(['git', *args], cwd=self.root, check=True, capture_output=True, timeout=10)
+
+    def prepare(self, **kwargs):
+        return prepare(self.root, self.jdk, self.out, OutputBudget(),
+                       total_deadline=time.monotonic() + 30, **kwargs)
+
+    def test_real_process_environment_and_retained_source_classpath_toolchain(self):
+        with patch.dict(os.environ, {'PRIVATE_SENTINEL': 'do-not-inherit',
+                                     'JAVA_TOOL_OPTIONS': 'poison', 'GIT_INDEX_FILE': '/invalid'}):
+            receipt = self.prepare()
+            manifest = verify_prepared(self.root, self.jdk, receipt)
+        self.assertFalse(manifest['diagnostic_started'])
+        self.assertEqual(['z-last.jar', 'a-first.jar'],
+                         [Path(p).name for p in manifest['classpath']['classpath'][2:]])
+        self.assertEqual(3, len(manifest['processes']))
+        self.assertTrue(all(p['state'] == 'EXITED' for p in manifest['processes']))
+        (self.root / 'target/classes/Production.class').write_bytes(b'changed')
+        with self.assertRaisesRegex(ValueError, 'drift'):
+            verify_prepared(self.root, self.jdk, receipt)
+
+    def test_existing_target_is_preserved_and_rejected(self):
+        target = self.root / 'target'
+        target.mkdir()
+        (target / 'keep').write_text('keep')
+        with self.assertRaisesRegex(ValueError, 'without target'):
+            self.prepare()
+        self.assertEqual('keep', (target / 'keep').read_text())
+        self.assertFalse((self.out / 'manifest.json').exists())
+
+    def test_nonzero_build_retains_prefix_and_failure(self):
+        self.wrapper('fail')
+        with self.assertRaisesRegex(ValueError, 'stage failed'):
+            self.prepare()
+        self.assertIn('preserved failure prefix', (self.out / 'clean-build-stdout.log').read_text())
+        failure = json.loads((self.out / 'failure.json').read_text())
+        self.assertEqual(7, failure['processes'][-1]['returncode'])
+        self.assertFalse((self.out / 'manifest.json').exists())
+
+    def test_source_change_during_build_never_creates_manifest(self):
+        self.wrapper('source-drift')
+        with self.assertRaisesRegex(ValueError, 'dirty checkout'):
+            self.prepare()
+        self.assertTrue((self.out / 'failure.json').exists())
+        self.assertFalse((self.out / 'manifest.json').exists())
+
+    def test_jdk_change_during_build_never_creates_manifest(self):
+        self.wrapper('toolchain-drift')
+        with self.assertRaisesRegex(ValueError, 'drift'):
+            self.prepare()
+        self.assertFalse((self.out / 'manifest.json').exists())
+
+    def test_shared_deadline_and_explicit_environment_are_reused(self):
+        deadlines, environments = [], []
+        def observed(*args, **kwargs):
+            deadlines.append(kwargs['total_deadline'])
+            environments.append(kwargs['environment'])
+            return run_process(*args, **kwargs)
+        with patch('fixed_witness_replay_prepare.run_process', side_effect=observed):
+            self.prepare()
+        self.assertEqual(3, len(deadlines))
+        self.assertEqual(1, len(set(deadlines)))
+        self.assertTrue(all(env == environments[0] for env in environments))
+
+    def test_process_explicit_environment_and_invalid_environment_rejection(self):
+        result = run_process([sys.executable, '-c',
+                              'import os; assert dict(os.environ) == {"ALLOWED": "yes", "LC_CTYPE": "C.UTF-8"}'],
+                             self.root, self.out, 'explicit-env', OutputBudget(), seconds=3,
+                             total_deadline=time.monotonic() + 5, environment={'ALLOWED': 'yes'})
+        self.assertEqual(('EXITED', 0), (result['state'], result['returncode']))
+        for env in ({'bad=name': 'x'}, {'X': 1}, {'X': 'null\0'}, []):
+            with self.assertRaisesRegex(ValueError, 'string environment'):
+                run_process([sys.executable], self.root, self.out, 'invalid-env', OutputBudget(),
+                            seconds=3, total_deadline=time.monotonic() + 5, environment=env)
+
+
+if __name__ == '__main__':
+    unittest.main()
