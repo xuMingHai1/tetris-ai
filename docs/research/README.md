@@ -27,9 +27,11 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 [GoalWindow机理复核](heart-goal-window-mechanism.md)保留原停止结论。[终态分解与落子顺序证书](../design/heart-terminal-certificate.md)的一次登记诊断已于2026-11-02执行：[结果及来源](heart-terminal-certificate-result.md)。共享2,000次生产枚举耗尽，27个分解、67个几何节点，没有完整order或Q证书；BOUNDED_MISS不是无解证明。停止该假设，不加预算/换排序/重跑；后续先只读复核既有证据，新假设另经设计审查。#95/#96、population、reserved/provider/runtime继续停止。
 
-## 固定旧 witness 的结构核验（设计候选）
+## 固定旧 witness 的结构核验
 
 [固定既有动作回放设计](../design/heart-fixed-witness-replay.md)接续 #91 恢复的两条旧路径，提议仅在测试源码中回放固定22步，核对绝对消行与逐步post-clear棋盘；不重新生成seed、枚举或搜索。设计及实现分别完成最终独立Review/适用CI/正常合并后，才可登记唯一诊断；当前尚无新回放结果。它不复活终态证书或GoalWindow，不放宽Q/guard，不解锁#95/#96或runtime。
+
+设计已由 #155 接受；[输入与静态兼容性](heart-fixed-witness-replay-input.md)登记原22行的来源/hash、严格 test-only reader 和历史源码变化。当前阶段没有回放入口、父监督或执行许可，完整历史输入不进入 synthetic/CI 诊断。
 
 ## 已完成实验
 

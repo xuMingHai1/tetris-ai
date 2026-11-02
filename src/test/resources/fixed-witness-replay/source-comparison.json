@@ -1,0 +1,175 @@
+{
+  "historical_commit": "e0f4a8bb997470dfaf1896234240c2eccbab1d63",
+  "implementation_base": "c771bbc39369eecdcb7f1ce548bed151153701dc",
+  "source": "Public GitHub codeload archives addressed by exact commit; source bytes only, not historical build provenance",
+  "files": [
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/ActionPlanSimulator.java",
+      "historical_sha256": "96fb0b9944ad62ffda69326aaa206a29c2d4caa53fc7b2104d19012a39d68036",
+      "implementation_base_sha256": "8c09ba9c86337362eaecdcf2158298f61783aa2d2db9678b9e9da83a64c081ae",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/ActionStateSearch.java",
+      "historical_sha256": "162dc399f4721ad53be41ccde569247c154a126cf43b8df6d368e28a8806d78a",
+      "implementation_base_sha256": "2ead0270f989e1a5ab4cb2f0d3b14c3b42690df6d29176062dc2e27137d8a8cc",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/AiAction.java",
+      "historical_sha256": "41192a88ee997b1cec3fd25f231b4abefd9a081eaafb94b9d6253fac39955489",
+      "implementation_base_sha256": "41192a88ee997b1cec3fd25f231b4abefd9a081eaafb94b9d6253fac39955489",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/AiPlan.java",
+      "historical_sha256": "d8277eb327d625d080a6e931dda596e77aaac5fc6ab60a2073c3584acc0a78fa",
+      "implementation_base_sha256": "d8277eb327d625d080a6e931dda596e77aaac5fc6ab60a2073c3584acc0a78fa",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/AiPlanValidator.java",
+      "historical_sha256": "49d25727c84763ef888708b695d89512536fdd375e04209174f5d8c8cfc423a6",
+      "implementation_base_sha256": "49d25727c84763ef888708b695d89512536fdd375e04209174f5d8c8cfc423a6",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/BoardOccupancyMetrics.java",
+      "historical_sha256": "f7f27767919fbc9997f25bb821bdb2b57c09ab2f9579df3819e9f82874f2004d",
+      "implementation_base_sha256": "e3bdd6bfa1ebfc49a438fadb1ec5f5007487acdea29b3d7d863011d06cb2e956",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/BoardSimulator.java",
+      "historical_sha256": "4fe0b62240d8842e80778651fe820b3c22255a4383a26c5b527e1c1642d1b666",
+      "implementation_base_sha256": "adf06e07d4cf048b0a0c874fc62dfb29f88f0f208d4c284ca52d6a4100146e9c",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/GameSnapshot.java",
+      "historical_sha256": "04b3addcd5073e360ca2774cc009fb3157c785ca3b013be55be7d81440be37ec",
+      "implementation_base_sha256": "24d8192994febec2986894e48844a9d503d368b4e4f426a8cb9402245d3604ab",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/PlacementCandidate.java",
+      "historical_sha256": "1e4baf6a9aa2141622fd5b9579141e851341adfeacaf5496388da4848386eb73",
+      "implementation_base_sha256": "1e4baf6a9aa2141622fd5b9579141e851341adfeacaf5496388da4848386eb73",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/ShapeProgress.java",
+      "historical_sha256": "2d2a61249a1a16fe54334230020d224266a3dfd1f3d40759b26249de53d15d9b",
+      "implementation_base_sha256": "2d2a61249a1a16fe54334230020d224266a3dfd1f3d40759b26249de53d15d9b",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/ShapeTarget.java",
+      "historical_sha256": "85653f23bf62654acb65b01a770cacfa9dfc5febd3cf597cc8e5a6a9fb36c6c7",
+      "implementation_base_sha256": "e1602c3769dbc7c95012143fe3f11bf2b72143ac8e70629c429d55c1f453b31b",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/ai/ShapeWitnessConstraintAudit.java",
+      "historical_sha256": "7ab368e71c3d5c33a9a531d7bfdeb6ba2cbd4c69b4a122023091b8f8d01a0bb8",
+      "implementation_base_sha256": "7ab368e71c3d5c33a9a531d7bfdeb6ba2cbd4c69b4a122023091b8f8d01a0bb8",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/Abstract2StateBlock.java",
+      "historical_sha256": "bde7cedc8781a18f108af42408800fdcba1fd14e1c95da4df616664f16862589",
+      "implementation_base_sha256": "d6c83c08e408800b1ae5332ca742c9069338f29f99f180e8b288817f972bebcb",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/Abstract4StateBlock.java",
+      "historical_sha256": "22a1c1a27e5e84bf196fab026e9446d9c393a03ff68f03f0de7cad1185528226",
+      "implementation_base_sha256": "6da823695efb7360c89a7022f01fe3b91129aefdb49648097b2c341fcaf99028",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/AbstractBlock.java",
+      "historical_sha256": "c091495544a7b5d61fe2abb83e308b729a1d958c301b0de592ead6b7cb3d53d0",
+      "implementation_base_sha256": "c091495544a7b5d61fe2abb83e308b729a1d958c301b0de592ead6b7cb3d53d0",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/BoardPosition.java",
+      "historical_sha256": "0ec230249da164cd33603403ac75ee584731598056e3dfce2ac106b8fac27755",
+      "implementation_base_sha256": "0ec230249da164cd33603403ac75ee584731598056e3dfce2ac106b8fac27755",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/BoardRules.java",
+      "historical_sha256": "d670ed9bd0da52dc6baf053970af155fe5212ab6a63785a51446bc50c4a8dabd",
+      "implementation_base_sha256": "d670ed9bd0da52dc6baf053970af155fe5212ab6a63785a51446bc50c4a8dabd",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/Cell.java",
+      "historical_sha256": "81765e5bdaaf0479ebf4131914384ca31f2c8fab51834e40a96c0b333a9092c2",
+      "implementation_base_sha256": "81765e5bdaaf0479ebf4131914384ca31f2c8fab51834e40a96c0b333a9092c2",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/IBlock.java",
+      "historical_sha256": "c5274f0f014ece9d4073f99fd1bfcdc71ad36cf1ffbba41dd4f8b75533c55974",
+      "implementation_base_sha256": "c5274f0f014ece9d4073f99fd1bfcdc71ad36cf1ffbba41dd4f8b75533c55974",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/JBlock.java",
+      "historical_sha256": "084dc1507881e2795604430ed32cc251fff7f06bf689f4dec8b65e1828489d42",
+      "implementation_base_sha256": "084dc1507881e2795604430ed32cc251fff7f06bf689f4dec8b65e1828489d42",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/LBlock.java",
+      "historical_sha256": "40af06c2e42f30052529539428f1eb1efc0dd44dd918bdc82f327c14829ad6bd",
+      "implementation_base_sha256": "40af06c2e42f30052529539428f1eb1efc0dd44dd918bdc82f327c14829ad6bd",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/OBlock.java",
+      "historical_sha256": "3c689e86e1f1c103da355c3e30312cd79942f7b5f7c83d51703c5b2a2e65c288",
+      "implementation_base_sha256": "3c689e86e1f1c103da355c3e30312cd79942f7b5f7c83d51703c5b2a2e65c288",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/SBlock.java",
+      "historical_sha256": "0f9ae8330b320c86e243d9d8f9b7250caf7fe166ab97e06c980f911383d85a5c",
+      "implementation_base_sha256": "0f9ae8330b320c86e243d9d8f9b7250caf7fe166ab97e06c980f911383d85a5c",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/TBlock.java",
+      "historical_sha256": "e39a39b83a88faa256d8247cc9b4ef70b69bd11be1f1ca1817b73a0f0ce09116",
+      "implementation_base_sha256": "e39a39b83a88faa256d8247cc9b4ef70b69bd11be1f1ca1817b73a0f0ce09116",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/Tetris.java",
+      "historical_sha256": "14b41c08a63805d76c82e845639942cf0c49800e272519d840a58565860c6acb",
+      "implementation_base_sha256": "f73110b10c50af212c3fd33afbf83d158462ab0efd216a271af7f4b382bc1103",
+      "identical_bytes": false
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/TetrisFactory.java",
+      "historical_sha256": "b3343fe38d341100972a47e9bfe1cf8b7f28d7c24020d2b4fd2cfd077c81e218",
+      "implementation_base_sha256": "b3343fe38d341100972a47e9bfe1cf8b7f28d7c24020d2b4fd2cfd077c81e218",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/TetrominoType.java",
+      "historical_sha256": "b33428c0a6cfbedbb45ff7d7606194c796a9861e8abc37eaade782044450ac64",
+      "implementation_base_sha256": "b33428c0a6cfbedbb45ff7d7606194c796a9861e8abc37eaade782044450ac64",
+      "identical_bytes": true
+    },
+    {
+      "path": "src/main/java/xyz/xuminghai/tetris/core/ZBlock.java",
+      "historical_sha256": "bad3f73039052216536748e2b34435ba5f15bb592ff980f20d4c3ddd8844525c",
+      "implementation_base_sha256": "bad3f73039052216536748e2b34435ba5f15bb592ff980f20d4c3ddd8844525c",
+      "identical_bytes": true
+    }
+  ]
+}

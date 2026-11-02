@@ -1,0 +1,199 @@
+{
+  "schema": "FixedWitnessInputV1",
+  "fixture": "historical-witness.csv",
+  "encoding": "UTF-8",
+  "newlines": "LF",
+  "final_lf": true,
+  "input_sha256": "1282206df0bebbc2ddf6efd3a9a631f9691edbd05f585eb782ec6a38e78377fc",
+  "input_bytes": 4689,
+  "header": "shape_feasibility_witness,seed,step,piece,actions",
+  "placements": 22,
+  "paths": [
+    {
+      "id": "1001",
+      "placements": 12
+    },
+    {
+      "id": "1008",
+      "placements": 10
+    }
+  ],
+  "source_issue": "https://github.com/xuMingHai1/tetris-ai/issues/91#issuecomment-6576326754",
+  "canonical_run": 35857294015,
+  "canonical_job": 107168719470,
+  "historical_sha": "e0f4a8bb997470dfaf1896234240c2eccbab1d63",
+  "implementation_base": "c771bbc39369eecdcb7f1ce548bed151153701dc",
+  "cross_check_runs": [
+    35848129668,
+    35850242047,
+    35857294015
+  ],
+  "saved_decoded_log_sha256": {
+    "29": "7d9cf5938b9fbea405f09432ea20dc88c89dbe1c867c550e009ea80265135329",
+    "30": "7a572958fcc182d15e02d6b35f15a5c01af8a3f6c1c46f52faa1609c05931254",
+    "31": "fd1931913dc45f499bf3b466df5e4f4dfa7e86fdc1504295ce61b6392feeb564"
+  },
+  "saved_extracted_csv_sha256": "6f30373ddfe4c899b53e631404b745fe998c6e7ac9cb330ab193c01b2d0f4da1",
+  "saved_extracted_csv_newlines": "CRLF; original retained unchanged; fixture is a new LF transcription of identical rows",
+  "rows": [
+    {
+      "source_line": 2,
+      "path_id": "1001",
+      "step": 1,
+      "piece": "T",
+      "action_count": 21
+    },
+    {
+      "source_line": 3,
+      "path_id": "1001",
+      "step": 2,
+      "piece": "Z",
+      "action_count": 17
+    },
+    {
+      "source_line": 4,
+      "path_id": "1001",
+      "step": 3,
+      "piece": "O",
+      "action_count": 18
+    },
+    {
+      "source_line": 5,
+      "path_id": "1001",
+      "step": 4,
+      "piece": "S",
+      "action_count": 23
+    },
+    {
+      "source_line": 6,
+      "path_id": "1001",
+      "step": 5,
+      "piece": "L",
+      "action_count": 18
+    },
+    {
+      "source_line": 7,
+      "path_id": "1001",
+      "step": 6,
+      "piece": "J",
+      "action_count": 16
+    },
+    {
+      "source_line": 8,
+      "path_id": "1001",
+      "step": 7,
+      "piece": "I",
+      "action_count": 15
+    },
+    {
+      "source_line": 9,
+      "path_id": "1001",
+      "step": 8,
+      "piece": "Z",
+      "action_count": 20
+    },
+    {
+      "source_line": 10,
+      "path_id": "1001",
+      "step": 9,
+      "piece": "T",
+      "action_count": 18
+    },
+    {
+      "source_line": 11,
+      "path_id": "1001",
+      "step": 10,
+      "piece": "O",
+      "action_count": 11
+    },
+    {
+      "source_line": 12,
+      "path_id": "1001",
+      "step": 11,
+      "piece": "S",
+      "action_count": 17
+    },
+    {
+      "source_line": 13,
+      "path_id": "1001",
+      "step": 12,
+      "piece": "I",
+      "action_count": 15
+    },
+    {
+      "source_line": 14,
+      "path_id": "1008",
+      "step": 1,
+      "piece": "J",
+      "action_count": 22
+    },
+    {
+      "source_line": 15,
+      "path_id": "1008",
+      "step": 2,
+      "piece": "S",
+      "action_count": 18
+    },
+    {
+      "source_line": 16,
+      "path_id": "1008",
+      "step": 3,
+      "piece": "O",
+      "action_count": 16
+    },
+    {
+      "source_line": 17,
+      "path_id": "1008",
+      "step": 4,
+      "piece": "I",
+      "action_count": 15
+    },
+    {
+      "source_line": 18,
+      "path_id": "1008",
+      "step": 5,
+      "piece": "L",
+      "action_count": 22
+    },
+    {
+      "source_line": 19,
+      "path_id": "1008",
+      "step": 6,
+      "piece": "Z",
+      "action_count": 21
+    },
+    {
+      "source_line": 20,
+      "path_id": "1008",
+      "step": 7,
+      "piece": "T",
+      "action_count": 21
+    },
+    {
+      "source_line": 21,
+      "path_id": "1008",
+      "step": 8,
+      "piece": "Z",
+      "action_count": 14
+    },
+    {
+      "source_line": 22,
+      "path_id": "1008",
+      "step": 9,
+      "piece": "T",
+      "action_count": 17
+    },
+    {
+      "source_line": 23,
+      "path_id": "1008",
+      "step": 10,
+      "piece": "L",
+      "action_count": 20
+    }
+  ],
+  "limits": [
+    "Static input transcription only; no historical replay or generator execution",
+    "Decoded logs are not original artifact ZIP or historical classpath authentication",
+    "Full implementation and unique execution registration remain pending"
+  ]
+}
