@@ -106,11 +106,17 @@ else:
         else:
             self.fail('descendant still running after cleanup')
 
-    def test_parent_sigterm_preserves_logs_and_kills_child(self):
+    def test_repeated_parent_sigterm_preserves_logs_and_kills_child(self):
         wrapper = self.root / 'wrapper.py'
         scripts = str(Path(__file__).resolve().parent)
         wrapper.write_text('import sys,time\nsys.path.insert(0,' + repr(scripts) + ')\n'
                            'from fixed_witness_replay_process import *\n'
+                           'real_killpg=os.killpg\n'
+                           'def repeated_cancel(pid,sig):\n'
+                           '    os.kill(os.getpid(),signal.SIGTERM)\n'
+                           '    os.kill(os.getpid(),signal.SIGINT)\n'
+                           '    real_killpg(pid,sig)\n'
+                           'os.killpg=repeated_cancel\n'
                            'r=run_process([sys.executable,"-c","import os,time; print(os.getpid(),flush=True); time.sleep(30)"],'
                            + repr(str(self.root)) + ',' + repr(str(self.root)) + ',"signal",OutputBudget(),'
                            'seconds=10,total_deadline=time.monotonic()+15)\n'

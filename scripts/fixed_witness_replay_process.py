@@ -57,12 +57,12 @@ def _seconds(value):
 
 @contextmanager
 def _cancellation():
-    state = {'launching': False, 'signal': None}
+    state = {'signal': None}
 
     def cancel(number, frame):
+        # Never raise inside Popen construction or cleanup. Repeated signals
+        # only record cancellation; the bounded poll loop acts on the flag.
         state['signal'] = number
-        if not state['launching']:
-            raise InterruptedError('received signal ' + str(number))
 
     previous = {number: signal.signal(number, cancel) for number in (signal.SIGINT, signal.SIGTERM)}
     try:
@@ -109,13 +109,9 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline):
             (output / (name + '-stderr.log')).open('xb') as stderr, \
             selectors.DefaultSelector() as selector, _cancellation() as cancellation:
         try:
-            cancellation['launching'] = True
-            try:
-                process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL,
-                                           stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                           start_new_session=True)
-            finally:
-                cancellation['launching'] = False
+            process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       start_new_session=True)
             result['pid'] = process.pid
             if cancellation['signal'] is not None:
                 raise InterruptedError('received signal during launch')
@@ -123,6 +119,9 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline):
                 os.set_blocking(pipe.fileno(), False)
                 selector.register(pipe, selectors.EVENT_READ, sink)
             while True:
+                if cancellation['signal'] is not None:
+                    result.update(state='INTERRUPTED', error='received signal ' + str(cancellation['signal']))
+                    break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     result['state'] = 'TIMEOUT'
@@ -148,9 +147,7 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline):
         except OSError as error:
             result.update(state='PROCESS_ERROR', error=str(error))
         finally:
-            # Ignore repeated cancellation until group KILL and reaping finish.
-            for number in (signal.SIGINT, signal.SIGTERM):
-                signal.signal(number, signal.SIG_IGN)
+            # The handler only records signals, including during group cleanup.
             if process is not None:
                 try:
                     os.killpg(process.pid, signal.SIGKILL)
