@@ -23,6 +23,10 @@ terminal-certificate prepare、source-state 或 frozen guard。
 Windows 的 symlink/真实 Git 用例可跳过，不当作 Linux 证据。其余 source 拒绝反例用 mock
 隔离 Git 命令响应，并非历史构建认证。
 
+本次 Linux CI 另发现原进程测试在 `/proc/<pid>/stat` exists/read 间被 init 回收的竞态。
+测试改为一次读取并接受 FileNotFoundError，增加确定性的回收/存活/zombie 反例；
+进程桥接相应强制 10 项用例。未修改生产进程监督逻辑或降低存活子进程失败条件。
+
 仍待整体实现：600 秒 clean build、普通 JVM verify-only/诊断入口与真实 loaded-class/argv
 观测、JDK/Wrapper/environment 认证、独立 retained manifest digest、前后漂移检查整合、
 120/180/900 秒监督及 cleanup reserve、全 artifact+pipe 合计 10MiB、实际 journal checker、

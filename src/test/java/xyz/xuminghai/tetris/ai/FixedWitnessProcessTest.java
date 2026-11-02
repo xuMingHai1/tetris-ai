@@ -31,7 +31,7 @@ class FixedWitnessProcessTest {
             assertTrue(process.waitFor(45, TimeUnit.SECONDS), "artificial process tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 9 tests"), output);
+            assertTrue(output.contains("Ran 10 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {
