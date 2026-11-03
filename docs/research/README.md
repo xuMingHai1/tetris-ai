@@ -29,6 +29,8 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 ## 固定旧 witness 的结构核验
 
+[诊断 JVM 网络拒绝设计](heart-fixed-witness-replay-network.md)比较启动前 OS 机制，提出保持普通 JVM PID/argv/握手的 seccomp 方案及有界人工反例验收；当前仅设计候选，尚无网络隔离实测或历史执行许可。
+
 [普通 JVM 观测与握手组件](heart-fixed-witness-replay-jvm.md)提供无回放的verify-only入口，
 在READY后等待父认证ACK，记录相关class实际来源/hash并检查漂移；
 整体来源认证、网络限制、总预算与唯一登记尚待集成，不提供历史22步执行许可。
