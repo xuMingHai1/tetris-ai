@@ -125,7 +125,7 @@ class FixedWitnessReplayTest {
     @Test
     void rejectsWrongInputAndMissingExpectationsBeforeAnyReplayAndPreservesOldJournal() throws Exception {
         var output = directory.resolve("bad-input.jsonl");
-        var result = FixedWitnessReplay.run(bytes(CSV), "0".repeat(64), PATHS, EXPECTED, output);
+        var result = FixedWitnessReplay.run(bytes(CSV), "0".repeat(64), PATHS, EXPECTED, output, quota(10 * 1024 * 1024));
         assertEquals(FixedWitnessReplay.Status.INVALID, result.status());
         assertEquals(0, result.attempted());
         byte[] original = Files.readAllBytes(output);
@@ -175,6 +175,75 @@ class FixedWitnessReplayTest {
         assertThrows(IllegalArgumentException.class, () -> read(directory.resolve("false.jsonl")));
     }
 
+
+    @Test
+    void chargesExactUtf8IncludingLfAndStopsBeforeEveryUnfundedEvent() throws Exception {
+        var complete = directory.resolve("quota-complete.jsonl");
+        run(CSV, EXPECTED, complete);
+        byte[] full = Files.readAllBytes(complete);
+        int offset = 0;
+        int eventIndex = 0;
+        for (String line : Files.readAllLines(complete)) {
+            int eventBytes = bytes(line + "\n").length;
+            var output = directory.resolve("limited-" + eventIndex++ + ".jsonl");
+            // One byte short of each next complete event: no partial record or false END.
+            var quota = quota(offset + eventBytes - 1);
+            assertThrows(java.io.IOException.class, () ->
+                    FixedWitnessReplay.run(bytes(CSV), hash(CSV), PATHS, EXPECTED, output, quota));
+            if (offset == 0) {
+                assertFalse(Files.exists(output));
+            } else {
+                assertArrayEquals(Arrays.copyOf(full, offset), Files.readAllBytes(output));
+                assertEquals(FixedWitnessJournalReader.State.INCOMPLETE, read(output).state());
+            }
+            offset += eventBytes;
+        }
+        assertEquals(full.length, offset);
+        var exact = directory.resolve("exact.jsonl");
+        var exactQuota = quota(full.length);
+        assertEquals(FixedWitnessReplay.Status.COMPLETE,
+                FixedWitnessReplay.run(bytes(CSV), hash(CSV), PATHS, EXPECTED, exact, exactQuota).status());
+        assertArrayEquals(full, Files.readAllBytes(exact));
+        assertThrows(java.io.IOException.class, () -> exactQuota.charge(1));
+    }
+
+    @Test
+    void chargesMultibyteEventsAndSharesAllowanceAcrossJournalsWithoutRefund() throws Exception {
+        var json = JsonMapper.builder().build();
+        var unicodePaths = List.of(new FixedWitnessInput.PathSpec("7", 1));
+        var unicodeExpected = Map.of("7", expected(0));
+        var start = Map.of("event", "START", "schema", 1, "inputHash", "你好",
+                "paths", List.of(Map.of("id", "7", "placements", 1)),
+                "expected", FixedWitnessReportCodec.expected(unicodeExpected));
+        String encoded = json.writeValueAsString(start) + "\n";
+        assertTrue(bytes(encoded).length > encoded.length());
+        var unicode = directory.resolve("unicode.jsonl");
+        assertThrows(java.io.IOException.class, () -> FixedWitnessReplay.run(bytes(CSV), "你好",
+                unicodePaths, unicodeExpected, unicode, quota(bytes(encoded).length - 1)));
+        assertFalse(Files.exists(unicode));
+
+        var reference = directory.resolve("reference.jsonl");
+        run(CSV, EXPECTED, reference);
+        int startBytes = bytes(Files.readAllLines(reference).getFirst() + "\n").length;
+        var shared = quota(startBytes);
+        assertThrows(FileAlreadyExistsException.class, () ->
+                FixedWitnessReplay.run(bytes(CSV), hash(CSV), PATHS, EXPECTED, reference, shared));
+        var next = directory.resolve("after-failed-open.jsonl");
+        assertThrows(java.io.IOException.class, () ->
+                FixedWitnessReplay.run(bytes(CSV), hash(CSV), PATHS, EXPECTED, next, shared));
+        assertFalse(Files.exists(next));
+        var missing = quota(startBytes);
+        assertThrows(java.nio.file.NoSuchFileException.class, () -> FixedWitnessReplay.run(bytes(CSV),
+                hash(CSV), PATHS, EXPECTED, directory.resolve("missing/journal"), missing));
+        assertThrows(java.io.IOException.class, () -> missing.charge(1));
+        assertThrows(IllegalArgumentException.class, () -> quota(0));
+        assertThrows(IllegalArgumentException.class, () -> quota(10 * 1024 * 1024 + 1));
+    }
+
+    private static FixedWitnessReplay.JournalQuota quota(int bytes) {
+        return new FixedWitnessReplay.JournalQuota(bytes);
+    }
+
     private static FixedWitnessInput.Step step(TetrominoType type, AiAction... actions) {
         return new FixedWitnessInput.Step("7", 1, 2, type, new AiPlan(List.of(actions)));
     }
@@ -188,7 +257,7 @@ class FixedWitnessReplayTest {
 
     private static FixedWitnessReplay.Result run(String csv,
             Map<String, FixedWitnessReportChecker.Expected> expected, Path output) throws Exception {
-        return FixedWitnessReplay.run(bytes(csv), hash(csv), PATHS, expected, output);
+        return FixedWitnessReplay.run(bytes(csv), hash(csv), PATHS, expected, output, quota(10 * 1024 * 1024));
     }
 
     private static FixedWitnessJournalReader.Summary read(Path path) throws Exception {
