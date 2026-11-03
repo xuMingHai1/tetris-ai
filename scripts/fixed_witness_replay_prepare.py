@@ -17,13 +17,17 @@ from fixed_witness_replay_identity import (
     canonical, classpath_identity, require, sha256, source_identity, verify_identity,
 )
 from fixed_witness_replay_process import BUILD_SECONDS, TOTAL_SECONDS, OutputBudget, run_process
+from fixed_witness_replay_quota import write_exclusive
 
 
-def _write(path, value):
-    with path.open('x', encoding='utf-8', newline='\n') as stream:
-        json.dump(value, stream, sort_keys=True, separators=(',', ':'), allow_nan=False)
-        stream.write('\n')
-        stream.flush()
+# Reserved from the SAME root before any preparation output, never extra credit.
+FAILURE_BYTES = 4096
+
+
+def _write(path, value, quota):
+    data = (json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+            + '\n').encode('utf-8')
+    write_exclusive(path, data, quota)
 
 
 def _dependencies(root, output):
@@ -57,7 +61,12 @@ def prepare(root, java_home, output, budget, *, total_deadline):
     Refuse any existing target instead of deleting caller data. All version
     observations and the Wrapper build share ONE 600s deadline; the supplied
     whole-command deadline is capped at 900s and is never reset by this helper.
-    Failures retain logs and a failure record, never a successful manifest.
+    Parent JSON artifacts and pipes share budget.quota. A permanent 4096-byte
+    failure reservation is allocated before output; failure.json deliberately
+    contains bounded error text, counters and the last stage's numeric outcome,
+    not repeated commands or inventories. This keeps the original stop evidence
+    even when the normal stage-result artifact itself cannot fit.
+    Maven's classpath file and other external writers are not yet constrained.
     """
     require(sys.platform == 'linux', 'Linux clean-build preparation required')
     started = time.monotonic()
@@ -71,6 +80,7 @@ def prepare(root, java_home, output, budget, *, total_deadline):
                 for a, b in ((root, output), (root, java_home), (output, java_home))),
             'source/toolchain/output must be disjoint')
     build_deadline = min(started + BUILD_SECONDS, total_deadline)
+    failure_quota = budget.quota.reserve(FAILURE_BYTES)
     records = []
     try:
         require(not (root / 'target').exists() and not (root / 'target').is_symlink(),
@@ -82,13 +92,13 @@ def prepare(root, java_home, output, budget, *, total_deadline):
         source = source_identity(root, environment=environment)
         toolchain = toolchain_identity(root, java_home)
         _write(output / 'before.json', {'source': source, 'toolchain': toolchain,
-                                       'environment': environment})
+                                       'environment': environment}, budget.quota)
 
         def run(name, command):
             result = run_process(command, root, output, name, budget, seconds=BUILD_SECONDS,
                                  total_deadline=build_deadline, environment=environment)
             records.append(result)
-            _write(output / (name + '-result.json'), result)
+            _write(output / (name + '-result.json'), result, budget.quota)
             require(result['state'] == 'EXITED' and result['returncode'] == 0,
                     'preparation stage failed: ' + name)
             return ''.join((output / (name + '-' + suffix + '.log')).read_text(
@@ -112,11 +122,20 @@ def prepare(root, java_home, output, budget, *, total_deadline):
                     'elapsed_seconds': time.monotonic() - started,
                     'diagnostic_started': False}
         path = output / 'manifest.json'
-        _write(path, manifest)
+        _write(path, manifest, budget.quota)
         return {'manifest': str(path), 'sha256': sha256(path)}
     except Exception as error:
-        _write(output / 'failure.json', {'state': 'INCOMPLETE', 'error': str(error),
-                                        'processes': records, 'diagnostic_started': False})
+        last = None if not records else {
+            key: records[-1][key] for key in (
+                'state', 'returncode', 'stdout_stderr_bytes', 'observed_bytes_lower_bound')}
+        _write(output / 'failure.json', {'state': 'INCOMPLETE',
+                                        'error': str(error)[:128],
+                                        'error_type': type(error).__name__[:64],
+                                        'completed_processes': len(records),
+                                        'last_process': last,
+                                        'stdout_stderr_bytes': budget.written,
+                                        'observed_bytes_lower_bound': budget.observed,
+                                        'diagnostic_started': False}, failure_quota)
         raise
 
 
