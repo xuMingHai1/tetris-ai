@@ -69,7 +69,7 @@ class ContractTest(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == 'linux', 'actual Linux seccomp required')
 class KernelTest(unittest.TestCase):
-    """Eight launched probe leaders plus one controlled fork; no retry.
+    """Twelve launched probe leaders plus two controlled forks; no retry.
 
     This component suite excludes preparation/JVM and cannot certify the full
     design acceptance suite. All probe pipes share one permanent byte budget.
@@ -86,7 +86,7 @@ class KernelTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name).resolve()
 
-    def run_probe(self, mode, *, change=None, seconds=5):
+    def run_probe(self, mode, *, change=None, seconds=5, budget=None):
         from fixed_witness_replay_process import run_process
         target = [str(Path(sys.executable).resolve()), '-I', '-B', str(Path(__file__).resolve()), mode]
         record = network.chain(target)
@@ -94,7 +94,7 @@ class KernelTest(unittest.TestCase):
             change(record)
         # Invalid launcher records are deliberately serialized without parent validation.
         command = [record['python'], '-I', '-B', record['launcher'], network.encoded(record)]
-        return run_process(command, self.root, self.root, mode, self.budget,
+        return run_process(command, self.root, self.root, mode, self.budget if budget is None else budget,
                            seconds=seconds, total_deadline=self.deadline,
                            environment={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'})
 
@@ -123,6 +123,46 @@ class KernelTest(unittest.TestCase):
         result = self.run_probe('missing', change=lambda r: r['library'].update(path='/no-such-libseccomp'))
         self.assertEqual(78, result['returncode'], result)
         self.assertFalse((self.root / 'marker').exists())
+
+    def test_wrong_library_and_hash_never_execute_marker(self):
+        def wrong_library(record):
+            # A real canonical file with a matching digest, but not libseccomp.
+            record['library'].update(path=record['python'], sha256=record['python_sha256'])
+        for mode, change in (
+                ('wrong-library', wrong_library),
+                ('wrong-hash', lambda r: r['library'].update(sha256='0' * 64))):
+            with self.subTest(mode=mode):
+                result = self.run_probe(mode, change=change)
+                self.assertEqual(78, result['returncode'], result)
+                self.assertFalse((self.root / 'marker').exists())
+
+    def test_isolated_leader_exit_cleans_pipe_holding_descendant(self):
+        from test_fixed_witness_replay_process import stopped_process
+        result = self.run_probe('leader-exit', seconds=1)
+        self.assertEqual('TIMEOUT', result['state'], result)
+        pid = int((self.root / 'leader-exit-stdout.log').read_text())
+        deadline = min(self.deadline, time.monotonic() + 1)
+        while not stopped_process(pid) and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertTrue(stopped_process(pid), 'isolated descendant still running')
+
+    def test_isolated_output_limit_retains_exact_prefix_and_reservation(self):
+        from fixed_witness_replay_process import OutputBudget
+        child = self.budget.quota.reserve(256)
+        budget = OutputBudget(256, quota=child)
+        charged = self.budget.quota.charged
+        result = self.run_probe('quota', budget=budget)
+        self.assertEqual('OUTPUT_LIMIT', result['state'], result)
+        self.assertEqual(b'x' * 256, (self.root / 'quota-stdout.log').read_bytes())
+        self.assertEqual(b'', (self.root / 'quota-stderr.log').read_bytes())
+        self.assertEqual(256, budget.written)
+        self.assertEqual(charged, self.budget.quota.charged)
+        with self.assertRaises(ProcessLookupError): os.kill(result['pid'], 0)
+        # An exhausted child cannot launch again or refund its permanent reservation.
+        with self.assertRaisesRegex(ValueError, 'budget exhausted before launch'):
+            self.run_probe('quota-again', budget=budget)
+        self.assertFalse((self.root / 'quota-again-stdout.log').exists())
+        self.assertEqual(charged, self.budget.quota.charged)
 
     def test_timeout_and_exec_failure_preserve_supervision(self):
         result = self.run_probe('timeout', seconds=.2)
@@ -218,12 +258,23 @@ def probe(mode):
         raise AssertionError('compat ABI was not killed')
     elif mode == 'timeout':
         time.sleep(30)
+    elif mode == 'leader-exit':
+        child = os.fork()
+        if child == 0:
+            time.sleep(30)
+            os._exit(0)
+        os.write(1, str(child).encode('ascii'))
+        os._exit(0)
+    elif mode == 'quota':
+        os.write(1, b'x' * 1024)
+        time.sleep(30)
     else:
         Path('marker').write_text('EXECUTED')
 
 
 if __name__ == '__main__':
-    if len(sys.argv) == 2 and sys.argv[1] in ('native', 'x32', 'compat', 'marker', 'missing', 'timeout'):
+    if len(sys.argv) == 2 and sys.argv[1] in ('native', 'x32', 'compat', 'marker', 'missing', 'timeout',
+                                           'wrong-library', 'wrong-hash', 'leader-exit', 'quota'):
         probe(sys.argv[1])
     else:
         unittest.main()
