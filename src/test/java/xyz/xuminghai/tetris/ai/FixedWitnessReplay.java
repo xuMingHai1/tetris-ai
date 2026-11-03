@@ -34,18 +34,23 @@ final class FixedWitnessReplay {
      * not a manufactured COMPLETE. No caller may retry a registered historical session.
      */
     static Result run(byte[] bytes, String inputHash, List<FixedWitnessInput.PathSpec> paths,
-                      Map<String, FixedWitnessReportChecker.Expected> expected, Path journal)
+                      Map<String, FixedWitnessReportChecker.Expected> expected, Path journal,
+                      JournalQuota quota)
             throws IOException {
         paths = List.copyOf(paths);
         expected = Map.copyOf(expected);
+        Objects.requireNonNull(quota, "quota");
         List<Row> rows = new ArrayList<>();
         int attempted = 0;
+        byte[] start = encode(Map.of("event", "START", "schema", 1,
+                "inputHash", inputHash, "paths", paths.stream()
+                        .map(path -> Map.of("id", path.id(), "placements", path.placements())).toList(),
+                "expected", FixedWitnessReportCodec.expected(expected)));
+        // Charge START before CREATE_NEW, including failures to open an existing/unwritable file.
+        quota.charge(start.length);
         try (FileChannel channel = FileChannel.open(journal,
                 StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-            append(channel, Map.of("event", "START", "schema", 1,
-                    "inputHash", inputHash, "paths", paths.stream()
-                            .map(path -> Map.of("id", path.id(), "placements", path.placements())).toList(),
-                    "expected", FixedWitnessReportCodec.expected(expected)));
+            writeForced(channel, start);
             Status status = Status.INVALID;
             String reason = "";
             try {
@@ -66,11 +71,11 @@ final class FixedWitnessReplay {
                     // using shared rules before a HARD_DROP-only plan could escape it.
                     var snapshot = BoardSimulator.snapshotForSpawnedPiece(board, step.piece());
                     requireSpawn(snapshot);
-                    append(channel, Map.of("event", "ATTEMPT", "attempt", ++attempted,
+                    append(channel, quota, Map.of("event", "ATTEMPT", "attempt", ++attempted,
                             "pathId", step.pathId(), "step", step.step()));
                     var placement = ActionPlanSimulator.requireTerminalPlacement(snapshot, step.plan());
                     Row row = describe(board, placement, step, inputHash, cumulativeClears);
-                    append(channel, Map.of("event", "STEP", "row", FixedWitnessReportCodec.row(row)));
+                    append(channel, quota, Map.of("event", "STEP", "row", FixedWitnessReportCodec.row(row)));
                     rows.add(row);
                     board = placement.resultingBoard();
                     cumulativeClears = row.cumulativeClears();
@@ -89,7 +94,7 @@ final class FixedWitnessReplay {
                 reason = exception.getMessage();
             }
             Result result = new Result(status, attempted, rows, reason);
-            append(channel, Map.of("event", "END", "status", status.name(),
+            append(channel, quota, Map.of("event", "END", "status", status.name(),
                     "attempted", attempted, "completed", rows.size(), "reason", reason));
             return result;
         }
@@ -138,11 +143,43 @@ final class FixedWitnessReplay {
         return new Occupancy(value, FixedWitnessInput.sha256(value.getBytes(StandardCharsets.UTF_8)), occupied);
     }
 
-    private static void append(FileChannel channel, Object event) throws IOException {
-        ByteBuffer bytes = ByteBuffer.wrap((JSON.writeValueAsString(event) + "\n")
-                .getBytes(StandardCharsets.UTF_8));
+    private static byte[] encode(Object event) {
+        return (JSON.writeValueAsString(event) + "\n").getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static void append(FileChannel channel, JournalQuota quota, Object event) throws IOException {
+        byte[] bytes = encode(event);
+        quota.charge(bytes.length);
+        writeForced(channel, bytes);
+    }
+
+    private static void writeForced(FileChannel channel, byte[] encoded) throws IOException {
+        ByteBuffer bytes = ByteBuffer.wrap(encoded);
         while (bytes.hasRemaining()) channel.write(bytes);
         channel.force(true);
+    }
+
+    /**
+     * Cooperative child allowance, permanently reserved by a future parent before JVM launch.
+     * Share one instance across journals; it cannot enforce unmodified writers or parent pipes.
+     * Checked I/O failure escapes the INVALID handler, preserving the forced INCOMPLETE prefix.
+     */
+    static final class JournalQuota {
+        private final int limit;
+        private int charged;
+
+        JournalQuota(int limit) {
+            if (limit <= 0 || limit > 10 * 1024 * 1024) {
+                throw new IllegalArgumentException("journal allowance must be within frozen 10MiB");
+            }
+            this.limit = limit;
+        }
+
+        synchronized void charge(int bytes) throws IOException {
+            if (bytes < 0) throw new IllegalArgumentException("negative byte count");
+            if (bytes > limit - charged) throw new IOException("journal output allowance exhausted");
+            charged += bytes;
+        }
     }
 
     enum Status { COMPLETE, INVALID, EVIDENCE_MISMATCH }

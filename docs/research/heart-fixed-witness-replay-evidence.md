@@ -27,3 +27,23 @@ Windows checkout 会把未固定 eol 的 CSV 检出为 CRLF，本地字节 hash 
 从阶段二最终合并后的最新 default branch 建新分支，独立实现 `scripts/fixed_witness_replay*` 及普通JVM入口、600s clean Wrapper build、120s JVM /180s父监督/900s整体限制、256m heap/128m metaspace、10MiB合计输出终止、timeout/partial反例、真实 class/source/argv/classpath/dependency身份和前后漂移/shadow检查。监督必须解析实际 journal，验证最后所有期望及完整22步，只把认证通过且 COMPLETE 的一次登记session视为完整结果。
 
 最终整体实现必须重新独立Review及适用CI；登记精确SHA、原输入hash、兼容性、固定预算、命令/位置和唯一session后才执行一次。不得将人工测试当作该诊断，不自动重试、不复活 #140/GoalWindow、不更改 Q/冻结协议/guard，不解锁 #95/#96、reserved/provider或runtime。该组件不改变系统架构或生产运行方式，README/AGENTS/ADR 无需同步。
+
+## 本次新增修改：journal 写前累计额度
+
+`FixedWitnessReplay.run` 现在强制调用方传入 `JournalQuota`，无无限额重载。
+该合作式额度接受1..10MiB，必须由未来父监督在同一root中于启动前永久预留；
+它不是额外10MiB，也不替代READY/verified和pipe额度，尚未接通历史诊断入口。
+同一实例可用于多个journal，失败open/write/force不返还额度。
+START先序列化UTF-8（含LF）并扣费，再CREATE_NEW；ATTEMPT、STEP和END
+同样先完整扣费，再写入并force。额度不足抛出IOException，不能被INVALID处理器
+吞掉或补写END；已force前缀由独立reader保持INCOMPLETE。
+ATTEMPT不足时不执行下一次terminal replay；STEP额度不足时可能已经完成一次
+真实replay但尚无STEP记录，该前缀绝不当成完整结果。END不足也不返回COMPLETE。
+
+人工三步路径覆盖逐事件少一字节、精确全量、UTF-8多字节START、独占文件失败、
+不存在父目录失败和同额度不返还。没有读取历史fixture、执行22步或新增population。
+该额度只约束journal合作式writer；没有独立最终report文件writer或整体supervisor，
+未来任何额外报告仍须共享父root或另有已实际执行的预留，不能凭该组件宣称
+整个session合计已受限。PR170的HOME/TMP分类仍待确认，不选择其任何选项；
+网络隔离、整体预算/认证、最终整体Review/CI、兼容性/inputhash和唯一登记门保持。
+不修改冻结设计、生产/构建/资源/selector/guard；README/AGENTS/ADR无需同步。
