@@ -10,8 +10,11 @@ import unittest
 from unittest.mock import patch
 
 from fixed_witness_replay_environment import WRAPPER_PROPERTIES
-from fixed_witness_replay_prepare import _dependencies, _versions, _write, prepare, verify_prepared
+from fixed_witness_replay_prepare import (
+    FAILURE_BYTES, _dependencies, _versions, _write, prepare, verify_prepared,
+)
 from fixed_witness_replay_process import OutputBudget, run_process
+from fixed_witness_replay_quota import ByteQuota, OutputLimitError
 
 
 class FormatTest(unittest.TestCase):
@@ -31,11 +34,46 @@ class FormatTest(unittest.TestCase):
     def test_manifest_digest_rejects_replacement_before_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory).resolve() / 'manifest.json'
-            _write(path, {'state': 'PREPARED'})
+            _write(path, {'state': 'PREPARED'}, ByteQuota())
             with self.assertRaisesRegex(ValueError, 'digest mismatch'):
                 verify_prepared(directory, directory, {'manifest': str(path), 'sha256': '0' * 64})
             with self.assertRaises(FileExistsError):
-                _write(path, {})
+                _write(path, {}, ByteQuota())
+
+    def test_json_bytes_and_pipes_share_exact_charge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'evidence.json'
+            value = {'message': '\u4e2d\U0001f600'}
+            expected = (json.dumps(value, sort_keys=True, separators=(',', ':'),
+                                   allow_nan=False) + '\n').encode('utf-8')
+            quota = ByteQuota(len(expected) + 3)
+            _write(path, value, quota)
+            self.assertEqual(expected, path.read_bytes())
+            self.assertEqual(len(expected), quota.charged)
+            with (Path(directory) / 'pipe.log').open('xb') as stream:
+                self.assertTrue(OutputBudget(quota=quota).consume(b'four', stream))
+            self.assertEqual(0, quota.remaining)
+            self.assertEqual(b'fou', (Path(directory) / 'pipe.log').read_bytes())
+
+    def test_json_over_limit_never_creates_file_or_spends_failure_reserve(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'manifest.json'
+            quota = ByteQuota(FAILURE_BYTES + 1)
+            failure = quota.reserve(FAILURE_BYTES)
+            with self.assertRaises(OutputLimitError):
+                _write(path, {'state': 'PREPARED'}, quota)
+            self.assertFalse(path.exists())
+            _write(Path(directory) / 'failure.json', {'state': 'INCOMPLETE'}, failure)
+            self.assertEqual(FAILURE_BYTES, quota.charged)
+
+    def test_invalid_json_does_not_open_or_charge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            quota = ByteQuota()
+            path = Path(directory) / 'invalid.json'
+            with self.assertRaises(ValueError):
+                _write(path, {'invalid': float('nan')}, quota)
+            self.assertEqual(0, quota.charged)
+            self.assertFalse(path.exists())
 
     def test_explicit_dependency_plugin_and_arguments(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -95,6 +133,10 @@ if '--version' in sys.argv:
 if mode == 'fail':
     print('preserved failure prefix', flush=True)
     raise SystemExit(7)
+if mode == 'flood':
+    sys.stdout.write('x' * 100000)
+    sys.stdout.flush()
+    raise SystemExit(0)
 if mode == 'source-drift':
     (root / 'pom.xml').write_text('changed')
 if mode == 'toolchain-drift':
@@ -119,7 +161,7 @@ pathlib.Path(cp).write_text(':'.join(map(str, jars)))
         subprocess.run(['git', *args], cwd=self.root, check=True, capture_output=True, timeout=10)
 
     def prepare(self, **kwargs):
-        return prepare(self.root, self.jdk, self.out, OutputBudget(),
+        return prepare(self.root, self.jdk, self.out, kwargs.pop('budget', OutputBudget()),
                        total_deadline=time.monotonic() + 30, **kwargs)
 
     def test_real_process_environment_and_retained_source_classpath_toolchain(self):
@@ -151,7 +193,43 @@ pathlib.Path(cp).write_text(':'.join(map(str, jars)))
             self.prepare()
         self.assertIn('preserved failure prefix', (self.out / 'clean-build-stdout.log').read_text())
         failure = json.loads((self.out / 'failure.json').read_text())
-        self.assertEqual(7, failure['processes'][-1]['returncode'])
+        self.assertEqual(3, failure['completed_processes'])
+        result = json.loads((self.out / 'clean-build-result.json').read_text())
+        self.assertEqual(7, result['returncode'])
+        self.assertFalse((self.out / 'manifest.json').exists())
+
+    def test_prepare_evidence_and_pipes_are_charged_once_with_failure_reserve(self):
+        quota = ByteQuota()
+        budget = OutputBudget(quota=quota)
+        self.prepare(budget=budget)
+        evidence = sum(path.stat().st_size for path in self.out.glob('*.json'))
+        pipes = sum(path.stat().st_size for path in self.out.glob('*.log'))
+        self.assertEqual(pipes, budget.written)
+        self.assertEqual(FAILURE_BYTES + evidence + pipes, quota.charged)
+        self.assertFalse((self.out / 'failure.json').exists())
+
+    def test_exhausted_normal_output_keeps_bounded_failure_and_no_manifest(self):
+        self.wrapper('flood')
+        quota = ByteQuota(50000)
+        with self.assertRaises(OutputLimitError):
+            self.prepare(budget=OutputBudget(quota=quota))
+        failure_path = self.out / 'failure.json'
+        failure = json.loads(failure_path.read_text())
+        self.assertEqual('INCOMPLETE', failure['state'])
+        self.assertEqual('OutputLimitError', failure['error_type'])
+        self.assertEqual(3, failure['completed_processes'])
+        last = failure['last_process']
+        self.assertEqual('OUTPUT_LIMIT', last['state'])
+        self.assertIsInstance(last['returncode'], int)
+        self.assertGreater(last['observed_bytes_lower_bound'], last['stdout_stderr_bytes'])
+        retained = sum(path.stat().st_size for path in self.out.glob('*.log'))
+        self.assertEqual(retained, failure['stdout_stderr_bytes'])
+        self.assertGreater(failure['observed_bytes_lower_bound'], retained)
+        self.assertEqual((self.out / 'clean-build-stdout.log').stat().st_size,
+                         last['stdout_stderr_bytes'])
+        self.assertLessEqual(failure_path.stat().st_size, FAILURE_BYTES)
+        self.assertEqual(0, quota.remaining)
+        self.assertTrue((self.out / 'clean-build-stdout.log').stat().st_size > 0)
         self.assertFalse((self.out / 'manifest.json').exists())
 
     def test_source_change_during_build_never_creates_manifest(self):

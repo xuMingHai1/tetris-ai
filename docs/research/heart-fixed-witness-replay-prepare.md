@@ -32,20 +32,35 @@ shadow/隐式Class-Path，再复核源码与工具链无漂移。所有版本进
 调用者必须在输出目录之外保留receipt，后续使用前后调用 `verify_prepared`；
 receipt/manifest同时被替换不属于本组件的认证能力。manifest一致性不证明实际类加载。
 
+本次新增修改：before、各stage result、manifest与stdout/stderr共用调用者的
+`budget.quota`；JSON先完成严格序列化，再按UTF-8实际字节在独占创建前扣费，
+包括末尾LF，后续I/O失败不退费。开始输出前从同一根额度永久预留4096字节给
+failure.json；余额不足则在启动任何进程及写入前拒绝。该预留不是10MiB之外的额外额度。
+失败记录仅含INCOMPLETE、截断至128字符的error、64字符的error_type、
+completed_processes、累计pipe保留/观测下界计数、last_process的state/returncode及
+保留/观测下界计数、diagnostic_started=false，最坏JSON转义仍小于4096字节。
+不再复制完整processes/command/inventory；逐stage结果/日志保留在原文件。
+若结果本身超额，失败预留仍保存真实OUTPUT_LIMIT等最后停止状态与计数，
+避免只记录二次JSON额度错误而丢失原始子进程结果。
+预留未使用也不回收，根charge是保守上界；不能再把子额度charge或相同日志大小相加。
+
 ## 人工验证与后续门
 
-`test_fixed_witness_replay_prepare.py` 十项人工用例覆盖实际子进程环境传递、ambient
+`test_fixed_witness_replay_prepare.py` 十五项人工用例覆盖实际子进程环境传递、ambient
 Git/Java注入排除、版本与runtime不匹配、插件参数、已有target保护、非零构建失败前缀、
 构建中源码/JDK漂移、编译class漂移、manifest替换和共享deadline。人工JDK/Wrapper
 只是Python脚本，class/JAR为不加载的字节，既不构建游戏也不执行Java或历史输入。
-Linux `FixedWitnessPrepareTest` 桥接要求十项全执行且无skip；Windows仅能执行三项
-格式/receipt用例，其余七项不作为Linux监督成功。远端真实结果见本阶段PR。
+新增额度测试验证精确JSON/管道共享、无效JSON不扣费、超额不创建、成功证据只计一次，
+以及真实人工子进程淹没输出后仍保留有界失败记录而无manifest。
+Linux `FixedWitnessPrepareTest` 桥接要求十五项全执行且无skip；Windows仅执行六项
+格式/receipt/额度用例，其余九项不作为Linux监督成功。远端真实结果见本阶段PR。
 
 本组件尚未由完整诊断supervisor调用。仍缺普通JVM verify-only/诊断入口、真实argv与
 loaded-class来源、诊断禁止网络机制、120/180/900秒整体监督及cleanup/finalize reserve、
 artifact和pipe合计10MiB上限、实际journal checker接线、静态兼容性/inputhash刷新、
-整体最终独立Review/适用CI和唯一session登记。这里的OutputBudget仅计算pipe字节，
-before/result/classpath/manifest等artifact尚未合计；不得称整体输出预算已实现。
+整体最终独立Review/适用CI和唯一session登记。prepare父JSON与pipe已共享额度，
+Maven生成classpath、HOME/TMP中的构建产物及其他外部writer尚未受此接线约束；
+这些输出的适用范围和强制额度仍须在整体supervisor完成，不得称整体输出预算已实现。
 
 不得直接调用本函数运行历史22步。#140/GoalWindow停止，生产/default/Q/原guard、
 冻结协议/#95/#96/reserved/provider边界保持；无新的运行时权限。本阶段不改变生产
