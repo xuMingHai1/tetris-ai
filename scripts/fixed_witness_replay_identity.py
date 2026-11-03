@@ -9,6 +9,24 @@ from pathlib import Path
 import re
 import subprocess
 import zipfile
+from contextlib import contextmanager
+from contextvars import ContextVar
+import os
+import signal
+import time
+
+
+_EVIDENCE_CONTROL = ContextVar('fixed_witness_evidence_control', default=None)
+
+
+@contextmanager
+def evidence_control(deadline, cancelled):
+    """Bound inventory Git spawned by an evidence worker, without ambient policy changes."""
+    token = _EVIDENCE_CONTROL.set((deadline, cancelled))
+    try:
+        yield
+    finally:
+        _EVIDENCE_CONTROL.reset(token)
 
 
 def require(condition, message):
@@ -33,6 +51,32 @@ def sha256(path):
 
 
 def _git(root, *args, environment=None):
+    control = _EVIDENCE_CONTROL.get()
+    if control is not None:
+        deadline, cancelled = control
+        deadline = min(deadline, time.monotonic() + 10)
+        require(not cancelled.is_set() and time.monotonic() < deadline,
+                'inventory cancelled/expired before launch')
+        process = subprocess.Popen(['git', *args], cwd=root, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, env=environment, start_new_session=True)
+        try:
+            while True:
+                require(not cancelled.is_set() and time.monotonic() < deadline,
+                        'inventory cancelled/expired')
+                try:
+                    stdout, stderr = process.communicate(timeout=min(.02, deadline - time.monotonic()))
+                    require(process.returncode == 0, 'inventory Git failed')
+                    return stdout.decode('utf-8', errors='strict')
+                except subprocess.TimeoutExpired:
+                    continue
+        finally:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=.5)
+            process.stdout.close()
+            process.stderr.close()
     result = subprocess.run(['git', *args], cwd=root, check=True,
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10,
                             env=environment)
