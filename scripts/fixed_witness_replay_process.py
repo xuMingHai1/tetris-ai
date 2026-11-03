@@ -17,9 +17,9 @@ import time
 from queue import SimpleQueue
 from threading import Thread, Event
 from fixed_witness_replay_identity import evidence_control
+from fixed_witness_replay_quota import ByteQuota, OUTPUT_BYTES
 
 
-OUTPUT_BYTES = 10 * 1024 * 1024
 BUILD_SECONDS = 600
 JVM_SECONDS = 120
 PARENT_SECONDS = 180
@@ -30,25 +30,39 @@ TOTAL_SECONDS = 900
 class OutputBudget:
     """One cumulative stdout/stderr allowance shared by every command stage.
 
-    Artifact bytes (journal/manifest/report) must be charged separately by the
-    final supervisor; this component alone does not enforce total artifact size.
+    Optional quota shares pre-write accounting with cooperative artifact writers.
+    Without it this remains pipe-only. The final supervisor must still connect
+    every artifact/JVM writer; this component alone is not whole-session quota.
+    Failed I/O keeps its charged prefix, so written is an upper bound on retained
+    pipe bytes in that case. One supervising thread owns each OutputBudget.
     """
     limit: int = OUTPUT_BYTES
     written: int = 0
     observed: int = 0
+    quota: ByteQuota | None = None
 
     def __post_init__(self):
         if type(self.limit) is not int or not 0 < self.limit <= OUTPUT_BYTES:
             raise ValueError('output limit must be within frozen 10MiB ceiling')
         if self.written != 0 or self.observed != 0:
             raise ValueError('a new budget must start empty')
+        if self.quota is not None and not isinstance(self.quota, ByteQuota):
+            raise ValueError('shared ByteQuota required')
+        if self.quota is None:
+            self.quota = ByteQuota(self.limit)
+
+    @property
+    def remaining(self):
+        return min(self.limit - self.written, self.quota.remaining)
 
     def consume(self, data, stream):
         self.observed += len(data)
-        retained = min(len(data), self.limit - self.written)
-        stream.write(data[:retained])
-        stream.flush()
+        retained = self.quota.take_prefix(min(len(data), self.limit - self.written))
+        # Charge before I/O: an interrupted/partial write cannot free allowance.
         self.written += retained
+        if stream.write(data[:retained]) != retained:
+            raise OSError('short output write')
+        stream.flush()
         return retained < len(data)
 
 
@@ -137,7 +151,7 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
     if not isinstance(total_deadline, (int, float)) or isinstance(total_deadline, bool) or not math.isfinite(total_deadline):
         raise ValueError('finite absolute total deadline required')
     deadline = min(started + seconds, total_deadline)
-    if deadline <= started or budget.written >= budget.limit:
+    if deadline <= started or budget.remaining <= 0:
         raise ValueError('budget exhausted before launch')
     output = Path(output)
     # Exclusive files preserve prior attempts; callers own directory creation.
@@ -184,7 +198,7 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
                 exceeded = False
                 for key, _ in events:
                     # Read at most one chunk beyond the cap; never retain it.
-                    data = os.read(key.fileobj.fileno(), min(8192, budget.limit - budget.written + 1))
+                    data = os.read(key.fileobj.fileno(), min(8192, budget.remaining + 1))
                     if not data:
                         selector.unregister(key.fileobj)
                     elif budget.consume(data, key.data):
