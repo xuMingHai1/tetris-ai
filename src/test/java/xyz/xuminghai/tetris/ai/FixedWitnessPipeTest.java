@@ -28,7 +28,7 @@ class FixedWitnessPipeTest {
     void artificialPipeFailuresRunInRegularSuite() throws Exception {
         var text = python(List.of("-m", "unittest", "discover", "-v", "-s", "scripts",
                 "-p", "test_fixed_witness_replay_pipe.py"), "suite", 45);
-        assertTrue(text.contains("Ran 16 tests"), text);
+        assertTrue(text.contains("Ran 19 tests"), text);
         assertTrue(text.contains("\nOK\n"), text);
         assertFalse(text.contains("skipped"), text);
     }

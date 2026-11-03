@@ -41,28 +41,33 @@ public final class FixedWitnessReplayApplication {
         var home = canonical(Path.of(System.getProperty("user.home")));
         var temporary = canonical(Path.of(System.getProperty("java.io.tmpdir")));
         validateCommand(args, home, temporary);
+        var quota = new ArtifactQuota(Integer.parseInt(args[4]));
         Files.createDirectory(output);
         var observed = FixedWitnessJvmObservation.inspect(root);
         var bytes = json(Map.of("schema", "fixed-witness-jvm-v1", "state", "READY",
                 "nonce", args[3], "observation", observed,
+                "artifact_bytes_limit", quota.limit,
                 "diagnostic_started", false, "provenance_authenticated", false,
                 "eligible_for_runtime_validation", false));
-        write(output.resolve("ready.json"), bytes);
+        quota.write(output.resolve("ready.json"), bytes);
         acknowledge(System.in, args[3], FixedWitnessInput.sha256(bytes),
                 Duration.ofNanos(Math.max(1, deadline - System.nanoTime())));
         FixedWitnessJvmObservation.require(System.nanoTime() < deadline, "verify-only deadline expired");
         FixedWitnessJvmObservation.require(observed.equals(FixedWitnessJvmObservation.inspect(root)),
                 "loaded class observation drift");
-        write(output.resolve("verified.json"), json(Map.of("schema", "fixed-witness-jvm-v1",
+        quota.write(output.resolve("verified.json"), json(Map.of("schema", "fixed-witness-jvm-v1",
                 "state", "VERIFIED_NO_REPLAY", "ready_sha256", FixedWitnessInput.sha256(bytes),
+                "artifact_bytes_limit", quota.limit,
                 "diagnostic_started", false, "provenance_authenticated", false,
                 "eligible_for_runtime_validation", false)));
     }
 
     static void requireArguments(String[] args) {
-        if (args.length != 4 || !args[0].equals("--verify-only")
-                || !args[3].matches("[0-9a-f]{64}")) {
-            throw new IllegalArgumentException("usage: --verify-only <checkout-root> <new-external-output> <64-hex-nonce>");
+        if (args.length != 5 || !args[0].equals("--verify-only")
+                || !args[3].matches("[0-9a-f]{64}") || !args[4].matches("[1-9][0-9]{0,6}")
+                || Integer.parseInt(args[4]) > 2 * 1024 * 1024) {
+            throw new IllegalArgumentException("usage: --verify-only <checkout-root> <new-external-output>"
+                    + " <64-hex-nonce> <artifact-bytes:1..2097152>");
         }
     }
 
@@ -114,11 +119,25 @@ public final class FixedWitnessReplayApplication {
         return (JSON.writeValueAsString(value) + "\n").getBytes(StandardCharsets.UTF_8);
     }
 
-    private static void write(Path file, byte[] bytes) throws Exception {
-        try (var channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-            var buffer = ByteBuffer.wrap(bytes);
-            while (buffer.hasRemaining()) channel.write(buffer);
-            channel.force(true);
+    /** One cooperative JVM writer, charged before CREATE_NEW; failed I/O never refunds bytes. */
+    static final class ArtifactQuota {
+        private final int limit;
+        private int charged;
+
+        ArtifactQuota(int limit) {
+            if (limit <= 0 || limit > 2 * 1024 * 1024) throw new IllegalArgumentException("artifact allowance");
+            this.limit = limit;
+        }
+
+        synchronized void write(Path file, byte[] bytes) throws Exception {
+            FixedWitnessJvmObservation.require(bytes.length <= 1024 * 1024
+                    && bytes.length <= limit - charged, "JVM artifact allowance exhausted");
+            charged += bytes.length;
+            try (var channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                var buffer = ByteBuffer.wrap(bytes);
+                while (buffer.hasRemaining()) channel.write(buffer);
+                channel.force(true);
+            }
         }
     }
 }

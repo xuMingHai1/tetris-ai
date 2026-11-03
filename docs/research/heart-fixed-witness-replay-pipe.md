@@ -24,13 +24,18 @@ Python不能强制中断这些只读线程：超时后可能仍在读取，不�
 
 普通测试仅含人工证据与短 Python 子进程，覆盖 ACK/EOF、慢认证、提前退出、拒绝、
 输出洪泛、退出后慢复核、非零退出、receipt/READY/verified漂移。
-Linux JUnit 强制16项Python测试零跳过，另从当前编译产物启动真实普通JVM进行
+Linux JUnit 强制19项Python测试零跳过，另从当前编译产物启动真实普通JVM进行
 verify-only READY/实际proc/loaded-class/ACK/EOF联调；该测试明确mock prepare receipt，
 不能代替实际干净构建认证。Windows跳过真实Linux进程测试，不当作Linux成功。
 
 本次没有历史输入读取、22步回放、collect入口或唯一session登记。
 网络隔离、pipe+artifact累计10MiB、真实journal检查器和整体监督仍待集成；
-本组件只累计pipe输出，产物读取本身限1MiB不代表累计产物配额。
+本次新增修改：启动前从`budget.quota`永久预留2MiB给READY/verified两文件，
+与每文件既有1MiB ceiling一致；显式更小额度仅可收紧，不得扩张。
+余额不足在启动前拒绝，未用预留不回收。Java实际writer在CREATE_NEW前按UTF-8
+序列化后字节扣费，I/O失败不返还；argv、READY和verified绑定同一额度，
+退出后核对两文件合计。读取不重复计费，stdout/stderr仍消耗根额度剩余部分。
+这不约束Maven classpath/HOME/TMP、journal等尚未接线writer，不能当整体session quota。
 最终整体独立Review/适用CI、兼容性与inputhash刷新及唯一登记之前不得执行历史诊断。
 #140/GoalWindow停止，#95/#96/reserved/provider/runtime不解锁。
 生产、构建、workflow、selector、原guard和冻结协议均不变。

@@ -7,7 +7,11 @@
 ## 本次新增修改
 
 - `FixedWitnessReplayApplication` 只接受
-  `--verify-only <checkout-root> <new-external-output> <64-hex-nonce>`。
+  `--verify-only <checkout-root> <new-external-output> <64-hex-nonce> <artifact-bytes>`。
+  本次新增修改：最后一项是1..2097152的规范十进制整数；父进程在同根10MiB额度中
+  启动前永久预留对应字节。READY/verified声明相同`artifact_bytes_limit`。
+  实际Java writer以序列化UTF-8字节在CREATE_NEW前累计扣费，每文件还限1MiB；
+  失败不返还，超限不创建下一文件。它只覆盖这两个合作式文件，不覆盖HOME/TMP或journal。
   要求 Linux JDK27、普通 classpath、实际 ProcessHandle argv 严格匹配
   `-Xmx256m -XX:MaxMetaspaceSize=128m -Duser.home=... -Djava.io.tmpdir=... -cp ...`；
   拒绝额外 JVM 参数及四种 JVM 注入环境变量。输出目录必须在 checkout 外，
@@ -42,7 +46,7 @@ Surefire的test.class.path不含module path上的Jackson和生产class。
 class resource字节不是对内存bytecode的直接读取；严格无agent参数、父进程实际
 /proc观察、独立clean-build receipt和前后全部classpath/JDK/source身份须组合使用。
 这里不读取或认证receipt，不采RSS，不绑定环境allowlist或实际可执行文件，
-不禁止网络，也没有artifact总quota。不能把VERIFY成功称为历史诊断成功。
+不禁止网络，也没有整个session的artifact总quota。不能把VERIFY成功称为历史诊断成功。
 
 ## 下一集成门
 

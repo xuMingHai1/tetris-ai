@@ -30,7 +30,9 @@ Linux普通JUnit桥强制执行全部11项，含真实Python子进程超限终�
 
 本次新增修改：prepare的before/manifest/results复用管道的同一根额度，failure使用从该根
 永久预留的4096字节；见[准备组件](heart-fixed-witness-replay-prepare.md)。
-明确未接线：Maven生成classpath、JVM READY/verified、
+本次新增修改：JVM READY/verified在启动前永久预留同根额度，由实际Java writer
+按精确字节写前执行，argv及认证绑定并检查合计；见[父管道组件](heart-fixed-witness-replay-pipe.md)。
+明确未接线：Maven生成classpath、HOME/TMP外部writer、
 实际journal/report写入尚未统一使用此额度。现有调用者仍可能自行创建新的根额度；
 没有完整supervisor，不能宣称整体session上限已经落实。
 下一项从这些真实writer入手，对受控写入复用root，对外部writer实施预留上限，保留失败收尾余量。
