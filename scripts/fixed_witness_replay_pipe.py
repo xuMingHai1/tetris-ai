@@ -18,11 +18,13 @@ from fixed_witness_replay_process import (
 class VerifyOnlyHandshake:
     """Read-only callbacks; deliberately has no reference to the child's stdin."""
 
-    def __init__(self, root, java_home, receipt, output, nonce, manifest, artifact_bytes=JVM_ARTIFACT_BYTES):
+    def __init__(self, root, java_home, receipt, output, nonce, manifest, artifact_bytes=JVM_ARTIFACT_BYTES,
+                 network=None):
         self.root, self.java_home = root, java_home
         self.receipt, self.output, self.nonce = dict(receipt), Path(output), nonce
         self.manifest = manifest
         self.artifact_bytes = artifact_bytes
+        self.network = network
 
     def ready(self):
         path = self.output / 'ready.json'
@@ -37,10 +39,23 @@ class VerifyOnlyHandshake:
         return data.endswith(b'\n')
 
     def authenticate(self, pid):
-        return authenticate_ready(self.root, self.java_home, self.receipt,
-                                  self.output, self.nonce, pid, self.artifact_bytes)
+        if self.network is not None:
+            from fixed_witness_replay_network import observe
+            before = observe(pid, self.network)
+        result = authenticate_ready(self.root, self.java_home, self.receipt,
+                                    self.output, self.nonce, pid, self.artifact_bytes)
+        if self.network is not None:
+            require(observe(pid, self.network) == before, 'network observation drift')
+            result['evidence']['network_component'] = {
+                'state': 'BOUND_LAUNCH_CHAIN_OBSERVED', 'chain': self.network, 'status': before,
+                'limitation': 'cooperative launcher; proc status does not reveal filter contents'}
+        return result
 
     def finalize(self, admitted):
+        if self.network is not None:
+            from fixed_witness_replay_network import validate
+            validate(self.network)
+            require(admitted['network_component']['chain'] == self.network, 'network chain drift')
         require(verify_prepared(self.root, self.java_home, self.receipt) == self.manifest,
                 'post-exit receipt drift')
         raw, _ = _ready(self.output / 'ready.json')
@@ -71,7 +86,7 @@ class VerifyOnlyHandshake:
 
 
 def run_verify_only(root, java_home, receipt, output, logs, budget, *, nonce, total_deadline,
-                    artifact_bytes=JVM_ARTIFACT_BYTES):
+                    artifact_bytes=JVM_ARTIFACT_BYTES, network_denial=False):
     """One held JVM, <=120s, within <=180s parent and the caller's <=900s total.
 
     Reserve three seconds for group cleanup and return. Preparation/build is a
@@ -80,6 +95,7 @@ def run_verify_only(root, java_home, receipt, output, logs, budget, *, nonce, to
     A slow read-only daemon may finish after timeout but cannot send an ACK.
     """
     started = time.monotonic()
+    require(type(network_denial) is bool, 'explicit network mode required')
     require(not isinstance(total_deadline, bool), 'absolute total deadline required')
     _seconds(total_deadline - started)
     require(total_deadline <= started + TOTAL_SECONDS, 'total exceeds frozen ceiling')
@@ -99,6 +115,21 @@ def run_verify_only(root, java_home, receipt, output, logs, budget, *, nonce, to
         if not ok:
             raise manifest
         command = command_for(manifest, root, java_home, output, nonce, artifact_bytes)
+        network = None
+        if network_denial:
+            from fixed_witness_replay_network import bound_launch
+            pending = _work(bound_launch, command, deadline=deadline)
+            try:
+                while pending[0].empty():
+                    require(time.monotonic() < deadline and cancellation['signal'] is None,
+                            'network binding expired/cancelled')
+                    time.sleep(.01)
+                ok, bound = pending[0].get()
+            finally:
+                _stop_work(pending)
+            if not ok:
+                raise bound
+            network, command = bound
         require(not Path(output).exists() and not Path(output).is_symlink(), 'new JVM output required')
         require(time.monotonic() < deadline and cancellation['signal'] is None,
                 'prelaunch authentication expired/cancelled')
@@ -109,4 +140,4 @@ def run_verify_only(root, java_home, receipt, output, logs, budget, *, nonce, to
                            seconds=min(JVM_SECONDS, deadline - time.monotonic()),
                            total_deadline=deadline, environment=manifest['environment'], cancellation=cancellation,
                            handshake=VerifyOnlyHandshake(root, java_home, receipt, output, nonce, manifest,
-                                                         artifact_bytes))
+                                                         artifact_bytes, network))

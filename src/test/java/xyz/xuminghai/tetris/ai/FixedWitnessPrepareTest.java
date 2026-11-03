@@ -86,4 +86,28 @@ class FixedWitnessPrepareTest {
             }
         }
     }
+
+    @Test
+    void nativeNetworkDenialAndFailureCasesRunWithoutSkips() throws Exception {
+        var log = directory.resolve("network-tests.log");
+        var process = new ProcessBuilder("python3", "-B", "-c", "import sys; sys.path.insert(0,'scripts'); "
+                + "from test_fixed_witness_replay_network import component_suite; component_suite()")
+                .directory(Path.of("").toAbsolutePath().toFile())
+                .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        try {
+            assertTrue(process.waitFor(55, TimeUnit.SECONDS), "bounded network suite timed out");
+            var output = Files.readString(log);
+            assertEquals(0, process.exitValue(), output);
+            assertTrue(output.contains("Ran 11 tests"), output);
+            assertTrue(output.contains("\nOK\n"), output);
+            assertFalse(output.contains("skipped"), output);
+            System.out.println("ACTUAL_NETWORK_NATIVE_ABI_THREAD_FORK_FAILURES_OK: 11 tests");
+        } finally {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                assertTrue(process.waitFor(5, TimeUnit.SECONDS), "network suite did not stop");
+            }
+        }
+    }
 }

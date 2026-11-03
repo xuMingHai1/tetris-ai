@@ -1,6 +1,6 @@
 # 固定回放诊断 JVM 的网络拒绝设计
 
-状态：待最终独立设计 Review、适用 CI 与正常合并。只接受后续 test-only 实现范围；本文件没有网络隔离实测、历史回放或执行许可。任务 [#91](https://github.com/xuMingHai1/tetris-ai/issues/91)，源码基线 `7679c6e24e10f35a786ec68caa5512c3f8d126e4`。
+状态：设计已由 [PR #172](https://github.com/xuMingHai1/tetris-ai/pull/172) 正常合并接受，仅接受后续 test-only 实现范围；本文件没有网络隔离实测、历史回放或执行许可。任务 [#91](https://github.com/xuMingHai1/tetris-ai/issues/91)，设计源码基线 `7679c6e24e10f35a786ec68caa5512c3f8d126e4`。
 
 ## 问题与已有证据
 
@@ -51,3 +51,11 @@
 最终设计 Review/CI/正常合并后，仅接受上述有界实现与人工验收，不修改原诊断冻结协议。实现最终 Review/CI 后仍需完整 supervisor、root 预留与 journal/report checker、PR #170 存储决定、兼容性/input hash 刷新和唯一执行登记，才能考虑历史 22 步。#140/GoalWindow 停止、#95/#96、reserved/provider/runtime/default 权限不变。
 
 本文件新增研究接线设计，不改变生产架构或运行方式；研究索引补链接，README/AGENTS/ADR 无需变化。本次没有实测结果。
+
+## 实现草稿断点（2026-11-04）
+
+基于 `24bb1770d77a1f186f5d896d469e828c21d285e4`，新增独立 stdlib/ctypes launcher，绑定 Python/launcher/libseccomp 实际路径与字节、版本、策略和完整 exec argv；原生 ABI 下完整网络 syscall 与 io_uring_setup 返回 EPERM，兼容 ABI kill，继承 fd 拒绝、no-new-privs、禁止 core dump。同 PID exec 不消费 ACK 管道。`run_verify_only(network_denial=True)` 从内部生成启动链，在原 deadline/同 root 额度内启动，READY 原认证前后另查 seccomp 状态。原无隔离路径和原 `network_isolation_verified=false`、历史权限字段均保留；新组件证据不等于完整隔离验收。
+
+草稿包含原生 syscall、ABI、线程/受控后代、额外 fd、策略/缺库、超时/exec 失败组件测试。独立 `component_suite()` 仅执行八个探针 leader 和一个受控 fork，所有探针管道与 unittest 结果输出共用 64 KiB、50 秒绝对截止时间，每个探针最多 5 秒；不运行构建或 JVM。原 clean-build 测试保留原行为，不新接隔离 JVM。Windows 只运行可移植拒绝逻辑，Linux 组件结果须由当前 revision CI 原始日志确认，不预记通过。
+
+**尚未完成，不合并、不认证能力：** 完整人工套件的探针额度与 clean-build 额度尚未聚合为同一个累计 10 MiB；完整套件的 16 子进程计数尚未覆盖 prepare/verify 中多次 Git inventory，不能把 probe 数当作全进程计数。独立初审按现有源码复核，仅完整认证链 inventory 已需 35 个 Git 子进程，尚不含构建/探针/JVM。后续须明确并审查该计数边界，不能静默排除 inventory 或增预算；真实隔离普通 JVM、同一完整套件绝对截止时间与累计硬界、wrong-library/hash、隔离路径 leader 提前退出/清理及 quota 前缀反例仍需补齐。launcher 目前固定异常类型日志还需补安全的失败阶段/停止分类。最终完整 revision 独立 Review 与适用 CI 仍是合并前置。PR #170 存储决定及历史诊断的全部其他前置不变。
