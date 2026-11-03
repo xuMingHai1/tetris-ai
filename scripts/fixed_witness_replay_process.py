@@ -4,7 +4,7 @@ This module never selects a Java application or reads the historical fixture.
 The caller must still authenticate commands, register the unique session and
 validate the actual journal. A zero exit code is only a process observation.
 """
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 import math
 import os
@@ -14,6 +14,9 @@ import signal
 import subprocess
 import sys
 import time
+from queue import SimpleQueue
+from threading import Thread, Event
+from fixed_witness_replay_identity import evidence_control
 
 
 OUTPUT_BYTES = 10 * 1024 * 1024
@@ -72,7 +75,37 @@ def _cancellation():
             signal.signal(number, handler)
 
 
-def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, environment=None):
+def _work(function, *args, deadline):
+    """Read-only cooperative work; only the supervising thread owns child stdin.
+
+    A slow worker cannot postpone pipe draining or child termination. Daemon
+    workers may finish reading after timeout. Inventory Git is bounded by the
+    same absolute deadline/cancellation and killed in its own process group.
+    """
+    result = SimpleQueue()
+    cancelled = Event()
+
+    def run():
+        try:
+            with evidence_control(deadline, cancelled):
+                value = function(*args)
+            result.put((True, value))
+        except BaseException as error:
+            result.put((False, error))
+
+    worker = Thread(target=run, daemon=True, name='fixed-witness-evidence')
+    worker.start()
+    return result, cancelled, worker
+
+
+def _stop_work(pending):
+    if pending is not None:
+        pending[1].set()
+        pending[2].join(timeout=1)
+
+
+def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, environment=None,
+                handshake=None, cancellation=None):
     """Run once, retain bounded binary prefixes and kill the entire owned group.
 
     Linux only; start_new_session creates a group even when the leader exits
@@ -81,6 +114,9 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
     network access. Caller must provide the accepted offline JVM/environment.
     environment=None preserves the existing helper's inherited-environment mode;
     authenticated preparation and later diagnostics must pass an explicit dict.
+    Optional handshake is a cooperative read-only ready/authenticate/finalize
+    adapter. Workers never receive stdin; ACK is one bounded nonblocking write
+    on the supervising thread. Post-exit evidence work shares the same deadline.
     """
     if sys.platform != 'linux':
         raise RuntimeError('Linux process supervision required')
@@ -111,14 +147,26 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
               'peak_rss_reason': 'not sampled; heap/metaspace are not an RSS limit'}
     before_written, before_observed = budget.written, budget.observed
     process = None
+    pending = None
+    phase = 'WAITING'
+    if handshake is not None:
+        if environment is None or seconds > JVM_SECONDS:
+            raise ValueError('handshake requires explicit environment and <=120s stage')
+        result['ack_sent'] = False
     with (output / (name + '-stdout.log')).open('xb') as stdout, \
             (output / (name + '-stderr.log')).open('xb') as stderr, \
-            selectors.DefaultSelector() as selector, _cancellation() as cancellation:
+            selectors.DefaultSelector() as selector, \
+            (nullcontext(cancellation) if cancellation is not None else _cancellation()) as cancellation:
         try:
-            process = subprocess.Popen(command, cwd=cwd, stdin=subprocess.DEVNULL,
+            if cancellation['signal'] is not None:
+                raise InterruptedError('received signal before launch')
+            process = subprocess.Popen(command, cwd=cwd,
+                                       stdin=subprocess.PIPE if handshake is not None else subprocess.DEVNULL,
                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                        start_new_session=True, env=environment)
             result['pid'] = process.pid
+            if handshake is not None:
+                os.set_blocking(process.stdin.fileno(), False)
             if cancellation['signal'] is not None:
                 raise InterruptedError('received signal during launch')
             for pipe, sink in ((process.stdout, stdout), (process.stderr, stderr)):
@@ -145,13 +193,53 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
                 if exceeded:
                     result['state'] = 'OUTPUT_LIMIT'
                     break
+                if handshake is not None:
+                    if phase == 'WAITING' and process.poll() is None and handshake.ready():
+                        pending = _work(handshake.authenticate, process.pid, deadline=deadline)
+                        phase = 'AUTHENTICATING'
+                    if pending is not None and not pending[0].empty():
+                        ok, value = pending[0].get()
+                        _stop_work(pending)
+                        pending = None
+                        if not ok:
+                            result.update(state='EVIDENCE_ERROR', error=str(value))
+                            break
+                        # Authentication can outlast the budget or the child.
+                        # Never let a late worker release its own ACK.
+                        if time.monotonic() >= deadline or cancellation['signal'] is not None:
+                            continue
+                        if phase == 'AUTHENTICATING':
+                            if process.poll() is not None:
+                                result['state'] = 'EXIT_BEFORE_ACK'
+                                break
+                            ack = value['ack']
+                            if not isinstance(ack, bytes) or not 0 < len(ack) <= 512:
+                                raise ValueError('bounded ACK bytes required')
+                            if os.write(process.stdin.fileno(), ack) != len(ack):
+                                raise OSError('partial ACK write')
+                            process.stdin.close()  # JVM requires EOF, not just LF.
+                            result.update(ack_sent=True, admission=value['evidence'])
+                            phase = 'ACKED'
+                        else:
+                            result.update(state='VERIFIED_NO_REPLAY', verification=value)
+                            break
                 if process.poll() is not None and not selector.get_map():
+                    if handshake is not None:
+                        if phase == 'ACKED' and process.returncode == 0:
+                            pending = _work(handshake.finalize, result['admission'], deadline=deadline)
+                            phase = 'FINALIZING'
+                        if phase == 'FINALIZING':
+                            continue
+                        result['state'] = 'EXIT_BEFORE_ACK' if not result['ack_sent'] else 'CHILD_FAILED'
+                        break
                     result['state'] = 'EXITED'
                     break
         except (KeyboardInterrupt, InterruptedError) as error:
             result.update(state='INTERRUPTED', error=str(error))
         except OSError as error:
             result.update(state='PROCESS_ERROR', error=str(error))
+        except Exception as error:
+            result.update(state='EVIDENCE_ERROR', error=str(error))
         finally:
             # The handler only records signals, including during group cleanup.
             if process is not None:
@@ -159,12 +247,17 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
                     os.killpg(process.pid, signal.SIGKILL)
                 except ProcessLookupError:
                     pass
+            # Kill the JVM immediately on a limit; waiting for evidence workers
+            # first would extend its execution beyond the stage deadline.
+            _stop_work(pending)
+            if process is not None:
                 try:
                     process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     result['state'] = 'CLEANUP_FAILED'
-                for pipe in (process.stdout, process.stderr):
-                    pipe.close()
+                for pipe in (process.stdin, process.stdout, process.stderr):
+                    if pipe is not None:
+                        pipe.close()
                 result['returncode'] = process.returncode
             for stream in (stdout, stderr):
                 stream.flush()

@@ -100,6 +100,9 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 [父进程 READY 认证组件](heart-fixed-witness-replay-admission.md)将独立 receipt、真实/proc 与
 loaded-class/hash 观察绑定后返回 ACK 字节；尚未发送到 JVM，也未完成网络/总配额/整体监督。
 
+[verify-only 父管道组件](heart-fixed-witness-replay-pipe.md)在监督中认证READY、发送ACK/EOF并
+复核退出后证据；网络限制、累计artifact配额、整体监督与历史回放门仍未完成。
+
 [#115 无状态终局窗口设计评审](../design/heart-goal-window.md) 审查新的精确终局选择例外：非终态 setup 保留原 top-5/risk/budget，仅对当前或已知 preview 的真实 clean 终态使用事先冻结的几何条件。提议在正常测试源码中复用同包生产 API，保持 frozen source guard；不是继续原逐前缀域或把目标 holes 当安全证书。若经独立评审并合并接受，只允许 #94 的测试源码原型与开发/校准 paired 评估，#95/#96 继续停止；评审提交时尚无原型或新采集。实际接受状态以 issue/PR 最终决议为准。
 
 以下是长期验收维度；本阶段具体数值已在上面的 v1.1 协议中预注册并通过 #92 接受，能力仍未达到，不能宣称稳定 HEART。现有 clean witness 只证明存在可构造路径。
