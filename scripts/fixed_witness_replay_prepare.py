@@ -30,7 +30,7 @@ def _write(path, value, quota):
     write_exclusive(path, data, quota)
 
 
-def _dependencies(root, output):
+def _dependencies(root):
     version = ET.parse(root / 'pom.xml').find(
         '{http://maven.apache.org/POM/4.0.0}properties/'
         '{http://maven.apache.org/POM/4.0.0}maven-dependency-plugin.version')
@@ -38,8 +38,30 @@ def _dependencies(root, output):
             'explicit dependency plugin version required')
     return ['clean', 'test-compile',
             'org.apache.maven.plugins:maven-dependency-plugin:' + version.text + ':build-classpath',
-            '-DincludeScope=test', '-Dmdep.pathSeparator=:',
-            '-Dmdep.outputFile=' + str(output / 'classpath.txt')]
+            '-DincludeScope=test', '-Dmdep.pathSeparator=:']
+
+
+def _classpath(text, path, quota):
+    """Retain the plugin's single complete stdout record through shared quota.
+
+    build-classpath logs this header and the classpath on the following line
+    when neither outputFile nor outputProperty is set. Read only stdout from
+    a successful supervised process; never infer a path from a failure prefix.
+    The log and extracted file are distinct retained bytes and each is charged.
+    """
+    marker = '[INFO] Dependencies classpath:'
+    lines = text.split('\n')
+    require(text.count('Dependencies classpath:') == 1 and lines.count(marker) == 1,
+            'unique dependency classpath stdout record required')
+    index = lines.index(marker) + 1
+    require(index < len(lines) - 1, 'complete dependency classpath line required')
+    value = lines[index]
+    dependencies = value.split(':')
+    require(value == value.strip() and not re.search(r'[\x00-\x1f\x7f]', value)
+            and all(entry.startswith('/') for entry in dependencies),
+            'empty/ambiguous dependency classpath')
+    write_exclusive(path, (value + '\n').encode('utf-8'), quota)
+    return dependencies
 
 
 def _versions(java_text, maven_text, toolchain):
@@ -66,7 +88,8 @@ def prepare(root, java_home, output, budget, *, total_deadline):
     contains bounded error text, counters and the last stage's numeric outcome,
     not repeated commands or inventories. This keeps the original stop evidence
     even when the normal stage-result artifact itself cannot fit.
-    Maven's classpath file and other external writers are not yet constrained.
+    Classpath extraction is charged separately from its retained stdout bytes.
+    HOME/TMP and other external writers are not yet constrained.
     """
     require(sys.platform == 'linux', 'Linux clean-build preparation required')
     started = time.monotonic()
@@ -108,10 +131,9 @@ def prepare(root, java_home, output, budget, *, total_deadline):
         wrapper = [str(root / 'mvnw'), '--batch-mode', '--no-transfer-progress', '-Dstyle.color=never']
         maven_text = run('maven-version', wrapper + ['--version'])
         _versions(java_text, maven_text, toolchain)
-        run('clean-build', wrapper + _dependencies(root, output))
-        text = canonical(output / 'classpath.txt').read_text(encoding='utf-8', errors='strict').strip()
-        dependencies = text.split(':')
-        require(text and all(dependencies), 'empty/ambiguous dependency classpath')
+        run('clean-build', wrapper + _dependencies(root))
+        dependencies = _classpath((output / 'clean-build-stdout.log').read_text(
+            encoding='utf-8', errors='strict'), output / 'classpath.txt', budget.quota)
         classpath = classpath_identity(root, dependencies)
         verify_identity(source, source_identity(root, environment=environment))
         verify_identity(toolchain, toolchain_identity(root, java_home))
