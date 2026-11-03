@@ -10,6 +10,8 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import ExitStack
+from io import StringIO
 from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -49,7 +51,8 @@ class ContractTest(unittest.TestCase):
             if stage == 'syscall': lib.seccomp_syscall_resolve_name.side_effect = lambda name: -1
             if stage == 'rule': lib.seccomp_rule_add.return_value = -1
             if stage == 'load': lib.seccomp_load.return_value = -1
-            with self.subTest(stage=stage), patch.object(network, 'validate', return_value=lib), \
+            with self.subTest(stage=stage), patch.object(network, 'host'), \
+                    patch.object(network, 'validate', return_value=lib), \
                     patch.object(network, 'no_extra_fds'), \
                     patch.object(network, 'disable_core'), \
                     patch.object(network, 'status', return_value={'Seccomp_filters': 0}), \
@@ -65,6 +68,51 @@ class ContractTest(unittest.TestCase):
                 patch.object(pipe, 'authenticate_ready') as authenticate, self.assertRaises(ValueError):
             hook.authenticate(123)
         authenticate.assert_not_called()
+
+    def test_malformed_input_reports_fixed_stop_without_exec_or_private_text(self):
+        for argv in ([], ['{"private-path-secret":'], ['x' * 65537], ['{}', '{}']):
+            with self.subTest(lengths=list(map(len, argv))), \
+                    patch.object(network.sys, 'stderr', new_callable=StringIO) as output, \
+                    patch.object(network, 'execute') as execute:
+                self.assertEqual(78, network.main(argv))
+                self.assertEqual('NETWORK_LAUNCH_FAILED stage=INPUT classification=IMPLEMENTATION_INVALID\n',
+                                 output.getvalue())
+                execute.assert_not_called()
+
+    def test_each_failed_launch_stage_stops_before_exec_with_fixed_metadata(self):
+        steps = [('host', 'HOST', 'CAPABILITY_UNAVAILABLE'),
+                 ('validate', 'BINDING', 'IMPLEMENTATION_INVALID'),
+                 ('no_extra_fds', 'DESCRIPTORS', 'IMPLEMENTATION_INVALID'),
+                 ('disable_core', 'CORE_LIMIT', 'CAPABILITY_UNAVAILABLE'),
+                 ('status', 'FILTER_BASELINE', 'IMPLEMENTATION_INVALID'),
+                 ('install', 'FILTER_INSTALL', 'CAPABILITY_UNAVAILABLE'),
+                 ('observe', 'FILTER_OBSERVATION', 'IMPLEMENTATION_INVALID')]
+        for index, (name, stage, classification) in enumerate(steps):
+            with self.subTest(stage=stage), ExitStack() as stack:
+                mocks = {key: stack.enter_context(patch.object(network, key)) for key, _, _ in steps}
+                mocks['status'].return_value = {'Seccomp_filters': 0}
+                mocks[name].side_effect = RuntimeError('private-path nonce secret arbitrary exception')
+                output = stack.enter_context(patch.object(network.sys, 'stderr', new_callable=StringIO))
+                execute = stack.enter_context(patch.object(network.os, 'execv'))
+                self.assertEqual(78, network.main(['{"inherited_filters":0}']))
+                self.assertEqual('NETWORK_LAUNCH_FAILED stage=' + stage + ' classification='
+                                 + classification + '\n', output.getvalue())
+                execute.assert_not_called()
+                for later, _, _ in steps[index + 1:]:
+                    mocks[later].assert_not_called()
+
+    def test_exec_failure_is_fixed_and_never_retried(self):
+        with ExitStack() as stack:
+            for name in ('host', 'validate', 'no_extra_fds', 'disable_core', 'install', 'observe'):
+                stack.enter_context(patch.object(network, name))
+            stack.enter_context(patch.object(network, 'status', return_value={'Seccomp_filters': 0}))
+            output = stack.enter_context(patch.object(network.sys, 'stderr', new_callable=StringIO))
+            execute = stack.enter_context(patch.object(network.os, 'execv',
+                                                       side_effect=OSError('private command path')))
+            self.assertEqual(78, network.main(['{"inherited_filters":0,"command":["/private/java"]}']))
+            self.assertEqual('NETWORK_LAUNCH_FAILED stage=EXEC classification=IMPLEMENTATION_INVALID\n',
+                             output.getvalue())
+            execute.assert_called_once_with('/private/java', ['/private/java'])
 
 
 @unittest.skipUnless(sys.platform == 'linux', 'actual Linux seccomp required')
@@ -118,11 +166,15 @@ class KernelTest(unittest.TestCase):
         result = self.run_probe('marker', change=lambda r: r.update(policy_sha256='0'*64))
         self.assertEqual(78, result['returncode'], result)
         self.assertFalse((self.root / 'marker').exists())
+        self.assertEqual('NETWORK_LAUNCH_FAILED stage=BINDING classification=IMPLEMENTATION_INVALID\n',
+                         (self.root / 'marker-stderr.log').read_text())
 
     def test_missing_library_never_executes_marker(self):
         result = self.run_probe('missing', change=lambda r: r['library'].update(path='/no-such-libseccomp'))
         self.assertEqual(78, result['returncode'], result)
         self.assertFalse((self.root / 'marker').exists())
+        self.assertEqual('NETWORK_LAUNCH_FAILED stage=BINDING classification=IMPLEMENTATION_INVALID\n',
+                         (self.root / 'missing-stderr.log').read_text())
 
     def test_wrong_library_and_hash_never_execute_marker(self):
         def wrong_library(record):
@@ -135,6 +187,8 @@ class KernelTest(unittest.TestCase):
                 result = self.run_probe(mode, change=change)
                 self.assertEqual(78, result['returncode'], result)
                 self.assertFalse((self.root / 'marker').exists())
+                self.assertEqual('NETWORK_LAUNCH_FAILED stage=BINDING classification=IMPLEMENTATION_INVALID\n',
+                                 (self.root / (mode + '-stderr.log')).read_text())
 
     def test_isolated_leader_exit_cleans_pipe_holding_descendant(self):
         from test_fixed_witness_replay_process import stopped_process
@@ -170,6 +224,8 @@ class KernelTest(unittest.TestCase):
         with self.assertRaises(ProcessLookupError): os.kill(result['pid'], 0)
         result = self.run_probe('exec-failure', change=lambda r: r.update(command=['/no-such-java']))
         self.assertEqual(78, result['returncode'], result)
+        self.assertEqual('NETWORK_LAUNCH_FAILED stage=EXEC classification=IMPLEMENTATION_INVALID\n',
+                         (self.root / 'exec-failure-stderr.log').read_text())
 
     def test_extra_open_descriptor_never_executes_marker(self):
         from fixed_witness_replay_process import run_process

@@ -203,21 +203,52 @@ def disable_core():
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
 
 
+class LaunchFailure(ValueError):
+    """Fixed launch-stop metadata; never retain arbitrary exception text."""
+    def __init__(self, stage, classification):
+        self.stage, self.classification = stage, classification
+        super().__init__('network launch stopped')
+
+
+def launch_step(stage, classification, action, *args):
+    try:
+        return action(*args)
+    except Exception:
+        raise LaunchFailure(stage, classification) from None
+
+
 def execute(record):
-    lib = validate(record)
-    no_extra_fds()
-    disable_core()  # ABI rejection must not create an unbudgeted core file.
-    require(status('self')['Seccomp_filters'] == record['inherited_filters'], 'inherited filter drift')
-    install(lib)
-    observe(os.getpid(), record)
-    os.execv(record['command'][0], record['command'])
+    launch_step('HOST', 'CAPABILITY_UNAVAILABLE', host)
+    lib = launch_step('BINDING', 'IMPLEMENTATION_INVALID', validate, record)
+    launch_step('DESCRIPTORS', 'IMPLEMENTATION_INVALID', no_extra_fds)
+    # ABI rejection must not create an unbudgeted core file.
+    launch_step('CORE_LIMIT', 'CAPABILITY_UNAVAILABLE', disable_core)
+    def baseline():
+        require(status('self')['Seccomp_filters'] == record['inherited_filters'], 'inherited filter drift')
+    launch_step('FILTER_BASELINE', 'IMPLEMENTATION_INVALID', baseline)
+    launch_step('FILTER_INSTALL', 'CAPABILITY_UNAVAILABLE', install, lib)
+    launch_step('FILTER_OBSERVATION', 'IMPLEMENTATION_INVALID', observe, os.getpid(), record)
+    launch_step('EXEC', 'IMPLEMENTATION_INVALID', os.execv, record['command'][0], record['command'])
+
+
+def main(argv):
+    """Report only a fixed stage/category, then stop; never retry or fall back.
+
+    These describe a launcher failure, not historical diagnostic outcomes.
+    Parent timeout/quota/JVM failures remain the supervisor's responsibility.
+    """
+    def parse():
+        require(len(argv) == 1 and len(argv[0]) <= 65536, 'one bounded launch record required')
+        return json.loads(argv[0])
+    try:
+        record = launch_step('INPUT', 'IMPLEMENTATION_INVALID', parse)
+        execute(record)
+    except LaunchFailure as error:
+        sys.stderr.write('NETWORK_LAUNCH_FAILED stage=' + error.stage
+                         + ' classification=' + error.classification + '\n')
+        return 78
+    return 0  # Successful exec never returns.
 
 
 if __name__ == '__main__':
-    try:
-        require(len(sys.argv) == 2 and len(sys.argv[1]) <= 65536, 'one bounded launch record required')
-        execute(json.loads(sys.argv[1]))
-    except Exception as error:
-        # Fixed class only: command/env paths and arbitrary exception text are not logged.
-        sys.stderr.write('NETWORK_LAUNCH_FAILED ' + type(error).__name__ + '\n')
-        sys.exit(78)
+    sys.exit(main(sys.argv[1:]))

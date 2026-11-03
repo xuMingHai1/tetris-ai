@@ -98,10 +98,10 @@ class FixedWitnessPrepareTest {
             assertTrue(process.waitFor(55, TimeUnit.SECONDS), "bounded network suite timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 14 tests"), output);
+            assertTrue(output.contains("Ran 17 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
-            System.out.println("ACTUAL_NETWORK_NATIVE_ABI_THREAD_FORK_FAILURES_OK: 14 tests");
+            System.out.println("ACTUAL_NETWORK_NATIVE_ABI_THREAD_FORK_FAILURES_OK: 17 tests");
         } finally {
             process.descendants().forEach(ProcessHandle::destroyForcibly);
             if (process.isAlive()) {
