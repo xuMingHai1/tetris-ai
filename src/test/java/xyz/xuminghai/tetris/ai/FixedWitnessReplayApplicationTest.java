@@ -38,7 +38,11 @@ class FixedWitnessReplayApplicationTest {
                 {"--verify-only", "root", "output", NONCE, "--replay"}}) {
             assertThrows(IllegalArgumentException.class, () -> FixedWitnessReplayApplication.main(args));
         }
-        FixedWitnessReplayApplication.requireArguments(new String[]{"--verify-only", "root", "output", NONCE});
+        FixedWitnessReplayApplication.requireArguments(new String[]{"--verify-only", "root", "output", NONCE, "2097152"});
+        for (var limit : List.of("0", "-1", "01", "true", "2097153", "999999999999")) {
+            assertThrows(IllegalArgumentException.class, () -> FixedWitnessReplayApplication.requireArguments(
+                    new String[]{"--verify-only", "root", "output", NONCE, limit}));
+        }
     }
 
     @Test
@@ -199,6 +203,10 @@ class FixedWitnessReplayApplicationTest {
     }
 
     private Process launch(Path root, Path output, List<String> extraFlags) throws Exception {
+        return launch(root, output, extraFlags, 2 * 1024 * 1024);
+    }
+
+    private Process launch(Path root, Path output, List<String> extraFlags, int allowance) throws Exception {
         var classpath = ordinaryClasspath();
         var home = Files.createTempDirectory(directory, "home").toRealPath();
         var temporary = Files.createTempDirectory(directory, "tmp").toRealPath();
@@ -207,12 +215,48 @@ class FixedWitnessReplayApplicationTest {
                 "-Duser.home=" + home, "-Djava.io.tmpdir=" + temporary));
         args.addAll(extraFlags);
         args.addAll(List.of("-cp", classpath, FixedWitnessReplayApplication.class.getName(),
-                "--verify-only", root.toString(), output.toString(), NONCE));
+                "--verify-only", root.toString(), output.toString(), NONCE, Integer.toString(allowance)));
         var builder = new ProcessBuilder(args).directory(root.toFile())
                 .redirectErrorStream(true).redirectOutput(directory.resolve(output.getFileName() + ".log").toFile());
         builder.environment().clear();
         builder.environment().put("LANG", "C.UTF-8");
         return builder.start();
+    }
+
+    @Test
+    void writerChargesBeforeCreateAndNeverRefundsFailedIo() throws Exception {
+        var quota = new FixedWitnessReplayApplication.ArtifactQuota(6);
+        var first = directory.resolve("first");
+        quota.write(first, "你好".getBytes(StandardCharsets.UTF_8));
+        assertEquals(6, Files.size(first));
+        var next = directory.resolve("next");
+        assertThrows(IllegalStateException.class, () -> quota.write(next, new byte[1]));
+        assertFalse(Files.exists(next));
+        var failed = new FixedWitnessReplayApplication.ArtifactQuota(4);
+        assertThrows(java.nio.file.FileAlreadyExistsException.class, () -> failed.write(first, new byte[4]));
+        assertThrows(IllegalStateException.class, () -> failed.write(next, new byte[1]));
+        assertArrayEquals("你好".getBytes(StandardCharsets.UTF_8), Files.readAllBytes(first));
+        var missing = new FixedWitnessReplayApplication.ArtifactQuota(4);
+        assertThrows(java.nio.file.NoSuchFileException.class, () ->
+                missing.write(directory.resolve("missing/child"), new byte[4]));
+        assertThrows(IllegalStateException.class, () -> missing.write(next, new byte[1]));
+        var large = new FixedWitnessReplayApplication.ArtifactQuota(2 * 1024 * 1024);
+        assertThrows(IllegalStateException.class, () -> large.write(next, new byte[1024 * 1024 + 1]));
+        assertFalse(Files.exists(next));
+    }
+
+    @Test
+    @EnabledOnOs(OS.LINUX)
+    void ordinaryJvmRejectsReadyBeforeCreateWhenAllowanceTooSmall() throws Exception {
+        var output = directory.toRealPath().resolve("small");
+        var process = launch(Path.of("").toRealPath(), output, List.of(), 1);
+        try {
+            process.getOutputStream().close();
+            assertTrue(process.waitFor(15, TimeUnit.SECONDS));
+            assertNotEquals(0, process.exitValue());
+            assertFalse(Files.exists(output.resolve("ready.json")));
+            assertFalse(Files.exists(output.resolve("verified.json")));
+        } finally { stop(process); }
     }
 
     @Test

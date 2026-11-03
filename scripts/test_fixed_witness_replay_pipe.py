@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import fixed_witness_replay_pipe as pipe
 from fixed_witness_replay_process import OutputBudget, run_process
+from fixed_witness_replay_quota import ByteQuota, OutputLimitError
 
 
 class EvidenceTest(unittest.TestCase):
@@ -24,6 +25,7 @@ class EvidenceTest(unittest.TestCase):
         self.hash = hashlib.sha256(self.raw).hexdigest()
         (self.output / 'ready.json').write_bytes(self.raw)
         self.verified = dict(schema='fixed-witness-jvm-v1', state='VERIFIED_NO_REPLAY',
+                             artifact_bytes_limit=pipe.JVM_ARTIFACT_BYTES,
                              ready_sha256=self.hash, diagnostic_started=False,
                              provenance_authenticated=False, eligible_for_runtime_validation=False)
         self.manifest = {'artificial': True}
@@ -87,6 +89,46 @@ class EvidenceTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'before launch'):
                 _git(self.root, 'status')
             launch.assert_not_called()
+
+    def test_post_exit_quota_mismatch_or_combined_overflow_rejected(self):
+        self.verified['artifact_bytes_limit'] = True
+        self.write()
+        with self.assertRaisesRegex(ValueError, 'allowance mismatch'):
+            self.hook.finalize({'ready_sha256': self.hash})
+        self.hook.artifact_bytes = len(self.raw)
+        self.verified['artifact_bytes_limit'] = self.hook.artifact_bytes
+        self.write()
+        with self.assertRaisesRegex(ValueError, 'allowance exceeded'):
+            self.hook.finalize({'ready_sha256': self.hash})
+
+    def test_prelaunch_reservation_denies_insufficient_quota_without_launch(self):
+        quota = ByteQuota(15)
+        with patch.object(pipe, 'command_for', return_value=['artificial']), \
+                patch.object(pipe, 'run_process') as launch:
+            with self.assertRaises(OutputLimitError):
+                pipe.run_verify_only(self.root, self.root, {}, self.root / 'new', self.root,
+                                     OutputBudget(quota=quota), nonce='b'*64,
+                                     total_deadline=time.monotonic()+10, artifact_bytes=16)
+            launch.assert_not_called()
+        self.assertEqual(0, quota.charged)
+        self.assertFalse((self.root / 'new').exists())
+
+    def test_prelaunch_reservation_is_permanent_and_not_double_charged(self):
+        self.manifest['environment'] = {}
+        quota = ByteQuota(20)
+        budget = OutputBudget(quota=quota)
+
+        def launch(*args, **kwargs):
+            self.assertEqual((16, 4), (quota.charged, quota.remaining))
+            self.assertEqual(16, kwargs['handshake'].artifact_bytes)
+            return {'state': 'ARTIFICIAL'}
+
+        with patch.object(pipe, 'command_for', return_value=['artificial']), \
+                patch.object(pipe, 'run_process', side_effect=launch):
+            pipe.run_verify_only(self.root, self.root, {}, self.root / 'new', self.root,
+                                 budget, nonce='b'*64, total_deadline=time.monotonic()+10, artifact_bytes=16)
+        self.assertEqual((16, 0), (quota.charged, budget.written))
+        self.assertEqual(4, quota.take_prefix(10))
 
 
 @unittest.skipUnless(sys.platform == 'linux', 'actual Linux pipe/process supervision required')
@@ -253,6 +295,9 @@ def artificial_jvm(spec):
     assert not result['verification']['diagnostic_started'], result
     assert not result['verification']['network_isolation_verified'], result
     assert not result['verification']['diagnostic_authorized'], result
+    assert result['verification']['artifact_bytes_limit'] == pipe.JVM_ARTIFACT_BYTES, result
+    assert result['verification']['artifact_bytes'] == sum(
+        (out / 'jvm' / name).stat().st_size for name in ('ready.json', 'verified.json')), result
     (out / 'artificial-result.json').write_text(json.dumps(result) + '\n')
 
 

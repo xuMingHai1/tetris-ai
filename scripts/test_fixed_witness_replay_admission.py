@@ -37,6 +37,7 @@ class AdmissionTest(unittest.TestCase):
                                        'compiled_files': compiled}}
         self.process = {'state': 'OBSERVED', 'pid': 123, 'start_ticks': 456}
         self.ready = {'schema': 'fixed-witness-jvm-v1', 'state': 'READY', 'nonce': self.nonce,
+                      'artifact_bytes_limit': admission.JVM_ARTIFACT_BYTES,
                       'diagnostic_started': False, 'provenance_authenticated': False,
                       'eligible_for_runtime_validation': False,
                       'observation': {'classes': admission._classes(self.manifest, self.root),
@@ -160,6 +161,20 @@ class AdmissionTest(unittest.TestCase):
         self.manifest['toolchain']['java_home'] = 'wrong'
         with self.assertRaises(ValueError):
             self.authenticate()
+
+    def test_artifact_allowance_is_bound_to_ready_and_exact_command(self):
+        self.authenticate()
+        self.assertEqual(str(admission.JVM_ARTIFACT_BYTES), self.observe.call_args.args[1][-1])
+        for invalid in (True, 0, -1, admission.JVM_ARTIFACT_BYTES + 1, '100'):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                admission.command_for(self.manifest, self.root, self.java, self.output, self.nonce, invalid)
+        for invalid in (True, admission.JVM_ARTIFACT_BYTES - 1):
+            self.ready['artifact_bytes_limit'] = invalid
+            self.rejects()
+        self.ready['artifact_bytes_limit'] = admission.JVM_ARTIFACT_BYTES
+        self.write()
+        with self.assertRaisesRegex(ValueError, 'allowance mismatch'):
+            admission.authenticate_ready(self.root, self.java, self.receipt, self.output, self.nonce, 123, 1)
 
 
 if __name__ == '__main__':

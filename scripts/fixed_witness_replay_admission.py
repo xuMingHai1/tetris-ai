@@ -15,6 +15,7 @@ from fixed_witness_replay_prepare import verify_prepared
 
 
 READY_BYTES = 1024 * 1024
+JVM_ARTIFACT_BYTES = 2 * READY_BYTES
 PREFIX = 'xyz.xuminghai.tetris.'
 MAIN = (
     'ai.ActionPlanSimulator', 'ai.ActionStateSearch', 'ai.AiAction', 'ai.AiPlan',
@@ -51,9 +52,11 @@ def _ready(path):
     return data, value
 
 
-def command_for(manifest, root, java_home, output, nonce):
+def command_for(manifest, root, java_home, output, nonce, artifact_bytes=JVM_ARTIFACT_BYTES):
     """Construct the exact ordinary JVM command from an already verified receipt."""
     require(isinstance(nonce, str) and re.fullmatch('[0-9a-f]{64}', nonce), '64-hex nonce required')
+    require(type(artifact_bytes) is int and 0 < artifact_bytes <= JVM_ARTIFACT_BYTES,
+            'bounded JVM artifact allowance required')
     root, java_home = canonical(root), canonical(java_home)
     output = Path(output)
     require(output.is_absolute() and output == output.absolute()
@@ -66,7 +69,8 @@ def command_for(manifest, root, java_home, output, nonce):
     return [str(java_home / 'bin/java'), '-Xmx256m', '-XX:MaxMetaspaceSize=128m',
             '-Duser.home=' + env['HOME'], '-Djava.io.tmpdir=' + env['TMPDIR'],
             '-cp', ':'.join(manifest['classpath']['classpath']),
-            PREFIX + 'ai.FixedWitnessReplayApplication', '--verify-only', str(root), str(output), nonce]
+            PREFIX + 'ai.FixedWitnessReplayApplication', '--verify-only', str(root), str(output), nonce,
+            str(artifact_bytes)]
 
 
 def _classes(manifest, root):
@@ -88,7 +92,7 @@ def _classes(manifest, root):
     return expected
 
 
-def authenticate_ready(root, java_home, receipt, output, nonce, pid):
+def authenticate_ready(root, java_home, receipt, output, nonce, pid, artifact_bytes=JVM_ARTIFACT_BYTES):
     """Return a bound ACK only after receipt, proc and class observations agree.
 
     No file is written and no stdin is touched, including on failure. Repeated
@@ -100,11 +104,14 @@ def authenticate_ready(root, java_home, receipt, output, nonce, pid):
     require(type(pid) is int and pid > 0, 'positive child pid required')
     root, java_home, output = map(canonical, (root, java_home, output))
     manifest = verify_prepared(root, java_home, receipt)
-    command = command_for(manifest, root, java_home, output, nonce)
+    command = command_for(manifest, root, java_home, output, nonce, artifact_bytes)
     expected = _classes(manifest, root)
     data, ready = _ready(output / 'ready.json')
     require(set(ready) == {'schema', 'state', 'nonce', 'observation', 'diagnostic_started',
-                           'provenance_authenticated', 'eligible_for_runtime_validation'}, 'unexpected READY fields')
+                           'provenance_authenticated', 'eligible_for_runtime_validation',
+                           'artifact_bytes_limit'}, 'unexpected READY fields')
+    require(type(ready['artifact_bytes_limit']) is int and ready['artifact_bytes_limit'] == artifact_bytes
+            and len(data) <= artifact_bytes, 'READY artifact allowance mismatch')
     require(ready['schema'] == 'fixed-witness-jvm-v1' and ready['state'] == 'READY'
             and ready['nonce'] == nonce, 'READY schema/state/nonce mismatch')
     require(all(ready[name] is False for name in ('diagnostic_started', 'provenance_authenticated',

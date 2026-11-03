@@ -91,7 +91,7 @@ class FixedWitnessAdmissionTest {
             assertTrue(process.waitFor(45, TimeUnit.SECONDS), "artificial admission tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 14 tests"), output);
+            assertTrue(output.contains("Ran 15 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {
