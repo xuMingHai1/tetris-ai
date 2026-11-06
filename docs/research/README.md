@@ -29,6 +29,11 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 ## 固定旧 witness 的结构核验
 
+[单 JVM 固定动作认证回放与报告接线设计](../design/heart-fixed-witness-replay-execution.md)
+比较仅嵌入式、双JVM与单JVM接线，提出执行前父权威请求和执行后journal/报告绑定。
+当前仅设计候选，须最终独立Review/CI/正常合并后才实施；不执行历史输入或完整网络验收，
+不解除170/174及原16进程/10MiB、唯一登记与任何停止/采用门。
+
 [诊断 JVM 网络拒绝设计](heart-fixed-witness-replay-network.md)比较启动前 OS 机制，提出保持普通 JVM PID/argv/握手的 seccomp 方案及有界人工反例验收；当前仅设计候选，尚无网络隔离实测或历史执行许可。
 
 [普通 JVM 观测与握手组件](heart-fixed-witness-replay-jvm.md)提供无回放的verify-only入口，
