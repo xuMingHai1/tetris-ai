@@ -156,6 +156,35 @@ class FixedWitnessReplayTest {
     }
 
     @Test
+    void tornUtf8TailIsUnconsumedButCompleteCorruptionAndPostEndBytesAreRejected() throws Exception {
+        var output = directory.resolve("utf8-complete.jsonl");
+        run(CSV, EXPECTED, output);
+        byte[] complete = Files.readAllBytes(output);
+        byte[] start = bytes(Files.readAllLines(output).getFirst() + "\n");
+        byte[] character = bytes("你");
+        var damaged = directory.resolve("utf8-damaged.jsonl");
+        for (int length = 1; length < character.length; length++) {
+            byte[] torn = Arrays.copyOf(start, start.length + length);
+            System.arraycopy(character, 0, torn, start.length, length);
+            Files.write(damaged, torn);
+            var summary = read(damaged);
+            assertEquals(FixedWitnessJournalReader.State.INCOMPLETE, summary.state());
+            assertEquals(0, summary.attempted());
+            assertTrue(summary.rows().isEmpty());
+
+            byte[] terminated = Arrays.copyOf(torn, torn.length + 1);
+            terminated[terminated.length - 1] = '\n';
+            Files.write(damaged, terminated);
+            assertThrows(java.nio.charset.CharacterCodingException.class, () -> read(damaged));
+
+            byte[] trailing = Arrays.copyOf(complete, complete.length + length);
+            System.arraycopy(character, 0, trailing, complete.length, length);
+            Files.write(damaged, trailing);
+            assertThrows(IllegalArgumentException.class, () -> read(damaged));
+        }
+    }
+
+    @Test
     void rejectsFalseCompletionTamperedHashMissingFieldsAndTrailingData() throws Exception {
         var output = directory.resolve("complete.jsonl");
         run(CSV, EXPECTED, output);

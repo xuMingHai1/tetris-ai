@@ -48,7 +48,12 @@ final class FixedWitnessJournalReader {
             bytes = stream.readNBytes(MAX_BYTES + 1);
         }
         require(bytes.length <= MAX_BYTES, "journal size limit");
-        String text = StandardCharsets.UTF_8.newDecoder().decode(ByteBuffer.wrap(bytes)).toString();
+        // Only LF-terminated records are evidence. A torn tail can end within a UTF-8
+        // character, so exclude its bytes before strict decoding of the committed prefix.
+        int terminatedBytes = bytes.length;
+        while (terminatedBytes > 0 && bytes[terminatedBytes - 1] != '\n') terminatedBytes--;
+        String text = StandardCharsets.UTF_8.newDecoder()
+                .decode(ByteBuffer.wrap(bytes, 0, terminatedBytes)).toString();
         String[] lines = text.split("\n", -1);
         require(lines.length <= 48, "journal event count limit");
         var rows = new ArrayList<FixedWitnessReplay.Row>();
@@ -117,7 +122,7 @@ final class FixedWitnessJournalReader {
                 default -> throw new IllegalArgumentException("unknown journal event");
             }
         }
-        require(state == State.INCOMPLETE || lines[lines.length - 1].isEmpty(), "bytes after END");
+        require(state == State.INCOMPLETE || terminatedBytes == bytes.length, "bytes after END");
         return new Summary(state, attempts, rows);
     }
 
