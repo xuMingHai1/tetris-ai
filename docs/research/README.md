@@ -34,7 +34,10 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 设计已由 [PR183](https://github.com/xuMingHai1/tetris-ai/pull/183) 合并接受；
 `FixedWitnessReplayRequest` 独立组件提供执行前动作请求的自有字节、规范声明/hash与严格解析，
 不含journal摘要，不读文件或执行动作。实现验证使用原16项预算中的前3项人工案例；
-剩余请求目录/父receipt、execution模式清单、JVM入口/监督及13项案例仍待接线，不能称整体实现完成。
+`FixedWitnessReplayDescriptor` 另提供恰好两文件私有目录的 metadata-only 检查、
+有界 NOFOLLOW 自有读取和保留身份复核；调用者仍须独占目录并排除硬链接别名 writer。
+其单项人工快照/原件漂移案例占原预算第4项；Windows 缺少 fileKey 时跳过不算执行。
+剩余 Python 父receipt、execution模式清单、JVM入口/监督及12项案例仍待接线，不能称整体实现完成。
 该组件不提供历史输入或完整网络验收许可，
 不解除170/174及原16进程/10MiB、唯一登记与任何停止/采用门。
 
