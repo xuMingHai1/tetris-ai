@@ -37,7 +37,7 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 [固定既有动作回放设计](../design/heart-fixed-witness-replay.md)接续 #91 恢复的两条旧路径，提议仅在测试源码中回放固定22步，核对绝对消行与逐步post-clear棋盘；不重新生成seed、枚举或搜索。设计及实现分别完成最终独立Review/适用CI/正常合并后，才可登记唯一诊断；当前尚无新回放结果。它不复活终态证书或GoalWindow，不放宽Q/guard，不解锁#95/#96或runtime。
 
-设计已由 #155 接受；[输入与静态兼容性](heart-fixed-witness-replay-input.md)登记原22行的来源/hash、严格 test-only reader 和历史源码变化。[回放与逐步证据实现](heart-fixed-witness-replay-evidence.md)增加生产动作重放、独占 journal 和不重放动作的结构检查器；仍缺独立父监督、构建来源认证及唯一登记，没有完整历史回放结果或执行许可。完整历史输入不进入 synthetic/CI 诊断。
+设计已由 #155 接受；[输入与静态兼容性](heart-fixed-witness-replay-input.md)登记原22行的来源/hash、严格 test-only reader 和历史源码变化。[回放与逐步证据实现](heart-fixed-witness-replay-evidence.md)增加生产动作重放、独占 journal 和不重放动作的结构检查器；[报告装配](heart-fixed-witness-replay-report.md)从保存记录呈现逐步几何与路径终态，写前共享预留额度。仍缺完整父监督、构建来源认证及唯一登记，没有完整历史回放结果或执行许可。完整历史输入不进入 synthetic/CI 诊断。
 
 [固定回放进程监督组件](heart-fixed-witness-replay-process.md)增加有界输出、timeout/中断和进程组清理的人工验证；[累计配额组件](heart-fixed-witness-replay-quota.md)提供合作式writer的共享写入前计费与管道接线，所有产物writer的统一接线及唯一登记仍未完成，不执行历史22步。
 
