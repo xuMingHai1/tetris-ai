@@ -55,3 +55,24 @@ Report 的快照入口消费同一批字节，不生成临时 journal。
 区分损坏前缀 INCOMPLETE 和合法 mismatch END，不读取历史 CSV 或执行回放。
 该边界尚未接入普通 JVM，不修改双侧加载清单、命令或握手；
 请求 hash 也不提供来源认证、Q、完整 session 或 runtime 权限。
+
+## 本次新增修改：严格描述符与受控文件快照
+
+按 [PR179 接受的设计](../design/heart-fixed-witness-report-descriptor.md)，
+test-only `FixedWitnessReportDescriptor.read` 支持自有 byte[] 快照及私有目录三固定文件。
+父调用方须独立保留 expectedRequestSha256；不能从被读取目录或解析结果取该权威值。
+严格 UTF-8/重复键/精确字段/整数范围检查后，只复用 Request 的 canonicalBytes 比较原件，
+不修复字段、空白或顺序。描述符/input/journal 分别有16KiB/64KiB/10MiB上限。
+
+文件入口要求绝对规范目录、非链接祖先、普通非链接文件及非空 fileKey；
+NOFOLLOW有界读取前后核对身份/大小/修改时间，返回请求仅消费已读字节。
+调用者必须保证目录独占且无writer（含硬链接别名）；检查不构成防恶意替换的OS隔离。
+失败不写、不删、不替换原件；I/O失败保持IOException，内容失败为IllegalArgumentException。
+本组件无quota或产物；后续报告仍须传入同根永久预留JournalQuota。
+
+新增11项Java人工用例和1项独立Python字面量向量，每fixture单路径一步、零动作执行；
+目录fileKey不可得时三个文件用例明确skip，入口仍拒绝；符号链接创建不可用也明确skip。
+当前Windows/JDK27实测fileKey为null，成功文件入口只能由支持该身份的平台验证。
+未接通CLI/加载清单/READY/receipt，
+未执行历史输入或网络验收，不改变原16进程/10MiB口径与任何冻结/采用门。
+生产职责/依赖/运行方式未变，README/AGENTS/ADR无需修改。
