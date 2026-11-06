@@ -119,7 +119,7 @@ def _stop_work(pending):
 
 
 def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, environment=None,
-                handshake=None, cancellation=None):
+                handshake=None, cancellation=None, success_state='VERIFIED_NO_REPLAY'):
     """Run once, retain bounded binary prefixes and kill the entire owned group.
 
     Linux only; start_new_session creates a group even when the leader exits
@@ -132,6 +132,10 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
     adapter. Workers never receive stdin; ACK is one bounded nonblocking write
     on the supervising thread. Post-exit evidence work shares the same deadline.
     """
+    if success_state not in ('VERIFIED_NO_REPLAY', 'REPORT_WRITTEN_NO_REPLAY'):
+        raise ValueError('closed handshake success state required')
+    if success_state == 'REPORT_WRITTEN_NO_REPLAY' and handshake is None:
+        raise ValueError('report success requires authenticated handshake')
     if sys.platform != 'linux':
         raise RuntimeError('Linux process supervision required')
     seconds = _seconds(seconds)
@@ -235,7 +239,9 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
                             result.update(ack_sent=True, admission=value['evidence'])
                             phase = 'ACKED'
                         else:
-                            result.update(state='VERIFIED_NO_REPLAY', verification=value)
+                            if not isinstance(value, dict) or value.get('state') != success_state:
+                                raise ValueError('handshake final state differs from parent selection')
+                            result.update(state=success_state, verification=value)
                             break
                 if process.poll() is not None and not selector.get_map():
                     if handshake is not None:
