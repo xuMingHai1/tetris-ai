@@ -42,11 +42,18 @@ final class FixedWitnessJournalReader {
      */
     static Summary read(Path path, byte[] input, String hash, List<FixedWitnessInput.PathSpec> paths,
                         Map<String, FixedWitnessReportChecker.Expected> expected) throws IOException {
-        var steps = FixedWitnessInput.read(input, hash, paths);
+        FixedWitnessInput.read(input, hash, paths);
         byte[] bytes;
         try (var stream = Files.newInputStream(path)) {
             bytes = stream.readNBytes(MAX_BYTES + 1);
         }
+        return read(bytes, input, hash, paths, expected);
+    }
+
+    /** Consumes the supplied saved bytes directly; never opens or recreates a journal file. */
+    static Summary read(byte[] bytes, byte[] input, String hash, List<FixedWitnessInput.PathSpec> paths,
+                        Map<String, FixedWitnessReportChecker.Expected> expected) throws IOException {
+        var steps = FixedWitnessInput.read(input, hash, paths);
         require(bytes.length <= MAX_BYTES, "journal size limit");
         // Only LF-terminated records are evidence. A torn tail can end within a UTF-8
         // character, so exclude its bytes before strict decoding of the committed prefix.

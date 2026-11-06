@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -36,6 +37,22 @@ final class FixedWitnessReport {
                       FixedWitnessReplay.JournalQuota quota) throws IOException {
         var steps = FixedWitnessInput.read(input, hash, paths);
         var summary = FixedWitnessJournalReader.read(journal, input, hash, paths, expected);
+        write(summary, steps, hash, paths, expected, output, quota, null);
+    }
+
+    /** Snapshot-only entry: identity and reader must consume the request's same owned bytes. */
+    static void write(byte[] journal, byte[] input, String hash, List<FixedWitnessInput.PathSpec> paths,
+                      Map<String, FixedWitnessReportChecker.Expected> expected, Path output,
+                      FixedWitnessReplay.JournalQuota quota, Map<String, Object> identity) throws IOException {
+        var steps = FixedWitnessInput.read(input, hash, paths);
+        var summary = FixedWitnessJournalReader.read(journal, input, hash, paths, expected);
+        write(summary, steps, hash, paths, expected, output, quota, identity);
+    }
+
+    private static void write(FixedWitnessJournalReader.Summary summary, List<FixedWitnessInput.Step> steps,
+                              String hash, List<FixedWitnessInput.PathSpec> paths,
+                              Map<String, FixedWitnessReportChecker.Expected> expected, Path output,
+                              FixedWitnessReplay.JournalQuota quota, Map<String, Object> identity) throws IOException {
         boolean structural = true;
         try {
             if (!summary.rows().isEmpty()) {
@@ -70,7 +87,7 @@ final class FixedWitnessReport {
                         "hasClearedLines", row.cumulativeClears() > 0));
             }
         }
-        var report = Map.ofEntries(
+        var report = new LinkedHashMap<String, Object>(Map.ofEntries(
                 Map.entry("schema", "fixed-witness-report-v1"), Map.entry("inputHash", hash),
                 Map.entry("journalState", summary.state().name()),
                 Map.entry("attempted", summary.attempted()), Map.entry("completed", summary.rows().size()),
@@ -78,7 +95,8 @@ final class FixedWitnessReport {
                 Map.entry("recordedRows", summary.rows().stream().map(FixedWitnessReportCodec::row).toList()),
                 Map.entry("observations", observations), Map.entry("terminals", terminals),
                 Map.entry("provenanceAuthenticated", false), Map.entry("qCertified", false),
-                Map.entry("eligibleForRuntimeValidation", false));
+                Map.entry("eligibleForRuntimeValidation", false)));
+        if (identity != null) report.put("requestIdentity", identity);
         byte[] bytes = (JSON.writeValueAsString(report) + "\n").getBytes(StandardCharsets.UTF_8);
         quota.charge(bytes.length);
         try (var channel = FileChannel.open(output, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
