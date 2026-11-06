@@ -31,6 +31,10 @@ TEST = (
     'ai.FixedWitnessJournalReader', 'ai.FixedWitnessReportCodec',
     'ai.FixedWitnessJvmObservation', 'ai.FixedWitnessReplayApplication',
 )
+REPORT_TEST = TEST + (
+    'ai.FixedWitnessReportApplication', 'ai.FixedWitnessReport',
+    'ai.FixedWitnessReportRequest', 'ai.FixedWitnessReportDescriptor',
+)
 
 
 def _object(pairs):
@@ -73,10 +77,10 @@ def command_for(manifest, root, java_home, output, nonce, artifact_bytes=JVM_ART
             str(artifact_bytes)]
 
 
-def _classes(manifest, root):
+def _classes(manifest, root, *, report=False):
     expected = {}
     compiled = manifest['classpath']['compiled_files']
-    for base, names in (('target/classes', MAIN), ('target/test-classes', TEST)):
+    for base, names in (('target/classes', MAIN), ('target/test-classes', REPORT_TEST if report else TEST)):
         for name in names:
             resource = (PREFIX + name).replace('.', '/')
             primary = base + '/' + resource + '.class'

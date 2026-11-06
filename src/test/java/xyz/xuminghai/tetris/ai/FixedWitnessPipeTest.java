@@ -31,6 +31,10 @@ class FixedWitnessPipeTest {
         assertTrue(text.contains("Ran 19 tests"), text);
         assertTrue(text.contains("\nOK\n"), text);
         assertFalse(text.contains("skipped"), text);
+        var report = python(List.of("-m", "unittest", "discover", "-v", "-s", "scripts",
+                "-p", "test_fixed_witness_report_pipe.py"), "report-suite", 30);
+        assertTrue(report.contains("Ran 8 tests") && report.contains("\nOK\n"), report);
+        assertFalse(report.contains("skipped"), report);
     }
 
     @Test
@@ -55,7 +59,9 @@ class FixedWitnessPipeTest {
                 "out", output.toString(), "dependencies", dependencies)));
         python(List.of("-c", "import json,sys; sys.path.insert(0,'scripts'); "
                 + "from test_fixed_witness_replay_pipe import artificial_jvm; "
-                + "artificial_jvm(json.load(open(sys.argv[1])))", spec.toString()), "jvm", 75);
+                + "from test_fixed_witness_report_pipe import artificial_report_jvm; "
+                + "spec=json.load(open(sys.argv[1])); artificial_jvm(spec); artificial_report_jvm(spec)",
+                spec.toString()), "jvm", 120);
         assertTrue(Files.isRegularFile(output.resolve("artificial-result.json")));
         assertFalse(Files.exists(output.resolve("journal.jsonl")));
     }

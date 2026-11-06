@@ -155,7 +155,7 @@ class PipeTest(unittest.TestCase):
     def finalize(self, admitted):
         time.sleep(self.final_delay)
         self.assertEqual(self.ack, (self.root / 'received').read_bytes())
-        return {'artificial': True}
+        return {'artificial': True, 'state': 'VERIFIED_NO_REPLAY'}
 
     def run_child(self, *, suffix='', prefix='', seconds=2, limit=4096):
         code = ("from pathlib import Path; import sys,time,os; " + prefix

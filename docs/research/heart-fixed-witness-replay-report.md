@@ -53,7 +53,7 @@ Report 的快照入口消费同一批字节，不生成临时 journal。
 调用者显式传入同根永久预留额度，本组件不创建根额度或证明传入额度的祖先。
 人工测试仅直接构造保存事件，每条路径一步、最多两路径，共16项，
 区分损坏前缀 INCOMPLETE 和合法 mismatch END，不读取历史 CSV 或执行回放。
-该边界尚未接入普通 JVM，不修改双侧加载清单、命令或握手；
+该请求组件自身不修改双侧加载清单、命令或握手；普通JVM接线见下述PR181实现；
 请求 hash 也不提供来源认证、Q、完整 session 或 runtime 权限。
 
 ## 本次新增修改：严格描述符与受控文件快照
@@ -73,6 +73,34 @@ NOFOLLOW有界读取前后核对身份/大小/修改时间，返回请求仅消�
 新增11项Java人工用例和1项独立Python字面量向量，每fixture单路径一步、零动作执行；
 目录fileKey不可得时三个文件用例明确skip，入口仍拒绝；符号链接创建不可用也明确skip。
 当前Windows/JDK27实测fileKey为null，成功文件入口只能由支持该身份的平台验证。
-未接通CLI/加载清单/READY/receipt，
+描述符组件自身未接通CLI/加载清单/READY/receipt；独立接线见下节。
 未执行历史输入或网络验收，不改变原16进程/10MiB口径与任何冻结/采用门。
 生产职责/依赖/运行方式未变，README/AGENTS/ADR无需修改。
+
+## 本次新增修改：report-only JVM 与父端认证接线
+
+按 [PR181 接受的设计](../design/heart-fixed-witness-report-jvm.md)，新增test-only
+`FixedWitnessReportApplication` 和 `scripts/fixed_witness_report_pipe.py`。
+调用者独立保留规范描述符原字节/hash及构建receipt，拥有与checkout/HOME/TMP/新输出
+相互分离的私有无writer三文件目录；不从子端READY反推权威参数。
+`retain_request` 保存不可变原件、目录/文件身份、大小、mtime和输入摘要，
+启动前、ACK前、退出后检查漂移。Java ACK后通过Descriptor消费自有快照；
+只写ready.json/report.json/reported.json，不调用Replay.run或重新执行动作。
+
+两侧显式report模式清单增加Application/Report/Request/Descriptor及具名嵌套类，
+保留旧verify-only命令、schema、清单和两文件集合。
+父端以实际proc argv、已保留构建清单和观察字节认证，只有监督主线程发送绑定READY的ACK/EOF。
+父端启动前一次性从原root永久预扣H+R，Java分别消费H和R；失败/未用不退。
+输入副本、receipt持久化、日志和失败记录仍须由调用者从同root扣费，无目录豁免。
+
+退出0仍须核对精确三文件、NOFOLLOW有界稳定读取、原始长度/hash、请求声明和false权限字段。
+`REPORT_WRITTEN_NO_REPLAY`只表示报告传输完成，verification.journal_state从实际报告传播，
+保持INCOMPLETE/INVALID/EVIDENCE_MISMATCH/COMPLETE，不从reported或进程退出推断。
+`run_process`只允许这一个新增成功状态及原VERIFIED_NO_REPLAY，并要求finalize结果一致。
+
+新增预算固定为7项Java案例、8项Python案例和1项真实Linux普通JVM人工联调，合计16项；
+联调复用现有JUnit桥接方法和编译目录，构建receipt明确为mock，不是clean-build/网络验收。
+每fixture最多两路径、每路径一步、手写journal；Windows跳过Linux入口不算执行。
+现有超时/取消/洪泛回归继续运行；其他拒绝路径由静态Review检查，不宣称穷尽负例。
+Windows fileKey不可用仍拒绝，不降低身份要求。
+无历史22步、search/population/provider调用；170/174、原16进程/10MiB及停止/采用门不变。

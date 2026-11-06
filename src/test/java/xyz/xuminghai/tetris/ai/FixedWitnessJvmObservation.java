@@ -33,6 +33,11 @@ final class FixedWitnessJvmObservation {
     private FixedWitnessJvmObservation() { }
 
     static Map<String, Object> inspect(Path root) throws Exception {
+        return inspect(root, false);
+    }
+
+    /** Explicit report inventory; the original verify-only inventory remains unchanged. */
+    static Map<String, Object> inspect(Path root, boolean report) throws Exception {
         require(!FixedWitnessJvmObservation.class.getModule().isNamed(), "ordinary classpath required");
         var loader = FixedWitnessJvmObservation.class.getClassLoader();
         var classes = new LinkedHashMap<String, Object>();
@@ -40,6 +45,11 @@ final class FixedWitnessJvmObservation {
                 root.resolve("target/classes"), loader, classes);
         for (var name : TEST) observe(Class.forName(PREFIX + name, false, loader),
                 root.resolve("target/test-classes"), loader, classes);
+        if (report) for (var name : List.of("ai.FixedWitnessReportApplication", "ai.FixedWitnessReport",
+                "ai.FixedWitnessReportRequest", "ai.FixedWitnessReportDescriptor")) {
+            observe(Class.forName(PREFIX + name, false, loader),
+                    root.resolve("target/test-classes"), loader, classes);
+        }
         return Map.of("classes", classes, "java_runtime", System.getProperty("java.runtime.version"),
                 "classpath", System.getProperty("java.class.path"), "pid", ProcessHandle.current().pid());
     }
