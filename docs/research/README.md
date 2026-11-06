@@ -31,7 +31,11 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 [单 JVM 固定动作认证回放与报告接线设计](../design/heart-fixed-witness-replay-execution.md)
 比较仅嵌入式、双JVM与单JVM接线，提出执行前父权威请求和执行后journal/报告绑定。
-当前仅设计候选，须最终独立Review/CI/正常合并后才实施；不执行历史输入或完整网络验收，
+设计已由 [PR183](https://github.com/xuMingHai1/tetris-ai/pull/183) 合并接受；
+`FixedWitnessReplayRequest` 独立组件提供执行前动作请求的自有字节、规范声明/hash与严格解析，
+不含journal摘要，不读文件或执行动作。实现验证使用原16项预算中的前3项人工案例；
+剩余请求目录/父receipt、execution模式清单、JVM入口/监督及13项案例仍待接线，不能称整体实现完成。
+该组件不提供历史输入或完整网络验收许可，
 不解除170/174及原16进程/10MiB、唯一登记与任何停止/采用门。
 
 [诊断 JVM 网络拒绝设计](heart-fixed-witness-replay-network.md)比较启动前 OS 机制，提出保持普通 JVM PID/argv/握手的 seccomp 方案及有界人工反例验收；当前仅设计候选，尚无网络隔离实测或历史执行许可。
