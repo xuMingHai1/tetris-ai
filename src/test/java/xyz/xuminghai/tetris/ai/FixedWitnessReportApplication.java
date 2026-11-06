@@ -40,7 +40,7 @@ public final class FixedWitnessReportApplication {
         FixedWitnessReplayApplication.validateOutput(root, output);
         validateDirectories(root, output, snapshot, home, temporary);
         validateCommand(args, home, temporary);
-        var before = snapshot(snapshot, args[7]);
+        var before = snapshot(snapshot);
         var handshake = new FixedWitnessReplayApplication.ArtifactQuota(Integer.parseInt(args[4]));
         var reportQuota = new FixedWitnessReplay.JournalQuota(Integer.parseInt(args[5]));
         Files.createDirectory(output);
@@ -56,11 +56,11 @@ public final class FixedWitnessReportApplication {
                 Duration.ofNanos(Math.max(1, deadline - System.nanoTime())));
         require(System.nanoTime() < deadline, "report-only deadline expired");
         require(observed.equals(FixedWitnessJvmObservation.inspect(root, true)), "loaded observation drift");
-        require(before.equals(snapshot(snapshot, args[7])), "snapshot drift before consumption");
+        require(before.equals(snapshot(snapshot)), "snapshot drift before consumption");
         // Descriptor owns the sole input snapshots consumed by Request; no Replay.run path.
         var request = FixedWitnessReportDescriptor.read(snapshot, args[7]);
         var report = writeReport(request, output.resolve("report.json"), reportQuota, Integer.parseInt(args[5]));
-        require(before.equals(snapshot(snapshot, args[7])), "snapshot drift after report");
+        require(before.equals(snapshot(snapshot)), "snapshot drift after report");
         require(observed.equals(FixedWitnessJvmObservation.inspect(root, true)), "loaded observation drift");
         require(System.nanoTime() < deadline, "report-only deadline expired");
         handshake.write(output.resolve("reported.json"), json(Map.ofEntries(
@@ -114,8 +114,8 @@ public final class FixedWitnessReportApplication {
                 "unexpected JVM command/options");
     }
 
-    /** Cooperative no-writer check: identities and raw hashes, not an OS isolation claim. */
-    private static Map<String, Object> snapshot(Path directory, String digest) throws Exception {
+    /** Metadata only: evidence bytes must not be consumed before parent ACK. */
+    private static Map<String, Object> snapshot(Path directory) throws Exception {
         canonical(directory);
         try (var entries = Files.list(directory)) {
             require(entries.map(p -> p.getFileName().toString()).collect(java.util.stream.Collectors.toSet())
@@ -126,11 +126,11 @@ public final class FixedWitnessReportApplication {
             Path path = name.isEmpty() ? directory : directory.resolve(name);
             var attributes = Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes.class,
                     LinkOption.NOFOLLOW_LINKS);
-            require(attributes.fileKey() != null, "file identity unavailable");
+            require(attributes.fileKey() != null && !attributes.isSymbolicLink()
+                    && (name.isEmpty() ? attributes.isDirectory() : attributes.isRegularFile()),
+                    "file type/identity unavailable");
             values.put(name, List.of(attributes.fileKey(), attributes.size(), attributes.lastModifiedTime()));
         }
-        // Bounded NOFOLLOW reads and validation use the existing descriptor implementation.
-        values.put("request", FixedWitnessReportDescriptor.read(directory, digest).requestHash());
         return values;
     }
 

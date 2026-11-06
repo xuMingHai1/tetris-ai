@@ -5,14 +5,14 @@
 package xyz.xuminghai.tetris.ai;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -34,10 +34,43 @@ class FixedWitnessReportApplicationTest {
     }
 
     @Test
-    void eofWithoutAckCreatesNoReport() {
-        assertThrows(IllegalStateException.class, () -> FixedWitnessReplayApplication.acknowledge(
-                new ByteArrayInputStream(new byte[0]), "a".repeat(64), "b".repeat(64), Duration.ofSeconds(1)));
-        assertFalse(Files.exists(directory.resolve("report.json")));
+    @EnabledOnOs(OS.LINUX)
+    void eofWithoutAckCreatesNoReport() throws Exception {
+        Path root = Path.of("").toRealPath();
+        Path snapshot = Files.createDirectory(directory.resolve("snapshot"));
+        // Invalid content deliberately demonstrates that Descriptor cannot run before ACK.
+        Files.writeString(snapshot.resolve("request.json"), "not read before ACK");
+        Files.writeString(snapshot.resolve("input.csv"), "not read before ACK");
+        Files.write(snapshot.resolve("journal.jsonl"), new byte[0]);
+        Path home = Files.createDirectory(directory.resolve("home"));
+        Path temporary = Files.createDirectory(directory.resolve("tmp"));
+        Path output = directory.resolve("output");
+        Path eof = Files.write(directory.resolve("eof"), new byte[0]);
+        var entries = new java.util.LinkedHashSet<>(List.of(root.resolve("target/classes").toString(),
+                root.resolve("target/test-classes").toString()));
+        for (String key : List.of("jdk.module.path", "surefire.test.class.path")) {
+            entries.addAll(List.of(System.getProperty(key).split(java.util.regex.Pattern.quote(java.io.File.pathSeparator))));
+        }
+        var command = List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                "-Xmx256m", "-XX:MaxMetaspaceSize=128m", "-Duser.home=" + home, "-Djava.io.tmpdir=" + temporary,
+                "-cp", String.join(java.io.File.pathSeparator, entries), FixedWitnessReportApplication.class.getName(),
+                "--report-only", root.toString(), output.toString(), "a".repeat(64), "300000", "100000",
+                snapshot.toString(), "b".repeat(64));
+        var process = new ProcessBuilder(command).redirectInput(eof.toFile()).redirectErrorStream(true)
+                .redirectOutput(directory.resolve("child.log").toFile()).start();
+        try {
+            assertTrue(process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS));
+            assertNotEquals(0, process.exitValue());
+            assertTrue(Files.isRegularFile(output.resolve("ready.json")), Files.readString(directory.resolve("child.log")));
+            assertFalse(Files.exists(output.resolve("report.json")));
+            assertFalse(Files.exists(output.resolve("reported.json")));
+        } finally {
+            process.descendants().forEach(ProcessHandle::destroyForcibly);
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                assertTrue(process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS));
+            }
+        }
     }
 
     @Test

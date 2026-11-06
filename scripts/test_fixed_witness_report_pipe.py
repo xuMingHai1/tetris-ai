@@ -11,14 +11,14 @@ from unittest.mock import patch
 import fixed_witness_report_pipe as report
 import fixed_witness_replay_admission as admission
 from fixed_witness_replay_process import OutputBudget, run_process
-from fixed_witness_replay_quota import ByteQuota, OutputLimitError
+from fixed_witness_replay_quota import ByteQuota, OutputLimitError, write_exclusive
 
 
 def encoded(value):
     return (json.dumps(value, separators=(',', ':')) + '\n').encode()
 
 
-def fixture(snapshot):
+def fixture(snapshot, quota=None):
     """Artificial one-path/one-step declaration with an empty saved prefix."""
     source = b'shape_feasibility_witness,seed,step,piece,actions\nshape_feasibility_witness,71,1,O,HARD_DROP\n'
     expected = dict(required=0, forbidden=0, rawHoles=0, requiredHoles=0, forbiddenHoles=0,
@@ -27,9 +27,11 @@ def fixture(snapshot):
                                journalSha256=report._hash(b''), paths=[dict(id='71', placements=1)],
                                expected={'71': expected}))
     snapshot.mkdir()
-    (snapshot / 'request.json').write_bytes(declaration)
-    (snapshot / 'input.csv').write_bytes(source)
-    (snapshot / 'journal.jsonl').write_bytes(b'')
+    for name, raw in (('request.json', declaration), ('input.csv', source), ('journal.jsonl', b'')):
+        if quota is None:
+            (snapshot / name).write_bytes(raw)
+        else:
+            write_exclusive(snapshot / name, raw, quota)
     return report.retain_request(snapshot, declaration, report._hash(declaration))
 
 
@@ -164,16 +166,14 @@ def artificial_report_jvm(spec):
     home, tmp = base / 'home', base / 'tmp'
     home.mkdir()
     tmp.mkdir()
-    request = fixture(base / 'snapshot')
+    budget = OutputBudget()
+    request = fixture(base / 'snapshot', budget.quota)
     version = next(json.loads(line.split('=', 1)[1]) for line in
                    (java / 'release').read_text().splitlines() if line.startswith('JAVA_VERSION='))
     manifest = {'toolchain': {'java_home': str(java), 'java_version': version,
                               'jdk_files': {'bin/java': sha256(java / 'bin/java')}},
                 'environment': controlled_environment(java, home, tmp),
                 'classpath': classpath_identity(root, spec['dependencies'])}
-    budget = OutputBudget()
-    # Artificial input creation is retained in this same root accounting as well.
-    budget.quota.charge(sum((request.directory / name).stat().st_size for name in report.LIMITS))
     with patch.object(report, 'verify_prepared', return_value=manifest):
         result = report.run_report_only(root, java, {'sha256': 'a'*64}, base / 'jvm', base, budget,
             nonce='b'*64, request=request, handshake_bytes=300_000, report_bytes=100_000,

@@ -167,8 +167,20 @@ class ReportHandshake:
         if not path.exists() and not path.is_symlink():
             return False
         _directory(self.output)
-        raw, _ = _read(path, min(1024*1024, self.handshake_bytes))
-        return raw.endswith(b'\n')
+        # CREATE_NEW is visible before the child finishes writing. Drift during this
+        # readiness probe means wait, not reject; authentication later reads strictly.
+        limit = min(1024*1024, self.handshake_bytes)
+        before = path.lstat()
+        require(stat.S_ISREG(before.st_mode) and before.st_size <= limit, 'READY type/size limit')
+        with os.fdopen(os.open(path, os.O_RDONLY | getattr(os, 'O_BINARY', 0)
+                               | getattr(os, 'O_NOFOLLOW', 0)), 'rb') as stream:
+            opened = os.fstat(stream.fileno())
+            require(_identity(opened)[:3] == _identity(before)[:3], 'READY opened identity drift')
+            raw = stream.read(limit + 1)
+            after = os.fstat(stream.fileno())
+        require(len(raw) <= limit and after.st_size <= limit, 'READY size limit')
+        require(_identity(after)[:3] == _identity(path.lstat())[:3], 'READY replaced')
+        return _identity(before) == _identity(after) and len(raw) == after.st_size and raw.endswith(b'\n')
 
     def _prepared(self):
         require(verify_prepared(self.root, self.java_home, self.receipt) == self.manifest, 'build receipt drift')
