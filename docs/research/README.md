@@ -39,6 +39,10 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 
 设计已由 #155 接受；[输入与静态兼容性](heart-fixed-witness-replay-input.md)登记原22行的来源/hash、严格 test-only reader 和历史源码变化。[回放与逐步证据实现](heart-fixed-witness-replay-evidence.md)增加生产动作重放、独占 journal 和不重放动作的结构检查器；[报告装配](heart-fixed-witness-replay-report.md)从保存记录呈现逐步几何与路径终态，写前共享预留额度。仍缺完整父监督、构建来源认证及唯一登记，没有完整历史回放结果或执行许可。完整历史输入不进入 synthetic/CI 诊断。
 
+[报告请求边界设计](../design/heart-fixed-witness-report-boundary.md)比较直接增加JVM命令与先绑定不可变请求，
+推荐独立test-only字节快照/请求身份组件；待最终Review/CI/合并接受，仅允许人工验证，
+不改变verify-only、开放report-only命令或执行历史动作。加载清单与完整父认证仍是未来接线门。
+
 [固定回放进程监督组件](heart-fixed-witness-replay-process.md)增加有界输出、timeout/中断和进程组清理的人工验证；[累计配额组件](heart-fixed-witness-replay-quota.md)提供合作式writer的共享写入前计费与管道接线，所有产物writer的统一接线及唯一登记仍未完成，不执行历史22步。
 
 [固定回放字节身份组件](heart-fixed-witness-replay-identity.md)绑定源码、编译资源和有序依赖字节，拒绝漂移与class shadow；尚未整合构建/加载观测/整体监督，不提供历史回放执行许可。
