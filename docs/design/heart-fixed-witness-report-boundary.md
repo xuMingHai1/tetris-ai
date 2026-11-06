@@ -69,7 +69,7 @@ paths 保持调用方顺序，expected 同序，每项按 `FixedWitnessReportChe
 | 请求hash/输入/期望键或值非法 | 在创建输出前拒绝；不猜默认值，无报告成功 |
 | journal完整记录格式非法、计数非法、END后字节 | 沿用reader拒绝，保留输入字节；不伪造INVALID报告 |
 | 合法journal状态为INCOMPLETE / INVALID / EVIDENCE_MISMATCH | 如实输出相同状态；报告写成不等于诊断完成 |
-| 结构/守恒不符但reader返回记录 | 保留原行及EVIDENCE_MISMATCH，抑制派生几何，沿用writer |
+| 结构/守恒不符但reader返回记录 | 保留原行及reader原状态，抑制派生几何；未终结前缀仍为INCOMPLETE，合法END声明不符时才为EVIDENCE_MISMATCH |
 | 已有输出、配额不足或I/O失败 | 原样失败且不返还已扣费；由未来父层记录具体停止原因 |
 
 没有必要条件失败仍为 NOT_CERTIFIED；不把报告hash、clean或写入成功升级为Q、
@@ -90,7 +90,8 @@ build认证、唯一session、BOUNDED_MISS或runtime资格。
 - 每个fixture最多2条路径、每路径1步，使用既有人工journal模式及不同于历史的路径ID；
   请求组件测试不执行动作、不读取22行CSV，新增synthetic用例最多16项。
 - 覆盖构造后修改原数组/list/map、map顺序稳定与请求字段变化、缺失/多余期望、
-  hash不符、Path/byte入口一致、损坏/截断/终态不符、原行保留与几何抑制。
+  hash不符、Path/byte入口一致、损坏/截断/终态不符、原行保留与几何抑制，
+  特别区分损坏STEP后无END的INCOMPLETE与合法END的EVIDENCE_MISMATCH。
 - 覆盖同一quota连续写入、含身份对象的精确字节限额、一字节不足、CREATE_NEW失败不退费，
   以及可从输出声明重新计算请求hash；不得只测试getter。
 - 单次定向Wrapper测试最多120秒、完整verify最多600秒；执行前登记本地命令和截止时间，
