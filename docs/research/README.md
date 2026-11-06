@@ -44,10 +44,11 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 没有新JVM实现或执行结果，不解除170/174、完整历史/网络验收及采用门。
 
 [父权威描述符与受控快照设计](../design/heart-fixed-witness-report-descriptor.md)接续已交付请求，
-定义严格规范JSON、独立期望摘要与有界文件快照；尚未接受或实现，不提供JVM报告/历史执行资格。
+定义严格规范JSON、独立期望摘要与有界文件快照；PR179已接受设计、PR180已交付组件，
+不提供JVM报告/历史执行资格。
 
 [报告请求边界设计](../design/heart-fixed-witness-report-boundary.md)比较直接增加JVM命令与先绑定不可变请求，
-推荐独立test-only字节快照/请求身份组件；待最终Review/CI/合并接受，仅允许人工验证，
+独立test-only字节快照/请求身份设计由PR177接受、组件由PR178交付，仅允许人工验证，
 不改变verify-only、开放report-only命令或执行历史动作。加载清单与完整父认证仍是未来接线门。
 
 [固定回放进程监督组件](heart-fixed-witness-replay-process.md)增加有界输出、timeout/中断和进程组清理的人工验证；[累计配额组件](heart-fixed-witness-replay-quota.md)提供合作式writer的共享写入前计费与管道接线，所有产物writer的统一接线及唯一登记仍未完成，不执行历史22步。

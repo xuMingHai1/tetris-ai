@@ -83,9 +83,12 @@ provenance_authenticated/eligible_for_runtime_validation；state=REPORT_WRITTEN_
 三项权限仍false。报告本身 qCertified/provenanceAuthenticated/eligibleForRuntimeValidation 仍false。
 
 父端只在 exit0、同截止时间内完成复核后接受报告传输：输出恰为 ready.json/report.json/
-reported.json 三个普通文件；严格JSON和字段类型、原始 report hash/长度、READY hash、请求摘要、
+reported.json 三个普通文件；READY/reported各有界于1MiB且合计≤H，report有界于R，
+均用NOFOLLOW有界读取并核对身份稳定；严格JSON和字段类型、原始 report hash/长度、READY hash、请求摘要、
 两个额度、原描述符声明与 report.requestIdentity 完全相符，所有权限字段为false。
-比较声明的解析对象，不另造规范序列化器；规范原字节及其独立hash仍由父receipt保留。
+reported.journal_state必须属于INCOMPLETE/INVALID/EVIDENCE_MISMATCH/COMPLETE四态，
+且与实际report.journalState精确相等；verification.journal_state只能从已核验report传播，
+不得从reported或exit0独立决定。比较声明的解析对象，不另造规范序列化器；规范原字节及其独立hash仍由父receipt保留。
 父核验不重新实现 Reader/几何，不把来源一致提升为历史真实性。
 
 | 条件 | 分类与保留 |
@@ -119,16 +122,17 @@ R 给report，余额不足则不启动。Java的Artifact writer仅消费H，Requ
 新增测试最多16项，参数化子例同计：
 
 1. 参数/额度/私有目录约束（1）；新旧双侧加载清单及嵌套身份（1）。
-2. READY请求hash不符、额度不符、receipt漂移、实际argv不符，各1（累计6）。
+2. READY请求hash不符、receipt漂移、实际argv不符、退出后输入漂移，各1（累计6）。
 3. 无ACK/EOF无报告（1）；人工真实普通JVM ACK后写三文件并核对身份/hash（1，累计8）。
 4. 保存journal分别INCOMPLETE/INVALID/EVIDENCE_MISMATCH/COMPLETE各1（累计12）。
 5. 同root余额不足启动前拒绝（1）；写失败预留不退与既存输出保留（1，累计14）。
-6. 退出后输入或报告漂移拒绝（1）；成功状态封闭且verify-only兼容（1，累计16）。
+6. 退出后reported声称COMPLETE而report为INCOMPLETE拒绝（1）；成功状态封闭且verify-only兼容（1，累计16）。
 
 每fixture最多2路径/每路径1步、人工非历史ID；journal手写合法格式，不调用Replay.run或
 动作模拟来生成fixture，不读历史22行CSV。Linux联调使用现有编译目录和显式人工receipt，
 注明mock构建receipt不等于真实clean-build来源认证；Windows平台skip不算Linux执行。
 既有超时/取消/管道洪泛测试继续有效，不复制为新增案例来扩大预算。
+其他语法/额度/报告字节漂移拒绝路径作静态Review；不冒称16项已覆盖全部负例。
 执行前登记精确命令和绝对截止：定向Wrapper≤120秒、Python≤30秒、完整verify≤600秒。
 每个JVM≤120秒、父阶段≤180秒、共享总命令≤900秒且保留已有清理预留；不重置时钟。
 失败先定位；若16项不足或必须改变冻结/生产语义，先提交设计修订，不加预算或换名执行。
