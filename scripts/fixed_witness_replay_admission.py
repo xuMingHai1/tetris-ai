@@ -35,6 +35,11 @@ REPORT_TEST = TEST + (
     'ai.FixedWitnessReportApplication', 'ai.FixedWitnessReport',
     'ai.FixedWitnessReportRequest', 'ai.FixedWitnessReportDescriptor',
 )
+EXECUTION_TEST = TEST + (
+    'ai.FixedWitnessReplayExecutionApplication', 'ai.FixedWitnessReplayRequest',
+    'ai.FixedWitnessReplayDescriptor', 'ai.FixedWitnessReportApplication',
+    'ai.FixedWitnessReport', 'ai.FixedWitnessReportRequest',
+)
 
 
 def _object(pairs):
@@ -77,10 +82,13 @@ def command_for(manifest, root, java_home, output, nonce, artifact_bytes=JVM_ART
             str(artifact_bytes)]
 
 
-def _classes(manifest, root, *, report=False):
+def _classes(manifest, root, *, report=False, execution=False):
+    require(type(report) is bool and type(execution) is bool and not (report and execution),
+            'one explicit class inventory required')
     expected = {}
     compiled = manifest['classpath']['compiled_files']
-    for base, names in (('target/classes', MAIN), ('target/test-classes', REPORT_TEST if report else TEST)):
+    test = EXECUTION_TEST if execution else REPORT_TEST if report else TEST
+    for base, names in (('target/classes', MAIN), ('target/test-classes', test)):
         for name in names:
             resource = (PREFIX + name).replace('.', '/')
             primary = base + '/' + resource + '.class'

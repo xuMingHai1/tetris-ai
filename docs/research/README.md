@@ -40,8 +40,15 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 Python父端[保存证据组件](heart-fixed-witness-replay-evidence.md#执行证据的父端结构核验)另提供
 两文件不可变receipt、同root原子H/J/D/R预扣和精确五文件退出核验；
 只检查保存结构，不启动或认证JVM，不执行动作。新增案例仅使用原矩阵13/15/16，
-与请求/快照组件前4项合计7项；剩余5–12/14共9项不能重复分配。
-execution模式清单、JVM入口/握手/整体监督仍待接线，不能称整体实现完成。
+与请求/快照组件前4项合计7项。
+`FixedWitnessReplayExecutionApplication` 提供显式 `--replay-fixed` 普通 JVM 入口：
+READY 前仅看 metadata，绑定 ACK 后唯一回放，关闭 journal 后通过原 ReportRequest 写规范声明与报告，
+最后写出携带实际 journalState 的回执。四个合作 writer 先扣费、独占创建并 force；失败保留前缀，
+不补 END、不重试动作。双侧新增独立 execution 加载清单，旧两个模式清单不变。
+新增五项人工案例只占原矩阵第8/10/11/12/14项（argv拒绝、INVALID、MISMATCH、journal耗尽、报告写失败）。
+本组件尚无专用 Python 执行握手或 `REPLAY_REPORTED` 父监督接线，实际 Linux 新入口联调仍待实现；
+不能把同包人工组件测试称作认证的新模式执行。以上组件累计占用原矩阵12项，
+剩余第5/6/7/9项留给握手/真实Linux集成，第13/15/16项由父证据组件占用，不重置16项总预算。
 该组件不提供历史输入或完整网络验收许可，
 不解除170/174及原16进程/10MiB、唯一登记与任何停止/采用门。
 
