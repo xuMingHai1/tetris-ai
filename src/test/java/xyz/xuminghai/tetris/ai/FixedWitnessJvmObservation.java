@@ -38,6 +38,15 @@ final class FixedWitnessJvmObservation {
 
     /** Explicit report inventory; the original verify-only inventory remains unchanged. */
     static Map<String, Object> inspect(Path root, boolean report) throws Exception {
+        return inspect(root, report, false);
+    }
+
+    /** Separate action inventory; old verify-only and report-only lists remain unchanged. */
+    static Map<String, Object> inspectExecution(Path root) throws Exception {
+        return inspect(root, false, true);
+    }
+
+    private static Map<String, Object> inspect(Path root, boolean report, boolean execution) throws Exception {
         require(!FixedWitnessJvmObservation.class.getModule().isNamed(), "ordinary classpath required");
         var loader = FixedWitnessJvmObservation.class.getClassLoader();
         var classes = new LinkedHashMap<String, Object>();
@@ -47,6 +56,12 @@ final class FixedWitnessJvmObservation {
                 root.resolve("target/test-classes"), loader, classes);
         if (report) for (var name : List.of("ai.FixedWitnessReportApplication", "ai.FixedWitnessReport",
                 "ai.FixedWitnessReportRequest", "ai.FixedWitnessReportDescriptor")) {
+            observe(Class.forName(PREFIX + name, false, loader),
+                    root.resolve("target/test-classes"), loader, classes);
+        }
+        if (execution) for (var name : List.of("ai.FixedWitnessReplayExecutionApplication",
+                "ai.FixedWitnessReplayRequest", "ai.FixedWitnessReplayDescriptor",
+                "ai.FixedWitnessReportApplication", "ai.FixedWitnessReport", "ai.FixedWitnessReportRequest")) {
             observe(Class.forName(PREFIX + name, false, loader),
                     root.resolve("target/test-classes"), loader, classes);
         }
