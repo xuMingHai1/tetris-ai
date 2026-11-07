@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Actual verify-only JVM pipes and artificial failures; no historical action replay. */
+/** Actual JVM pipes and bounded artificial execution; no historical action replay. */
 @EnabledOnOs(OS.LINUX)
 class FixedWitnessPipeTest {
     @TempDir Path directory;
@@ -39,6 +39,10 @@ class FixedWitnessPipeTest {
                 "-p", "test_fixed_witness_replay_execution_evidence.py"), "execution-evidence-suite", 30);
         assertTrue(execution.contains("Ran 3 tests") && execution.contains("\nOK\n"), execution);
         assertFalse(execution.contains("skipped"), execution);
+        var handshake = python(List.of("-m", "unittest", "discover", "-v", "-s", "scripts",
+                "-p", "test_fixed_witness_replay_execution.py"), "execution-handshake-suite", 30);
+        assertTrue(handshake.contains("Ran 2 tests") && handshake.contains("\nOK\n"), handshake);
+        assertFalse(handshake.contains("skipped"), handshake);
     }
 
     @Test
@@ -64,7 +68,9 @@ class FixedWitnessPipeTest {
         python(List.of("-c", "import json,sys; sys.path.insert(0,'scripts'); "
                 + "from test_fixed_witness_replay_pipe import artificial_jvm; "
                 + "from test_fixed_witness_report_pipe import artificial_report_jvm; "
-                + "spec=json.load(open(sys.argv[1])); artificial_jvm(spec); artificial_report_jvm(spec)",
+                + "from test_fixed_witness_replay_execution import artificial_execution_jvm; "
+                + "spec=json.load(open(sys.argv[1])); artificial_jvm(spec); artificial_report_jvm(spec); "
+                + "artificial_execution_jvm(spec)",
                 spec.toString()), "jvm", 120);
         assertTrue(Files.isRegularFile(output.resolve("artificial-result.json")));
         assertFalse(Files.exists(output.resolve("journal.jsonl")));

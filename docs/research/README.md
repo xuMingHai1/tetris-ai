@@ -46,9 +46,13 @@ READY 前仅看 metadata，绑定 ACK 后唯一回放，关闭 journal 后通过
 最后写出携带实际 journalState 的回执。四个合作 writer 先扣费、独占创建并 force；失败保留前缀，
 不补 END、不重试动作。双侧新增独立 execution 加载清单，旧两个模式清单不变。
 新增五项人工案例只占原矩阵第8/10/11/12/14项（argv拒绝、INVALID、MISMATCH、journal耗尽、报告写失败）。
-本组件尚无专用 Python 执行握手或 `REPLAY_REPORTED` 父监督接线，实际 Linux 新入口联调仍待实现；
-不能把同包人工组件测试称作认证的新模式执行。以上组件累计占用原矩阵12项，
-剩余第5/6/7/9项留给握手/真实Linux集成，第13/15/16项由父证据组件占用，不重置16项总预算。
+专用 `scripts/fixed_witness_replay_execution.py` 接线父端 build/request/proc/加载身份认证、
+保留原 READY 字节、主监督线程的唯一 ACK/EOF 与退出五文件核验；
+`REPLAY_REPORTED` 仅表示传输闭合，并保留实际 journal_state，不提升 INVALID/MISMATCH。
+启动前同 root 原子永久预扣 H/J/D/R，新增副本和日志仍另行计费。
+最后第5/6/7/9项覆盖清单兼容、READY 摘要漂移、真实 EOF 拒绝和单 JVM 人工成功路径；
+原16项总预算不重置。Linux桥接使用已有编译目录和 mock build receipt，
+不等同 clean-build/网络来源或历史验收；Windows 平台 skip 不算执行。
 该组件不提供历史输入或完整网络验收许可，
 不解除170/174及原16进程/10MiB、唯一登记与任何停止/采用门。
 

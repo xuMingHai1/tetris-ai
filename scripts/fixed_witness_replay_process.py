@@ -132,10 +132,10 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
     adapter. Workers never receive stdin; ACK is one bounded nonblocking write
     on the supervising thread. Post-exit evidence work shares the same deadline.
     """
-    if success_state not in ('VERIFIED_NO_REPLAY', 'REPORT_WRITTEN_NO_REPLAY'):
+    if success_state not in ('VERIFIED_NO_REPLAY', 'REPORT_WRITTEN_NO_REPLAY', 'REPLAY_REPORTED'):
         raise ValueError('closed handshake success state required')
-    if success_state == 'REPORT_WRITTEN_NO_REPLAY' and handshake is None:
-        raise ValueError('report success requires authenticated handshake')
+    if success_state in ('REPORT_WRITTEN_NO_REPLAY', 'REPLAY_REPORTED') and handshake is None:
+        raise ValueError('report/execution success requires authenticated handshake')
     if sys.platform != 'linux':
         raise RuntimeError('Linux process supervision required')
     seconds = _seconds(seconds)
