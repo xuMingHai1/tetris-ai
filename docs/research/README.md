@@ -37,7 +37,11 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 `FixedWitnessReplayDescriptor` 另提供恰好两文件私有目录的 metadata-only 检查、
 有界 NOFOLLOW 自有读取和保留身份复核；调用者仍须独占目录并排除硬链接别名 writer。
 其单项人工快照/原件漂移案例占原预算第4项；Windows 缺少 fileKey 时跳过不算执行。
-剩余 Python 父receipt、execution模式清单、JVM入口/监督及12项案例仍待接线，不能称整体实现完成。
+Python父端[保存证据组件](heart-fixed-witness-replay-evidence.md#执行证据的父端结构核验)另提供
+两文件不可变receipt、同root原子H/J/D/R预扣和精确五文件退出核验；
+只检查保存结构，不启动或认证JVM，不执行动作。新增案例仅使用原矩阵13/15/16，
+与请求/快照组件前4项合计7项；剩余5–12/14共9项不能重复分配。
+execution模式清单、JVM入口/握手/整体监督仍待接线，不能称整体实现完成。
 该组件不提供历史输入或完整网络验收许可，
 不解除170/174及原16进程/10MiB、唯一登记与任何停止/采用门。
 
