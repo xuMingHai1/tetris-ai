@@ -43,6 +43,10 @@ class FixedWitnessPipeTest {
                 "-p", "test_fixed_witness_replay_execution.py"), "execution-handshake-suite", 30);
         assertTrue(handshake.contains("Ran 2 tests") && handshake.contains("\nOK\n"), handshake);
         assertFalse(handshake.contains("skipped"), handshake);
+        var registration = python(List.of("-m", "unittest", "discover", "-v", "-s", "scripts",
+                "-p", "test_fixed_witness_replay_registration.py"), "registration-suite", 30);
+        assertTrue(registration.contains("Ran 8 tests") && registration.contains("\nOK\n"), registration);
+        assertFalse(registration.contains("skipped"), registration);
     }
 
     @Test
