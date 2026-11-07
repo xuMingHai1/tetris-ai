@@ -35,6 +35,10 @@ class FixedWitnessPipeTest {
                 "-p", "test_fixed_witness_report_pipe.py"), "report-suite", 30);
         assertTrue(report.contains("Ran 8 tests") && report.contains("\nOK\n"), report);
         assertFalse(report.contains("skipped"), report);
+        var execution = python(List.of("-m", "unittest", "discover", "-v", "-s", "scripts",
+                "-p", "test_fixed_witness_replay_execution_evidence.py"), "execution-evidence-suite", 30);
+        assertTrue(execution.contains("Ran 3 tests") && execution.contains("\nOK\n"), execution);
+        assertFalse(execution.contains("skipped"), execution);
     }
 
     @Test

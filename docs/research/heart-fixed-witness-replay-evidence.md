@@ -47,3 +47,38 @@ ATTEMPT不足时不执行下一次terminal replay；STEP额度不足时可能已
 整个session合计已受限。PR170的HOME/TMP分类仍待确认，不选择其任何选项；
 网络隔离、整体预算/认证、最终整体Review/CI、兼容性/inputhash和唯一登记门保持。
 不修改冻结设计、生产/构建/资源/selector/guard；README/AGENTS/ADR无需同步。
+
+## 执行证据的父端结构核验
+
+本次新增修改：`scripts/fixed_witness_replay_execution_evidence.py` 实施已接受PR183的
+独立保存证据边界，不提供进程启动、ACK、加载清单或动作执行入口。
+`retain_execution_request` 比对调用者独立保留的Java规范声明原字节/hash和input原件，
+保存不可变两文件快照，前后复核规范目录、精确集合、NOFOLLOW、有界字节与文件身份。
+Python不生成权威规范JSON、不代替Java的Input/Request语法校验；调用者仍须排除
+所有writer及硬链接别名。已有report-only三文件描述符与旧模式不变。
+
+`reserve_execution` 在同一个父ByteQuota中一次永久预扣H+J+D+R，再分配四个子额度。
+不足不产生部分扣费；失败/未使用不返还。父端任何新增副本、日志、receipt或失败记录
+另从同root扣费，读不重复收费。该helper尚未接入启动器，不能声称已阻止真实JVM启动，
+也不约束HOME/TMP/target的非合作writer，不改变原10MiB或170分类。
+
+`verify_execution_artifacts` 必须由未来完成独立build/process认证的父端在退出后调用，
+输入是ACK前保存的READY原字节、nonce、权威请求及四项额度。它只接受
+ready.json、journal.jsonl、report-request.json、report.json、replayed.json，
+复核每个文件摘要/长度、合计H和退出后的字节/身份稳定性。
+它将执行后ReportRequest解析对象绑定到原input/paths/expected与实际journal摘要，
+再核对report的requestIdentity。START必须等于原动作声明；ATTEMPT/STEP/END的
+顺序、路径、计数和保存行与报告对应，END/report/replayed状态必须相同。
+不重复推导几何或执行动作；Java Reader/Checker仍负责几何和终态事实。
+返回REPLAY_REPORTED仅表示保存结构闭合，独立journal_state保留INVALID/MISMATCH，
+diagnostic_authorized/provenance_authenticated/eligible_for_runtime_validation/
+network_isolation_verified始终false。调用者传入READY不等于已完成独立认证。
+
+人工测试严格占原16项中的13（原子不足）、15（退出journal字节漂移）、16（终态状态冲突），
+没有参数化新增子例；mock声明及手写INVALID journal不是Java规范向量验证或真实动作结果。
+现有FixedWitnessPipeTest桥接这三项Python检查；Windows跳过Linux桥接，因此还须单独运行Python。
+请求组件已占1–3，已合并PR185的快照组件占4；其余5–12/14留给执行接线，不能重置预算。
+本组件不完成PR183整体实现；下一步接入显式execution模式清单、唯一ACK后JVM动作入口、
+父认证握手与run_process封闭成功态，并让真实Linux人工单JVM联调验证两侧协议。
+完整网络/历史执行仍等待170/174/173实际能力、最终整体Review/CI及唯一登记；
+原16进程/10MiB、#140/GoalWindow/#95/#96和reserved/provider/runtime/default边界保持。
