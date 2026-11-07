@@ -30,8 +30,10 @@ PREVIEW_ONLY benchmark 调用生产 opt-in planner；STRICT 是独立的 frozen-
 ## 固定旧 witness 的结构核验
 
 [离线登记 manifest 与一次性占位设计](../design/heart-fixed-witness-replay-registration.md)
-补充独立receipt、同逻辑诊断永久独占占位与失败保留契约；接受状态以最终PR决议为准。
-仅设计，不创建真实历史session，不解除170/174/173及整体执行门。
+由[PR189](https://github.com/xuMingHai1/tetris-ai/pull/189)接受；组件
+`fixed_witness_replay_registration.py`实现有界规范metadata、独立receipt、同逻辑诊断
+永久独占占位及失败前缀保留，Linux桥接固定8项纯人工metadata测试。
+INTENT_RETAINED不代表执行许可；不创建真实历史session，不解除170/174/173及整体执行门。
 
 [单 JVM 固定动作认证回放与报告接线设计](../design/heart-fixed-witness-replay-execution.md)
 比较仅嵌入式、双JVM与单JVM接线，提出执行前父权威请求和执行后journal/报告绑定。
