@@ -54,6 +54,18 @@ outputFile/outputProperty时把`[INFO] Dependencies classpath:`及下一行class
 
 ## 人工验证与后续门
 
+本次新增修改（2026-11-09，用户已明确接受[存储方案 A](heart-fixed-witness-replay-storage-boundary.md)）：
+`prepare` 必须显式接收 `build_storage`，HOME/TMP 从证据目录移入独立的空构建目录，
+target 保持正常 checkout 路径。四个目录逐对拒绝相等/嵌套/链接；before/manifest
+绑定分类和路径，`verify_prepared` 复核分类及环境一致性。构建存储无磁盘硬上限；
+所有日志和保留证据仍共用原根额度，不提供 OS 写入隔离或完整 session 保证。
+
+本次将人工 suite 扩至25项：12项格式/存储校验可在Windows执行，13项Linux进程用例
+必须在Linux全执行。新增覆盖所有目录对的双向嵌套、非空/缺失构建目录不改数据，
+以及人工构建向HOME/TMP/target分别写入11MiB而证据仍按精确字节计费。
+Linux真实clean Wrapper测试同步要求独立构建目录、manifest分类、证据目录无构建子目录、
+target大于10MiB和精确证据计费；不读取或执行历史witness。以下21项说明为此前交付记录。
+
 `test_fixed_witness_replay_prepare.py` 二十一项人工用例覆盖实际子进程环境传递、ambient
 Git/Java注入排除、版本与runtime不匹配、插件参数、已有target保护、非零构建失败前缀、
 构建中源码/JDK漂移、编译class漂移、manifest替换和共享deadline。人工JDK/Wrapper
@@ -71,8 +83,8 @@ Git/Java注入排除、版本与runtime不匹配、插件参数、已有target�
 loaded-class来源、诊断禁止网络机制、120/180/900秒整体监督及cleanup/finalize reserve、
 artifact和pipe合计10MiB上限、实际journal checker接线、静态兼容性/inputhash刷新、
 整体最终独立Review/适用CI和唯一session登记。prepare父JSON与pipe已共享额度，
-HOME/TMP中的构建产物及其他外部writer尚未受此接线约束；
-这些输出的适用范围和强制额度仍须在整体supervisor完成，不得称整体输出预算已实现。
+HOME/TMP/target中的构建产物按已接受方案A独立分类且无磁盘硬上限；
+其余证据writer及诊断写隔离仍须在整体supervisor完成，不得称整体证据预算已实现。
 
 不得直接调用本函数运行历史22步。#140/GoalWindow停止，生产/default/Q/原guard、
 冻结协议/#95/#96/reserved/provider边界保持；无新的运行时权限。本阶段不改变生产

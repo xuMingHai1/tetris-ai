@@ -6,6 +6,7 @@ loaded classes, network isolation or the eventual whole-session artifact quota.
 """
 import json
 import math
+from itertools import combinations
 from pathlib import Path
 import re
 import sys
@@ -77,7 +78,25 @@ def _versions(java_text, maven_text, toolchain):
             'observed Maven Java runtime mismatch')
 
 
-def prepare(root, java_home, output, budget, *, total_deadline):
+def _storage_layout(root, java_home, output, build_storage, *, fresh):
+    """Classify storage explicitly; this is not an OS write sandbox or disk cap."""
+    root, java_home, output, build_storage = map(
+        canonical, (root, java_home, output, build_storage))
+    paths = (root, java_home, output, build_storage)
+    require(all(path.is_dir() for path in paths), 'storage directories required')
+    require(all(not a.is_relative_to(b) and not b.is_relative_to(a)
+                for a, b in combinations(paths, 2)),
+            'source/toolchain/evidence/build storage must be disjoint')
+    if fresh:
+        require(not any(output.iterdir()), 'fresh empty output required')
+        require(not any(build_storage.iterdir()), 'fresh empty build storage required')
+    return {'policy': 'evidence-only-10MiB-storage-A',
+            'evidence': str(output), 'build_storage': str(build_storage),
+            'home': str(build_storage / 'home'), 'tmp': str(build_storage / 'tmp'),
+            'target': str(root / 'target'), 'build_disk_hard_limit': None}
+
+
+def prepare(root, java_home, output, budget, *, build_storage, total_deadline):
     """Prepare once in a fresh external directory, sharing the caller's budget.
 
     Refuse any existing target instead of deleting caller data. All version
@@ -89,7 +108,9 @@ def prepare(root, java_home, output, budget, *, total_deadline):
     not repeated commands or inventories. This keeps the original stop evidence
     even when the normal stage-result artifact itself cannot fit.
     Classpath extraction is charged separately from its retained stdout bytes.
-    HOME/TMP and other external writers are not yet constrained.
+    Storage A places fresh HOME/TMP outside evidence; target stays in the clean
+    checkout. Build bytes have no disk hard cap. Logs and retained evidence
+    copies still share the original quota; this helper is not a write sandbox.
     """
     require(sys.platform == 'linux', 'Linux clean-build preparation required')
     started = time.monotonic()
@@ -97,25 +118,22 @@ def prepare(root, java_home, output, budget, *, total_deadline):
             and math.isfinite(total_deadline) and started < total_deadline <= started + TOTAL_SECONDS,
             'active frozen total deadline required')
     require(isinstance(budget, OutputBudget), 'shared output budget required')
+    storage = _storage_layout(root, java_home, output, build_storage, fresh=True)
     root, java_home, output = map(canonical, (root, java_home, output))
-    require(output.is_dir() and not any(output.iterdir()), 'fresh empty output required')
-    require(all(not a.is_relative_to(b) and not b.is_relative_to(a)
-                for a, b in ((root, output), (root, java_home), (output, java_home))),
-            'source/toolchain/output must be disjoint')
     build_deadline = min(started + BUILD_SECONDS, total_deadline)
     failure_quota = budget.quota.reserve(FAILURE_BYTES)
     records = []
     try:
         require(not (root / 'target').exists() and not (root / 'target').is_symlink(),
                 'fresh checkout without target required')
-        home, temporary = output / 'home', output / 'tmp'
+        home, temporary = Path(storage['home']), Path(storage['tmp'])
         home.mkdir()
         temporary.mkdir()
         environment = controlled_environment(java_home, home, temporary)
         source = source_identity(root, environment=environment)
         toolchain = toolchain_identity(root, java_home)
         _write(output / 'before.json', {'source': source, 'toolchain': toolchain,
-                                       'environment': environment}, budget.quota)
+                                       'environment': environment, 'storage': storage}, budget.quota)
 
         def run(name, command):
             result = run_process(command, root, output, name, budget, seconds=BUILD_SECONDS,
@@ -139,7 +157,8 @@ def prepare(root, java_home, output, budget, *, total_deadline):
         verify_identity(toolchain, toolchain_identity(root, java_home))
         require(time.monotonic() < build_deadline, 'preparation deadline exhausted')
         manifest = {'state': 'PREPARED', 'source': source, 'toolchain': toolchain,
-                    'environment': environment, 'classpath': classpath, 'processes': records,
+                    'environment': environment, 'storage': storage,
+                    'classpath': classpath, 'processes': records,
                     'build_seconds': BUILD_SECONDS, 'total_deadline': total_deadline,
                     'elapsed_seconds': time.monotonic() - started,
                     'diagnostic_started': False}
@@ -173,6 +192,13 @@ def verify_prepared(root, java_home, receipt):
     require(manifest['state'] == 'PREPARED' and manifest['diagnostic_started'] is False,
             'not a prepared manifest')
     environment = manifest['environment']
+    storage = manifest['storage']
+    verify_identity(storage, _storage_layout(
+        root, java_home, path.parent, storage['build_storage'], fresh=False))
+    require(environment['HOME'] == storage['home'] and environment['TMPDIR'] == storage['tmp'],
+            'storage/environment mismatch')
+    canonical(storage['home'])
+    canonical(storage['tmp'])
     verify_identity(manifest['source'], source_identity(root, environment=environment))
     verify_identity(manifest['toolchain'], toolchain_identity(root, java_home))
     verify_identity(manifest['classpath'], classpath_identity(

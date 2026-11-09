@@ -1,6 +1,31 @@
-# 固定 witness：构建存储与 10MiB 输出边界待确认
+# 固定 witness：构建存储与 10MiB 证据边界
 
-状态：只读证据分析与待确认方案；**不修改、不重新解释已冻结预算，也不解锁执行**。
+状态：2026-11-09 用户明确接受方案 A；本次新增修改实施 prepare 存储分离，
+**不解锁完整验收或历史执行**。下文分析、备选与当时待确认状态保留为历史证据。
+
+## 方案 A 的明确接受与实施
+
+用户在 Codex「查看开发进度」会话 `01a1bdd5-5d02-7580-95b4-42302a6fa60a`
+中对完整的方案 A 风险说明答复「接受方案 A」（消息
+`01a1be5a-b3ca-7302-a36e-cb291b66b584`）。这项直接授权取代下文历史待确认状态，
+不是以 PR 合并、CI 或沉默推定接受。用户同时接受的 #174 任务预算修订须另行实施，
+本次不实现或宣称具备任务创建前监督能力。
+
+`prepare(..., build_storage=...)` 现在要求调用者提供独立、已存在的空构建目录，
+与源码、JDK、证据目录逐对禁止相等或嵌套，保持 canonical/no-link 检查。
+HOME/TMP 新建在构建目录内；正常 clean-build 的 target 仍在源码 checkout 内，
+不改变构建输入、不借用预编译 class。before/manifest 记录 policy、evidence、
+build_storage、home、tmp、target 实际路径和 `build_disk_hard_limit=null`；
+receipt 复核同时验证分类、路径和环境一致性。不存在的目录不代建，非空目录拒绝，
+不删除或覆盖调用者数据。
+
+构建缓存/下载/target 单独分类，**不提供构建磁盘硬上限，也不构成 OS 写隔离**。
+stdout/stderr、JSON、classpath 提取、握手、journal/report、失败前缀及额外证据副本
+仍须共用原 10MiB 根额度。prepare 保留写前计费、失败不退款、同根 failure reserve；
+不能把日志搬到构建目录或改名为缓存逃避计费。诊断阶段的只读挂载及全部 writer
+接线仍须完成独立验收。
+
+## 以下为原 PR 的历史分析
 接续 [PR #169](https://github.com/xuMingHai1/tetris-ai/pull/169) 和
 [#91 领取](https://github.com/xuMingHai1/tetris-ai/issues/91#issuecomment-6606901526)。
 分析基线为 default `main@e71826c0e12670319eb53015f491cefb677ecf55`。

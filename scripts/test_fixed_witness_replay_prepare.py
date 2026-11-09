@@ -11,13 +11,53 @@ from unittest.mock import patch
 
 from fixed_witness_replay_environment import WRAPPER_PROPERTIES
 from fixed_witness_replay_prepare import (
-    FAILURE_BYTES, _classpath, _dependencies, _versions, _write, prepare, verify_prepared,
+    FAILURE_BYTES, _classpath, _dependencies, _storage_layout, _versions, _write, prepare, verify_prepared,
 )
 from fixed_witness_replay_process import OutputBudget, run_process
 from fixed_witness_replay_quota import ByteQuota, OutputLimitError
 
 
 class FormatTest(unittest.TestCase):
+    def test_storage_rejects_every_pairwise_overlap_before_writing(self):
+        from itertools import combinations
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory).resolve() / name for name in ('source', 'jdk', 'evidence', 'build')]
+            for path in paths:
+                path.mkdir()
+            for i, j in combinations(range(4), 2):
+                for parent, child in ((i, j), (j, i)):
+                    nested = paths[parent] / ('nested-' + str(child))
+                    nested.mkdir()
+                    invalid = paths.copy()
+                    invalid[child] = nested
+                    with self.subTest(parent=parent, child=child), self.assertRaisesRegex(ValueError, 'disjoint'):
+                        _storage_layout(*invalid, fresh=True)
+                    nested.rmdir()
+            self.assertTrue(all(not any(path.iterdir()) for path in paths))
+
+    def test_existing_build_storage_is_rejected_without_touching_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths = [Path(directory).resolve() / name for name in ('source', 'jdk', 'evidence', 'build')]
+            for path in paths:
+                path.mkdir()
+            keep = paths[3] / 'keep'
+            keep.write_bytes(b'caller data')
+            with self.assertRaisesRegex(ValueError, 'fresh empty build'):
+                _storage_layout(*paths, fresh=True)
+            self.assertEqual(b'caller data', keep.read_bytes())
+            self.assertFalse(any(paths[2].iterdir()))
+
+    def test_missing_build_storage_is_not_created_implicitly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            paths = [base / name for name in ('source', 'jdk', 'evidence', 'missing')]
+            for path in paths[:3]:
+                path.mkdir()
+            with self.assertRaises(FileNotFoundError):
+                _storage_layout(*paths, fresh=True)
+            self.assertFalse(paths[3].exists())
+            self.assertFalse(any(paths[2].iterdir()))
+
     def test_versions_bind_actual_major_release_and_runtime(self):
         toolchain = {'java_version': '27.0.1', 'java_home': '/jdk'}
         java = 'openjdk version "27.0.1" 2026\n'
@@ -143,8 +183,9 @@ class PreparationTest(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.base = Path(self.directory.name).resolve()
-        self.root, self.jdk, self.out = [self.base / name for name in ('source', 'jdk', 'output')]
-        for path in (self.root, self.jdk, self.out):
+        self.root, self.jdk, self.out, self.build = [
+            self.base / name for name in ('source', 'jdk', 'output', 'build')]
+        for path in (self.root, self.jdk, self.out, self.build):
             path.mkdir()
         (self.root / '.mvn/wrapper').mkdir(parents=True)
         (self.root / '.mvn/wrapper/maven-wrapper.properties').write_text(
@@ -188,9 +229,14 @@ if mode == 'source-drift':
     (root / 'pom.xml').write_text('changed')
 if mode == 'toolchain-drift':
     (pathlib.Path(os.environ['JAVA_HOME']) / 'lib/modules').write_text('changed')
+if mode == 'storage-heavy':
+    for path in (pathlib.Path(os.environ['HOME']) / 'cache',
+                 pathlib.Path(os.environ['TMPDIR']) / 'download', root / 'target/resource'):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'x' * (11 * 1024 * 1024))
 for base, name in [('target/classes', 'Production.class'), ('target/test-classes', 'Artificial.class')]:
     path = root / base
-    path.mkdir(parents=True)
+    path.mkdir(parents=True, exist_ok=True)
     (path / name).write_bytes(b'artificial class bytes, never loaded')
 jars = [pathlib.Path(os.environ['HOME']) / name for name in ('z-last.jar', 'a-first.jar')]
 for index, jar in enumerate(jars):
@@ -213,7 +259,28 @@ if mode != 'missing':
 
     def prepare(self, **kwargs):
         return prepare(self.root, self.jdk, self.out, kwargs.pop('budget', OutputBudget()),
-                       total_deadline=time.monotonic() + 30, **kwargs)
+                       build_storage=self.build, total_deadline=time.monotonic() + 30, **kwargs)
+
+    def test_build_bytes_over_10mib_do_not_exempt_evidence_or_change_quota(self):
+        self.wrapper('storage-heavy')
+        budget = OutputBudget()
+        receipt = self.prepare(budget=budget)
+        manifest = verify_prepared(self.root, self.jdk, receipt)
+        storage = manifest['storage']
+        self.assertEqual('evidence-only-10MiB-storage-A', storage['policy'])
+        self.assertIsNone(storage['build_disk_hard_limit'])
+        self.assertEqual(str(self.build / 'home'), manifest['environment']['HOME'])
+        self.assertEqual(str(self.build / 'tmp'), manifest['environment']['TMPDIR'])
+        self.assertEqual(str(self.root / 'target'), storage['target'])
+        self.assertTrue(all(path.is_file() for path in self.out.iterdir()))
+        self.assertEqual(FAILURE_BYTES + sum(p.stat().st_size for p in self.out.iterdir()),
+                         budget.quota.charged)
+        self.assertGreater(sum(p.stat().st_size for p in self.build.rglob('*') if p.is_file()),
+                           10 * 1024 * 1024)
+        quota = ByteQuota(4)
+        with self.assertRaises(OutputLimitError):
+            _write(self.out / 'cache-copy.json', {'cache': 'still evidence'}, quota)
+        self.assertFalse((self.out / 'cache-copy.json').exists())
 
     def test_real_process_environment_and_retained_source_classpath_toolchain(self):
         with patch.dict(os.environ, {'PRIVATE_SENTINEL': 'do-not-inherit',
