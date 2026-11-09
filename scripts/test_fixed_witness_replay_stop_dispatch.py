@@ -165,4 +165,3 @@ class PostHandshakeDispatchTest(unittest.TestCase):
         self.launch.handshake.completed = False
         with self.assertRaises(StopDispatchError):
             PostHandshakeDispatcher(self.launch)
-
