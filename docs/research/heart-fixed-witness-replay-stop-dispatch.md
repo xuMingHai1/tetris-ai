@@ -85,3 +85,10 @@ GET_SYSCALL_INFO ENTRY；首次合法 ENTRY/EXIT 各恢复一次，共计三个 
 原 deadline-after-policy 与不确定 resume 回归改用合法 ENTRY，确保确实到达对应分支。
 源码与边界见[握手修订说明](heart-fixed-witness-replay-coordinator-handshake.md#本次新增修改首次-syscall-必须是-entry)。
 所有未知身份、普通信号、EXEC/TID 迁移、child-before-parent-event 的限制保持。
+
+## 本次新增修改：定向 wait owner 接线
+
+新增[定向有界 wait owner](heart-fixed-witness-replay-wait-owner.md)，只等待已绑定
+birth 的 TID。child-first 初始 stop 留在内核，父 event 登记 birth 后再消费，
+不向本组件交付 unknown tuple。因此本组件对未知 TID 的拒绝继续保持；
+新 owner 不放宽 signal/EXEC 或完整执行门。

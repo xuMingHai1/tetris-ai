@@ -97,6 +97,18 @@ class CreationSyscallDispatcher:
                     return ticket, access
         self._fail('unknown waited birth binding')
 
+    def waiting_births(self):
+        """Snapshot live (birth, TID) pairs for the sole targeted wait owner.
+
+        Never include an unbound reservation or the tracer itself. No wait or
+        ptrace permission is granted; the owner must retain the same bindings
+        until it consumes a result, and stop on unsupported exec migration.
+        """
+        self._running()
+        if any(access is None for tid, access in self._tasks.values()):
+            self._fail('incomplete birth wire binding')
+        return tuple((ticket, tid) for ticket, (tid, access) in self._tasks.items())
+
     def newborn_signal_stop(self, ticket, tid):
         """After outer-owner initial SIGSTOP authentication, expect first entry.
 
