@@ -1,6 +1,6 @@
 """Linux x86-64 ptrace wire boundary, not a running task supervisor.
 
-No attach, fork, resume, wait loop or capability probe is exposed here. The
+No attach, fork, wait loop or capability probe is exposed here. The
 future single-owner tracer must debit TaskLedger BEFORE suppress_clone3, bind
 every stop to a birth ticket, and kill/reap on any error. Synthetic tests inject
 ptrace replies; importing this module never loads libc or touches a task.
@@ -19,6 +19,12 @@ LINUX_ENOSYS = 38  # Wire ABI, independent of the synthetic test host's errno.
 GET_SYSCALL_INFO = 0x420e
 GETREGSET = 0x4204
 SETREGSET = 0x4205
+SETOPTIONS = 0x4200
+GETEVENTMSG = 0x4201
+GETSIGINFO = 0x4202
+SYSCALL = 24
+# TRACESYSGOOD, TRACEFORK/VFORK/CLONE/EXEC and EXITKILL; no optional weakening.
+TRACE_OPTIONS = 0x0010001f
 NT_PRSTATUS = 1
 U64_MASK = (1 << 64) - 1
 INFO_SIZE = 88  # linux ptrace_syscall_info, including union alignment
@@ -87,6 +93,15 @@ class _Iovec(ctypes.Structure):
 
 
 @dataclass(frozen=True)
+class SignalInfo:
+    """Linux siginfo header only; not a signal-delivery/resume decision."""
+
+    signal: int
+    error: int
+    code: int
+
+
+@dataclass(frozen=True)
 class _Clone3Stop:
     tid: int
     ip: int
@@ -130,6 +145,55 @@ class PtraceAccess:
         buffer = ctypes.create_string_buffer(INFO_SIZE)
         available = self._request(GET_SYSCALL_INFO, tid, INFO_SIZE, ctypes.byref(buffer))
         return decode_syscall_info(buffer.raw, available)
+
+    def set_options(self, tid):
+        """Install the complete frozen option set on an authenticated stop.
+
+        The dispatcher must do this before first resume, including newborn
+        handshakes. Success is only a wire acknowledgement, not EXITKILL proof.
+        """
+        require(self._request(SETOPTIONS, tid, 0, TRACE_OPTIONS) == 0,
+                'unexpected set-options response')
+
+    def event_tid(self, tid):
+        """Read GETEVENTMSG only after a decoded creation or EXEC event.
+
+        The message is a child TID or former exec TID. It is not independently
+        authenticated: caller must match the event and birth-ticket ledger.
+        Use a fixed 64-bit cell for this native x86-64 wire even in host tests.
+        """
+        value = ctypes.c_uint64()
+        require(self._request(GETEVENTMSG, tid, 0, ctypes.byref(value)) == 0,
+                'unexpected event-message response')
+        require(0 < value.value <= 0x7fffffff, 'invalid event TID')
+        return value.value
+
+    def signal_info(self, tid, expected_signal):
+        """Read the real 128-byte Linux siginfo and match the wait signal.
+
+        EINVAL (including a group stop) fails closed; callers must not infer a
+        delivery stop from it. si_code stays signed for dispatcher policy.
+        No siginfo union/pointer or arbitrary payload is exposed.
+        """
+        require(type(expected_signal) is int and 1 <= expected_signal <= 64,
+                'invalid expected signal')
+        buffer = ctypes.create_string_buffer(128)
+        require(self._request(GETSIGINFO, tid, 0, ctypes.byref(buffer)) == 0,
+                'unexpected siginfo response')
+        signal, error, code = struct.unpack_from('<iii', buffer.raw)
+        require(signal == expected_signal, 'wait/siginfo signal mismatch')
+        return SignalInfo(signal, error, code)
+
+    def resume_syscall(self, tid, signal=0):
+        """Transport only: caller MUST authenticate/arbitrate before calling.
+
+        This deliberately has no CONT/DETACH or configurable option shortcut.
+        It cannot decide whether signal reinjection is correct or a reservation
+        exists. Any failure requires whole-tree cleanup, never a retry/resume.
+        """
+        require(type(signal) is int and 0 <= signal <= 64, 'invalid resume signal')
+        require(self._request(SYSCALL, tid, 0, signal) == 0,
+                'unexpected syscall-resume response')
 
     def _registers(self, tid):
         buffer = ctypes.create_string_buffer(REG_SIZE)
