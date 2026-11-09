@@ -148,6 +148,15 @@ class PtraceAccess:
         available = self._request(GET_SYSCALL_INFO, tid, INFO_SIZE, ctypes.byref(buffer))
         return decode_syscall_info(buffer.raw, available)
 
+    def trace_me(self, own_tid):
+        """Trusted post-fork child only, before self-SIGSTOP; never an attach.
+
+        Caller must be the reserved coordinator child. Transport cannot prove
+        fork provenance; the parent's authenticated handshake remains required.
+        """
+        require(self._request(0, own_tid, 0, 0) == 0,
+                'unexpected TRACEME response')
+
     def set_options(self, tid):
         """Install the complete frozen option set on an authenticated stop.
 
