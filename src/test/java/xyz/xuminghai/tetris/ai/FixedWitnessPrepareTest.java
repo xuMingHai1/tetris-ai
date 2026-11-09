@@ -31,7 +31,7 @@ class FixedWitnessPrepareTest {
             assertTrue(process.waitFor(45, TimeUnit.SECONDS), "artificial prepare tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 21 tests"), output);
+            assertTrue(output.contains("Ran 25 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {
@@ -48,20 +48,28 @@ class FixedWitnessPrepareTest {
         var script = """
                 import pathlib, subprocess, sys, time
                 source, base, jdk = map(pathlib.Path, sys.argv[1:])
-                checkout, output = base / 'checkout', base / 'output'
+                checkout, output, build = base / 'checkout', base / 'output', base / 'build-storage'
                 sha = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source, timeout=10).decode().strip()
                 subprocess.run(['git', 'clone', '--quiet', '--no-hardlinks', '--no-checkout',
                                 str(source), str(checkout)], check=True, timeout=30)
                 subprocess.run(['git', 'checkout', '--quiet', '--detach', sha], cwd=checkout, check=True, timeout=10)
                 output.mkdir()
+                build.mkdir()
                 sys.path.insert(0, str(checkout / 'scripts'))
                 from fixed_witness_replay_prepare import FAILURE_BYTES, prepare, verify_prepared
                 from fixed_witness_replay_process import OutputBudget
                 budget = OutputBudget()
-                receipt = prepare(checkout, jdk, output, budget, total_deadline=time.monotonic() + 650)
+                receipt = prepare(checkout, jdk, output, budget, build_storage=build,
+                                  total_deadline=time.monotonic() + 650)
                 manifest = verify_prepared(checkout, jdk, receipt)
                 assert manifest['state'] == 'PREPARED' and not manifest['diagnostic_started']
                 assert manifest['source']['source_sha'] == sha
+                assert manifest['storage']['policy'] == 'evidence-only-10MiB-storage-A'
+                assert manifest['storage']['build_disk_hard_limit'] is None
+                assert pathlib.Path(manifest['environment']['HOME']).parent == build
+                assert pathlib.Path(manifest['environment']['TMPDIR']).parent == build
+                assert all(p.is_file() for p in output.iterdir())
+                assert sum(p.stat().st_size for p in (checkout / 'target').rglob('*') if p.is_file()) > 10485760
                 paths = manifest['classpath']['classpath'][2:]
                 assert paths and (output / 'classpath.txt').read_bytes() == (':'.join(paths) + '\\n').encode('utf-8')
                 artifacts = sum(p.stat().st_size for p in output.iterdir() if p.is_file())

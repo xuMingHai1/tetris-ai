@@ -143,8 +143,9 @@ Frozen recovery warning 始终是：preview 不可恢复，或可恢复但 `reco
 ## 后续稳定 HEART 的验收维度
 
 [构建存储与 10MiB 输出边界分析](heart-fixed-witness-replay-storage-boundary.md)盘点
-HOME/TMP/target 外部写入及源码资源的实际字节下限；边界选项尚需明确确认，
-不修改冻结预算，也不提供完整诊断许可。
+HOME/TMP/target 外部写入及源码资源的实际字节下限；2026-11-09用户明确接受方案A，
+prepare现将构建HOME/TMP与证据目录分离并记录分类，证据仍共用10MiB，构建无磁盘硬上限。
+任务预算监督、诊断写隔离和完整验收仍待完成，不提供历史诊断许可。
 
 [实际进程观测组件](heart-fixed-witness-replay-observation.md)读取Linux实际argv/环境/executable/cwd与
 进程身份，人工子进程验证拒绝漂移；尚无JVM握手、loaded-class/网络证明或历史22步执行许可。
