@@ -33,6 +33,7 @@ class _Task:
     tid: int
     group_birth: int
     alive: bool = True
+    terminal: str | None = None
 
 
 @dataclass(frozen=True)
@@ -40,7 +41,8 @@ class TaskIdentity:
     """Accounting snapshot, never a ptrace/kill or exec-migration receipt.
 
     group_birth identifies the group's original leader birth, not a reusable
-    numeric TGID. tgid is its original numeric identity; EXEC remains unsupported.
+    numeric TGID. tgid is its original numeric identity. terminal distinguishes
+    observed reap from externally authenticated EXEC leader retirement.
     Reaping a leader neither changes membership nor releases other live slots.
     """
 
@@ -49,6 +51,7 @@ class TaskIdentity:
     group_birth: int
     tgid: int
     alive: bool
+    terminal: str | None
 
 
 @dataclass
@@ -80,6 +83,7 @@ class TaskLedger:
             raise ValueError('positive tracer TID required')
         self._attempt_limit, self._live_limit, self._event_limit = attempts, live, wait_stops
         self._tasks = {0: _Task(tracer_tid, 0)}
+        self._leaders = {0: 0}
         self._attempts = {}
         self._pending = {}
         self._live = 1
@@ -176,6 +180,8 @@ class TaskLedger:
         attempt.child = reservation
         group = self._tasks[attempt.parent].group_birth if attempt.thread else reservation
         self._tasks[reservation] = _Task(tid, group)
+        if not attempt.thread:
+            self._leaders[group] = reservation
         return reservation
 
     def identity(self, ticket):
@@ -186,7 +192,45 @@ class TaskLedger:
         """
         task = self._task(ticket)
         return TaskIdentity(ticket, task.tid, task.group_birth,
-                            self._tasks[task.group_birth].tid, task.alive)
+                            self._tasks[task.group_birth].tid, task.alive, task.terminal)
+
+    def exec_identity(self, ticket, old_tid, new_tid):
+        """Apply externally authenticated EXEC facts; never authorize a resume.
+
+        Caller must bind native exec entry, EXEC stop and GETEVENTMSG(old TID)
+        to this exact birth, and update dispatcher/wire/wait identities before
+        any resume. This pure model does not establish that authentication.
+        Other siblings must already have actual terminal reaps recorded. Only
+        the replaced current leader may be retired without a separate reap:
+        Linux de_thread releases it silently after exchanging TIDs. Unresolved
+        group creations fail closed rather than inventing syscall outcomes.
+        """
+        self._running()
+        task = self._task(ticket)
+        if (ticket == 0 or not task.alive or type(old_tid) is not int
+                or type(new_tid) is not int or old_tid != task.tid):
+            self._fail('invalid exec birth or old TID')
+        leader_birth = self._leaders[task.group_birth]
+        leader = self._tasks[leader_birth]
+        if new_tid != self._tasks[task.group_birth].tid:
+            self._fail('exec target is not original group TGID')
+        group = {birth for birth, member in self._tasks.items()
+                 if member.group_birth == task.group_birth}
+        if any(birth in self._pending for birth in group):
+            self._fail('exec with unresolved group creation')
+        replacing = old_tid != new_tid
+        if replacing and (ticket == leader_birth or not leader.alive):
+            self._fail('exec replacement requires live current leader')
+        allowed = {ticket, leader_birth} if replacing else {ticket}
+        if any(self._tasks[birth].alive for birth in group - allowed):
+            self._fail('exec siblings require observed terminal reaps')
+        if replacing:
+            leader.alive = False
+            leader.terminal = 'exec-replaced'
+            self._live -= 1
+            task.tid = new_tid
+            self._leaders[task.group_birth] = ticket
+        return self.identity(ticket)
 
     def finish(self, reservation, child_tid):
         """Resolve a creation result; None means authenticated failure/ENOSYS.
@@ -220,6 +264,7 @@ class TaskLedger:
                 self._live -= 1
             attempt.finished = True
         task.alive = False
+        task.terminal = 'reaped'
         self._live -= 1
 
     def wait_stop(self):

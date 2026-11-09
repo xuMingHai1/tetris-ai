@@ -24,7 +24,8 @@ tgid=p->pid。该来源用于静态关系模型，不能代替冻结平台的原
 20 项 ledger 和 14 项 lifecycle Python 测试全部通过且无 skip。
 测试不 fork、不 ptrace、不启动原生探针或历史输入。
 
-**尚未实现 exec 迁移。** 当前 tgid 是创建时的数值，不可在 EXEC 后继续使用。
+**本次新增修改：** [EXEC 身份账本迁移](heart-fixed-witness-replay-exec-ledger.md)
+已提供纯模型，保留原始 tgid 并单独记录当前 leader；尚未接入真实 EXEC 认证。
 PostHandshakeDispatcher 和 bounded wait owner 仍在 EXEC 停点失败关闭，
 不能改写 TID、推断其他线程已 reap、释放 live 或凭 cleanup_tid 发信号。
 下一步需结合 PTRACE_EVENT_EXEC old-TID、de_thread 和真实终态 reap 实现迁移及
