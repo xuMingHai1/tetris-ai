@@ -58,6 +58,7 @@ class PostHandshakeDispatcher:
                         or type(facts.signal_info) is not SignalInfo
                         or facts.signal_info != SignalInfo(19, 0, 0, 0, 0)):
                     raise StopDispatchError('expected birth-bound newborn initial SIGSTOP')
+                self.launch.dispatcher.newborn_signal_stop(ticket, tid)
                 wire.set_options(tid)
                 self._newborn.remove(ticket)
             elif kind == 'syscall-stop':

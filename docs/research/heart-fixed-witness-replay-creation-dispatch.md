@@ -35,7 +35,8 @@ coordinator 可信准入、线程 exec/TID 重绑定、TRACEME/options/EXITKILL�
 coordinator_signal_stop，准入发送该信号的 syscall 的一次性成功零出口。
 该方法不认证信号、不安装 options、不恢复任务；错误或重复调用锁存失败，
 不能在普通信号停点重启例外，也不能用于子 birth。
-事件绑定的新生 birth 首先必须消费一次成功返回 0 的创建出口，之后不再允许该例外。
+原 #201 synthetic 曾要求新生 birth 的成功零创建出口；本次接纳集成已依据 Linux
+源码修正，见下节。旧测试通过不证明该时序正确。
 退出或被杀时允许直接 reap，包括未完成的 syscall；它只清理状态，不伪造成功出口。
 受管 task 的原生 ptrace（101）入口直接锁存失败，不改写返回值、不恢复执行。
 新增 11 项回归覆盖这些拒绝路径、一次性出生/协调器握手例外及清理，并更新旧 TID 复用场景。
@@ -65,3 +66,13 @@ clone3 的 `suppress_clone3_from_info` / `finish_clone3_from_info` 复用相同�
 精确读取与计费次数、ABI/attempt/wait-stop 拒绝、实时寄存器错配、错误 birth/输入与重复消费。
 Linux Wrapper bridge 同步要求全部 33 项通过且无 skip。没有实际 fork、ptrace、探针、网络、
 clean-build 验收或历史输入执行。整体 wait/resume、newborn/exec 认证和原执行门仍未完成。
+
+## 本次新增修改：newborn 初始 stop 后等待 entry
+
+`newborn_signal_stop(ticket, tid)` 仅在外层认证已绑定 birth 的初始 SIGSTOP 后调用，
+一次性将 newborn 状态转换为等待首次 entry。拒绝 coordinator、错配或重复调用。
+认证前的任何 syscall-info（包括 zero exit）均拒绝；认证后无入口出口继续拒绝。
+选项/恢复仍由外层负责，方法成功不是恢复许可。原因与 Linux v6.17 源码链接见
+[停点组合说明](heart-fixed-witness-replay-stop-dispatch.md#本次新增修改已绑定-newborn-的首次停止)。
+本次替换旧 zero-exit 测试并补充一次性/身份回归，suite 共 35 项，Linux bridge 同步。
+coordinator 的自发停止例外不变，所有既有预算及整体执行门保持。

@@ -85,7 +85,7 @@ class PostHandshakeDispatchTest(unittest.TestCase):
         self.owner.accept(11, 0x1057f)
         return self.launch.dispatcher.stop_binding(12)[1]
 
-    def test_newborn_initial_stop_options_before_resume_then_zero_exit(self):
+    def test_newborn_initial_stop_options_before_resume_then_first_entry(self):
         child_wire = self.child()
         child_wire.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
         before = self.ledger.totals
@@ -96,9 +96,9 @@ class PostHandshakeDispatchTest(unittest.TestCase):
         self.assertEqual(before.attempts, self.ledger.totals.attempts)
         self.assertEqual(before.live, self.ledger.totals.live)
         child_wire.reset_mock()
-        child_wire.syscall_info.return_value = decode_syscall_info(*exit_info(0, 0))
-        self.owner.accept(12, 0x857f)
         child_wire.syscall_info.return_value = decode_syscall_info(*entry(39))
+        self.owner.accept(12, 0x857f)
+        child_wire.syscall_info.return_value = decode_syscall_info(*exit_info(12, 0))
         self.owner.accept(12, 0x857f)
         child_wire.set_options.assert_not_called()
         self.assertEqual(2, child_wire.resume_syscall.call_count)
@@ -144,12 +144,12 @@ class PostHandshakeDispatchTest(unittest.TestCase):
         self.assertEqual([], child_wire.mock_calls)
         self.assertEqual(3, self.ledger.totals.live)
 
-    def test_newborn_must_still_report_zero_creation_exit_after_admission(self):
+    def test_newborn_unpaired_creation_exit_after_admission_is_rejected(self):
         child_wire = self.child()
         child_wire.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
         self.owner.accept(12, 0x137f)
         child_wire.reset_mock()
-        child_wire.syscall_info.return_value = decode_syscall_info(*entry(39))
+        child_wire.syscall_info.return_value = decode_syscall_info(*exit_info(0, 0))
         with self.assertRaises(ValueError):
             self.owner.accept(12, 0x857f)
         child_wire.resume_syscall.assert_not_called()

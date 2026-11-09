@@ -44,7 +44,8 @@ bridge 已随下述增量要求 22 项全部通过、无 skip；Windows bridge s
 此特征本身不是身份凭据；未知 TID 即使具有相同特征，也不得读取或恢复。
 接纳后先 SETOPTIONS 完整冻结选项，再核验原 owner/deadline，最后仅一次
 SYSCALL(signal=0)，不将初始 SIGSTOP 重新注入。接纳不额外 debit attempt/live，
-wait-stop 仍先计费；原 newborn 的 successful-zero syscall exit 义务不变。
+wait-stop 仍先计费。认证后显式调用 `newborn_signal_stop`，一次性将该 birth
+转换为等待首次 syscall entry，不接受没有入口的 creation zero exit。
 
 依据为 Linux v6.17 源码，而非将 coordinator 自发 SI_TKILL 套用于 newborn：
 
@@ -54,11 +55,18 @@ wait-stop 仍先计费；原 newborn 的 successful-zero syscall exit 义务不�
   在没有 sigqueue 时填充 SI_USER、sender PID/UID 均为 0；
   [ptrace_signal](https://github.com/torvalds/linux/blob/v6.17/kernel/signal.c#L2731-L2747)
   将该 siginfo 带入 signal-delivery stop。
+- [copy_process](https://github.com/torvalds/linux/blob/v6.17/kernel/fork.c#L2232-L2239)
+  清除 child 的 SYSCALL_TRACE；[ret_from_fork](https://github.com/torvalds/linux/blob/v6.17/arch/x86/kernel/process.c#L141-L157)
+  进入 [syscall_exit_to_user_mode_work](https://github.com/torvalds/linux/blob/v6.17/include/linux/entry-common.h#L153-L175)，
+  先做 syscall exit work，再处理 SIGSTOP；恢复后不会再报告该 creation exit。
+  本次独立 Review 发现并修正原 synthetic 零出口假设，coordinator 自发停止的
+  单次零出口例外不变。该修正额外涉及 CreationSyscallDispatcher 及其回归/bridge/说明，
+  因为不修正会将已合法接纳的 child 首次 entry 拒绝。
 
 任何其他 siginfo、group-stop EINVAL、重复初始 SIGSTOP、提前 syscall/event、
 选项或恢复错误均停止，保留 live credit 供真实清理；不重试不确定恢复。
 新增 fake-kernel wire 回归检查 GETSIGINFO 一次、完整 SETOPTIONS 与恢复顺序，
-另覆盖原 deadline、wait cap、未知身份、成功零返回义务和失败锁存。
+另覆盖原 deadline、wait cap、未知身份、首次 entry/无入口出口拒绝和失败锁存。
 首次 child stop 若先于父 event 被 wait owner 取到，本组件仍拒绝未知身份；
 未来有界 wait owner 必须处理这种合法乱序，不能把本组件当完整 wait loop。
 引用源码说明支持范围，不是当前 Linux kernel 的实际 capability 证明。
