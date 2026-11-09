@@ -1,9 +1,9 @@
 """Post-handshake stop composition; no wait loop, probes or historical input.
 
-Only the trusted coordinator is admitted for resume in this increment. Child
-events retain their birth bindings for cleanup, but newborn stops, signals and
-EXEC fail closed until their independent identity policies are implemented.
+Birth-bound newborns require their one initial kernel SIGSTOP and complete
+options before first resume. Other signals and EXEC still fail closed.
 """
+from fixed_witness_replay_ptrace import SignalInfo
 
 
 class StopDispatchError(ValueError):
@@ -30,6 +30,7 @@ class PostHandshakeDispatcher:
         launch._post_handshake_claimed = True
         self.launch = launch
         self.stopped = None
+        self._newborn = set()
 
     def accept(self, tid, raw_status):
         """Account before identity/deadline checks; never retry uncertain resume.
@@ -46,11 +47,26 @@ class PostHandshakeDispatcher:
             kind = facts.status.kind
             if kind in ('exited', 'signaled'):
                 self.launch.dispatcher.reaped(ticket, tid)
+                self._newborn.discard(ticket)
                 return facts
-            if kind == 'syscall-stop':
+            if ticket in self._newborn:
+                # Non-SEIZE ptrace_init_task queues a bare pending SIGSTOP;
+                # collect_signal synthesizes SI_USER with zero sender/uid.
+                # This signature alone is NOT identity: the actual parent's
+                # creation event must already have bound this birth and wire.
+                if (kind != 'signal-stop' or facts.status.signal != 19
+                        or type(facts.signal_info) is not SignalInfo
+                        or facts.signal_info != SignalInfo(19, 0, 0, 0, 0)):
+                    raise StopDispatchError('expected birth-bound newborn initial SIGSTOP')
+                self.launch.dispatcher.newborn_signal_stop(ticket, tid)
+                wire.set_options(tid)
+                self._newborn.remove(ticket)
+            elif kind == 'syscall-stop':
                 self.launch.dispatcher.syscall_info_stop(ticket, tid, facts.syscall)
             elif kind == 'ptrace-event' and facts.status.event in ('FORK', 'VFORK', 'CLONE'):
-                self.launch.dispatcher.child_event(ticket, tid, facts.status.event, facts.event_tid)
+                child = self.launch.dispatcher.child_event(
+                    ticket, tid, facts.status.event, facts.event_tid)
+                self._newborn.add(child)
             else:
                 raise StopDispatchError('signal/exec stop policy not implemented')
             # Recheck original owner/deadline after fallible kernel/policy work.
@@ -81,8 +97,8 @@ class _StopAccess:
 
     def __getattr__(self, name):
         ticket, wire = self.binding()
-        # No kernel read or resume on a newborn until its initial stop can be
-        # authenticated. Terminal reaps use binding() directly and remain valid.
-        if ticket != self.owner.launch.ticket:
-            raise StopDispatchError('newborn stop admission not implemented')
+        # Before newborn admission only GETSIGINFO is useful. Reject a syscall
+        # or event stop before accessing the kernel, retaining cleanup credit.
+        if ticket in self.owner._newborn and name != 'signal_info':
+            raise StopDispatchError('newborn initial signal stop required')
         return getattr(wire, name)

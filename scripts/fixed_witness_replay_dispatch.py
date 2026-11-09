@@ -50,7 +50,7 @@ class CreationSyscallDispatcher:
         # The child already exists in the ledger. Preserve its authenticated
         # identity BEFORE fallible wire initialization so cleanup can reap it.
         self._tasks[ticket] = (tid, None)
-        # None expects an entry; newborns owe the kernel's creation return.
+        # None expects an entry; newborns require initial stop admission first.
         # Thereafter retain actual entry facts, never infer op by alternation.
         self._sequence[ticket] = 'newborn' if newborn else None
         try:
@@ -97,12 +97,26 @@ class CreationSyscallDispatcher:
                     return ticket, access
         self._fail('unknown waited birth binding')
 
+    def newborn_signal_stop(self, ticket, tid):
+        """After outer-owner initial SIGSTOP authentication, expect first entry.
+
+        Linux clears newborn SYSCALL_TRACE before ret_from_fork. The initial
+        signal stop is processed after syscall exit work, so resuming it does
+        not yield a creation exit. This one-shot transition neither authenticates
+        the signal nor installs options or authorizes resume.
+        """
+        self._running()
+        self._task(ticket, tid)
+        if ticket == self._coordinator or self._sequence[ticket] != 'newborn':
+            self._fail('newborn initial stop admission unavailable')
+        self._sequence[ticket] = None
+
     def syscall_stop(self, ticket, tid):
         """Read the actual kernel operation; reserve before clone3 intervention.
 
         Every operation comes from GET_SYSCALL_INFO. State validates that
-        operation; it never guesses it. A newborn owes exactly one successful
-        zero creation return before its first entry. Exec identity changes and
+        operation; it never guesses it. A newborn requires initial signal-stop
+        admission before its first entry. Exec identity changes and
         authenticated stop/resume handling remain the outer caller's obligation.
         """
         self._running()
@@ -132,6 +146,8 @@ class CreationSyscallDispatcher:
                 self._fail('unsupported syscall stop operation')
             info.require_native(info.operation)
             previous = self._sequence[ticket]
+            if previous == 'newborn':
+                self._fail('newborn initial stop admission required')
             if info.operation == 1:
                 if previous is not None:
                     self._fail('new entry before prior syscall result')
@@ -149,7 +165,7 @@ class CreationSyscallDispatcher:
                 return obligation
             if previous is None:
                 self._fail('syscall exit without entry')
-            if previous in ('newborn', 'coordinator-handshake'):
+            if previous == 'coordinator-handshake':
                 if info.is_error or info.result != 0:
                     self._fail('initial syscall return must be successful zero')
                 self._sequence[ticket] = None

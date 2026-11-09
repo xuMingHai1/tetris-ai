@@ -166,14 +166,14 @@ class CreationDispatchTest(unittest.TestCase):
         self.stop()
         child = self.dispatch.child_event(1, 11, 'FORK', 12)
         self.stop(result=12)
-        self.stop(ticket=child, tid=12, result=0)
+        self.dispatch.newborn_signal_stop(child, 12)
         self.stop(ticket=child, tid=12, number=435)
         self.dispatch.reaped(child, 12)
         self.stop()
         next_child = self.dispatch.child_event(1, 11, 'FORK', 12)
         self.stop(result=12)
         self.assertIsNot(self.accesses[1], self.accesses[2])
-        self.stop(ticket=next_child, tid=12, result=0)
+        self.dispatch.newborn_signal_stop(next_child, 12)
         self.kernel.registers[15] = 435
         self.stop(ticket=next_child, tid=12, number=435)
         self.kernel.suppressed_exit()
@@ -214,28 +214,42 @@ class CreationDispatchTest(unittest.TestCase):
         self.stop(result=12)
         return child
 
-    def test_newborn_initial_exit_is_one_shot_and_not_a_debit(self):
+    def test_newborn_admission_allows_first_entry_without_a_debit(self):
         child = self.newborn()
-        self.stop(ticket=child, tid=12, result=0)
+        self.dispatch.newborn_signal_stop(child, 12)
+        self.stop(ticket=child, tid=12, number=39)
+        self.stop(ticket=child, tid=12, result=12)
         self.assertEqual(3, self.ledger.totals.attempts)
         with self.assertRaisesRegex(CreationDispatchError, 'without entry'):
             self.stop(ticket=child, tid=12, result=0)
 
-    def test_newborn_initial_exit_rejects_errors_and_parent_return(self):
-        for result, error in ((12, 0), (-38, 1)):
+    def test_newborn_rejects_every_exit_before_admission(self):
+        for result, error in ((0, 0), (12, 0), (-38, 1)):
             child = self.newborn()
-            with self.assertRaisesRegex(CreationDispatchError, 'successful zero'):
+            with self.assertRaisesRegex(CreationDispatchError, 'admission required'):
                 self.stop(ticket=child, tid=12, result=result, error=error)
             self.dispatch.reaped(child, 12)
             self.dispatch.reaped(1, 11)
             self.assertEqual((1, 0), (self.ledger.totals.live, self.ledger.totals.pending))
 
-    def test_newborn_cannot_skip_initial_exit(self):
+    def test_newborn_cannot_skip_initial_stop_admission(self):
         child = self.newborn()
-        with self.assertRaisesRegex(CreationDispatchError, 'before prior syscall result'):
+        with self.assertRaisesRegex(CreationDispatchError, 'admission required'):
             self.stop(ticket=child, tid=12, number=435)
         self.assertEqual(3, self.ledger.totals.attempts)
         self.assertEqual([], self.kernel.writes)
+
+    def test_newborn_admission_is_one_shot(self):
+        child = self.newborn()
+        self.dispatch.newborn_signal_stop(child, 12)
+        with self.assertRaisesRegex(CreationDispatchError, 'admission unavailable'):
+            self.dispatch.newborn_signal_stop(child, 12)
+
+    def test_newborn_admission_rejects_coordinator_or_wrong_birth(self):
+        for ticket, tid in ((1, 11), (2, 11), (True, 12)):
+            self.newborn()
+            with self.assertRaises(CreationDispatchError):
+                self.dispatch.newborn_signal_stop(ticket, tid)
 
     def test_managed_ptrace_is_rejected_before_any_resume_or_write(self):
         self.setup_dispatch()
