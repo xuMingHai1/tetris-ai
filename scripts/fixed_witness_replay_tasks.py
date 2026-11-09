@@ -31,13 +31,31 @@ class TaskTotals:
 @dataclass
 class _Task:
     tid: int
+    group_birth: int
     alive: bool = True
+
+
+@dataclass(frozen=True)
+class TaskIdentity:
+    """Accounting snapshot, never a ptrace/kill or exec-migration receipt.
+
+    group_birth identifies the group's original leader birth, not a reusable
+    numeric TGID. tgid is its original numeric identity; EXEC remains unsupported.
+    Reaping a leader neither changes membership nor releases other live slots.
+    """
+
+    birth: int
+    tid: int
+    group_birth: int
+    tgid: int
+    alive: bool
 
 
 @dataclass
 class _Attempt:
     parent: int
     kind: str
+    thread: bool
     child: int | None = None
     finished: bool = False
 
@@ -61,7 +79,7 @@ class TaskLedger:
         if type(tracer_tid) is not int or tracer_tid <= 0:
             raise ValueError('positive tracer TID required')
         self._attempt_limit, self._live_limit, self._event_limit = attempts, live, wait_stops
-        self._tasks = {0: _Task(tracer_tid)}
+        self._tasks = {0: _Task(tracer_tid, 0)}
         self._attempts = {}
         self._pending = {}
         self._live = 1
@@ -96,13 +114,16 @@ class TaskLedger:
             self._fail('creation reservation already finished')
         return attempt
 
-    def reserve(self, parent, kind):
+    def reserve(self, parent, kind, *, thread=False):
         """Debit before any creation is resumed, including clone3 denial.
 
         clone3 debits attempts without reserving live space: the adapter MUST
         suppress the syscall and return ENOSYS, then call finish(ticket, None).
         All other kinds reserve live space until failure or a confirmed reap.
         Only the initial coordinator may be created directly by the tracer.
+        The creation policy supplies thread=True only for native CLONE_THREAD;
+        all process creations, including clone(CLONE_VM), start a new group.
+        Freeze this relation at entry, never infer it from a later numeric TID.
         """
         self._running()
         task = self._task(parent)
@@ -110,13 +131,15 @@ class TaskLedger:
             self._fail('dead parent or unresolved creation')
         if type(kind) is not str or kind not in CREATIONS:
             self._fail('unknown creation kind')
+        if type(thread) is not bool or (thread and kind != 'clone'):
+            self._fail('thread relation requires legacy clone')
         if (parent == 0) != (kind == 'coordinator') or (parent == 0 and self._attempts):
             self._fail('only one trusted coordinator fork allowed')
         if 1 + len(self._attempts) >= self._attempt_limit:
             self._fail('task attempt limit')
         # An observed creation attempt is never refunded, even at the live cap.
         ticket = 1 + len(self._attempts)
-        self._attempts[ticket] = _Attempt(parent, kind)
+        self._attempts[ticket] = _Attempt(parent, kind, thread)
         if kind != 'clone3' and self._live >= self._live_limit:
             self._attempts[ticket].finished = True
             self._fail('live task limit')
@@ -151,8 +174,19 @@ class TaskLedger:
                 task.alive and task.tid == tid for task in self._tasks.values()):
             self._fail('invalid or already live child TID')
         attempt.child = reservation
-        self._tasks[reservation] = _Task(tid)
+        group = self._tasks[attempt.parent].group_birth if attempt.thread else reservation
+        self._tasks[reservation] = _Task(tid, group)
         return reservation
+
+    def identity(self, ticket):
+        """Snapshot a known birth, including stopped-ledger cleanup history.
+
+        No live credit changes and no lookup by PID. The trusted adapter must
+        still authenticate actual stops/reaps; this metadata grants no resume.
+        """
+        task = self._task(ticket)
+        return TaskIdentity(ticket, task.tid, task.group_birth,
+                            self._tasks[task.group_birth].tid, task.alive)
 
     def finish(self, reservation, child_tid):
         """Resolve a creation result; None means authenticated failure/ENOSYS.

@@ -80,7 +80,8 @@ class CreationPolicy:
             self._fail('six unsigned native register arguments required')
         kind = _KINDS[syscall]
         try:
-            reservation = self.ledger.reserve(parent, kind)
+            reservation = self.ledger.reserve(
+                parent, kind, thread=kind == 'clone' and bool(arguments[0] & CLONE_THREAD))
         except ValueError:
             self._fail('task reservation failed')
         if kind == 'clone3':

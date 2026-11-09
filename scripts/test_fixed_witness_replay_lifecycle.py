@@ -46,10 +46,38 @@ class CreationLifecycleTest(unittest.TestCase):
                 lifecycle, parent = self.setup_lifecycle()
                 self.entry(lifecycle, parent, c.SYS_CLONE, flags)
                 child = lifecycle.child_event(parent, event, 12)
+                identity = lifecycle.ledger.identity(child)
+                self.assertEqual(parent if event == 'clone' else child, identity.group_birth)
+                self.assertEqual(11 if event == 'clone' else 12, identity.tgid)
                 lifecycle.result(parent, 12, False)
                 lifecycle.reaped(child)
                 lifecycle.reaped(parent)
                 lifecycle.require_drained()
+
+    def test_thread_parent_process_clone_with_shared_vm_gets_new_group(self):
+        lifecycle, leader = self.setup_lifecycle()
+        flags = c.CLONE_VM | c.CLONE_SIGHAND | c.CLONE_THREAD
+        self.entry(lifecycle, leader, c.SYS_CLONE, flags)
+        thread = lifecycle.child_event(leader, 'clone', 12)
+        lifecycle.result(leader, 12, False)
+        self.entry(lifecycle, thread, c.SYS_CLONE, c.CLONE_VM | c.SIGCHLD)
+        process = lifecycle.child_event(thread, 'fork', 13)
+        lifecycle.result(thread, 13, False)
+        self.assertEqual((process, 13), (lifecycle.ledger.identity(process).group_birth,
+                                        lifecycle.ledger.identity(process).tgid))
+        self.assertEqual(leader, lifecycle.ledger.identity(thread).group_birth)
+
+    def test_rejected_thread_flags_keep_reservation_without_bound_identity(self):
+        lifecycle, parent = self.setup_lifecycle()
+        with self.assertRaises(CreationLifecycleError):
+            self.entry(lifecycle, parent, c.SYS_CLONE, c.CLONE_THREAD)
+        self.assertEqual((3, 3, 1), (lifecycle.ledger.totals.attempts,
+                                    lifecycle.ledger.totals.live, lifecycle.ledger.totals.pending))
+        with self.assertRaisesRegex(CreationLifecycleError, 'no pending'):
+            lifecycle.child_event(parent, 'clone', 12)
+        lifecycle.reaped(parent)
+        self.assertEqual((3, 1, 0), (lifecycle.ledger.totals.attempts,
+                                    lifecycle.ledger.totals.live, lifecycle.ledger.totals.pending))
 
     def test_wrong_event_never_binds_or_allows_more_entries(self):
         lifecycle, parent = self.setup_lifecycle()
