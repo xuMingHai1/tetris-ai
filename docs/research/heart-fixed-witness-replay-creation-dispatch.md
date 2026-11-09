@@ -12,7 +12,7 @@ scripts/fixed_witness_replay_dispatch.py 的 CreationSyscallDispatcher 从每个
 真实 register/ENOSYS 核验，再结算生命周期。FORK/VFORK/CLONE 采用 wait decoder 的大写
 事件名，在本边界转换为生命周期事件；子 TID 必须由外层 GETEVENTMSG 认证。
 
-每个 birth 保存 ticket/TID/wire 绑定，拒绝错配及创建结果到达前的新入口。
+每个 birth 保存 ticket/TID/wire 绑定，拒绝错配及任何 syscall 结果到达前的新入口。
 vfork 子可在父结果之前 reap。终态 reap 清除该 birth 的独占 wire，
 包含未完成的 clone3 token；数值 TID 复用采用全新 wire，不能继承旧 token。
 错误锁存后不再处理 syscall/event，只有真实终态 reap 可以继续用于全树清理。
@@ -20,7 +20,7 @@ vfork 子可在父结果之前 reap。终态 reap 清除该 birth 的独占 wire
 
 ## 验证与限制
 
-15 项合成测试调用生产 PtraceAccess 的真实 wire 编解码和生命周期，注入 fake ptrace，
+22 项合成测试调用生产 PtraceAccess 的真实 wire 编解码和生命周期，注入 fake ptrace，
 覆盖计费与 register 干预顺序、耗尽拒绝、错误锁存、事件/结果错配、vfork、
 出生身份错误、native ABI 拒绝和带未完成 token 的 TID 复用。
 FixedWitnessCreationDispatchTest 将它们接入普通 Linux Wrapper CI。
@@ -29,7 +29,14 @@ FixedWitnessCreationDispatchTest 将它们接入普通 Linux Wrapper CI。
 这仍不是完整或已验证的监督器：真实 wait-stop 的预算计费、停止/信号认证、
 coordinator 可信准入、线程 exec/TID 重绑定、TRACEME/options/EXITKILL、
 宿主/writer 所有权与固定 fixture/task 预留表尚需整体集成。
-本组件只处理 native 创建义务，非创建 syscall 不维护完整入口/出口状态机；
+本次新增修改：native 创建及非创建 syscall 均保存内核已报告的入口状态，
+拒绝重复入口和无入口出口，不靠奇偶位推断 operation。coordinator 从入口开始；
+事件绑定的新生 birth 首先必须消费一次成功返回 0 的创建出口，之后不再允许该例外。
+退出或被杀时允许直接 reap，包括未完成的 syscall；它只清理状态，不伪造成功出口。
+受管 task 的原生 ptrace（101）入口直接锁存失败，不改写返回值、不恢复执行。
+新增 7 项回归覆盖这些拒绝路径、一次性出生例外及清理，并更新旧 TID 复用场景。
+这些 synthetic 状态测试不证明宿主内核的新生停点时序或监督能力。
+线程 exec/TID 变化仍不支持，外层不得把该路径接入完整验收或猜测重绑定；
 冻结的非创建 ABI 探针例外须由外层专门认证，不可由此 native 路径绕过。
 syscall_stop 返回不授予独立 resume 权限；外层必须先完成全部监督检查。
 

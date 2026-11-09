@@ -27,6 +27,7 @@ class CreationSyscallDispatcher:
         self._factory = access_factory
         self._tasks = {}
         self._pending = {}
+        self._sequence = {}
         self.stopped = None
         self._bind(coordinator_ticket, coordinator_tid)
 
@@ -39,7 +40,7 @@ class CreationSyscallDispatcher:
         if self.stopped is not None:
             self._fail('creation dispatcher stopped')
 
-    def _bind(self, ticket, tid):
+    def _bind(self, ticket, tid, newborn=False):
         if (type(ticket) is not int or ticket <= 0 or ticket in self._tasks
                 or type(tid) is not int or not 0 < tid < 2**31
                 or any(item[0] == tid for item in self._tasks.values())):
@@ -47,6 +48,9 @@ class CreationSyscallDispatcher:
         # The child already exists in the ledger. Preserve its authenticated
         # identity BEFORE fallible wire initialization so cleanup can reap it.
         self._tasks[ticket] = (tid, None)
+        # None expects an entry; newborns owe the kernel's creation return.
+        # Thereafter retain actual entry facts, never infer op by alternation.
+        self._sequence[ticket] = 'newborn' if newborn else None
         try:
             access = self._factory()
         except (PtraceBoundaryError, OSError) as error:
@@ -64,9 +68,10 @@ class CreationSyscallDispatcher:
     def syscall_stop(self, ticket, tid):
         """Read the actual kernel operation; reserve before clone3 intervention.
 
-        Noncreation exits need no inferred entry/exit parity here: a child's
-        first syscall exit can arrive without an entry. Complete native syscall
-        sequencing and exec handling remain the outer dispatcher's obligation.
+        Every operation comes from GET_SYSCALL_INFO. State validates that
+        operation; it never guesses it. A newborn owes exactly one successful
+        zero creation return before its first entry. Exec identity changes and
+        authenticated stop/resume handling remain the outer caller's obligation.
         """
         self._running()
         access = self._task(ticket, tid)
@@ -75,9 +80,15 @@ class CreationSyscallDispatcher:
             if info.operation not in (1, 2):
                 self._fail('unsupported syscall stop operation')
             info.require_native(info.operation)
+            previous = self._sequence[ticket]
             if info.operation == 1:
-                if ticket in self._pending:
-                    self._fail('new entry before creation result')
+                if previous is not None:
+                    self._fail('new entry before prior syscall result')
+                # A managed task may not change ptrace relationships. This is
+                # rejection, not rewriting its errno or any network result.
+                if info.number == 101:  # Linux native x86-64 __NR_ptrace
+                    self._fail('managed ptrace syscall forbidden')
+                self._sequence[ticket] = info
                 if info.number not in (SYS_CLONE, SYS_FORK, SYS_VFORK, SYS_CLONE3):
                     return None
                 obligation = self.lifecycle.entry(ticket, info.arch, info.number, info.arguments)
@@ -85,12 +96,20 @@ class CreationSyscallDispatcher:
                 if obligation.suppress_enosys:
                     self._pending[ticket] = access.suppress_clone3(tid)
                 return obligation
+            if previous is None:
+                self._fail('syscall exit without entry')
+            if previous == 'newborn':
+                if info.is_error or info.result != 0:
+                    self._fail('newborn creation return must be successful zero')
+                self._sequence[ticket] = None
+                return None
             if ticket in self._pending:
                 token = self._pending[ticket]
                 if token is not None:
                     access.finish_clone3(token)
                 self.lifecycle.result(ticket, info.result, info.is_error)
                 del self._pending[ticket]
+            self._sequence[ticket] = None
             return None
         except (PtraceBoundaryError, CreationLifecycleError) as error:
             self._fail(str(error))
@@ -103,7 +122,7 @@ class CreationSyscallDispatcher:
             self._fail('unexpected creation event')
         try:
             child = self.lifecycle.child_event(ticket, event.lower(), child_tid)
-            self._bind(child, child_tid)
+            self._bind(child, child_tid, newborn=True)
             return child
         except CreationLifecycleError as error:
             self._fail(str(error))
@@ -120,11 +139,12 @@ class CreationSyscallDispatcher:
         except CreationLifecycleError as error:
             self._fail(str(error))
         self._pending.pop(ticket, None)
+        self._sequence.pop(ticket, None)
         del self._tasks[ticket]
 
     def require_drained(self):
         """Bookkeeping only; never a capability or COMPLETE certificate."""
-        if self._tasks or self._pending:
+        if self._tasks or self._pending or self._sequence:
             self._fail('unreaped dispatch bindings')
         self._running()
         try:

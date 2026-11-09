@@ -127,7 +127,7 @@ class CreationDispatchTest(unittest.TestCase):
     def test_duplicate_entry_rejected_before_second_debit(self):
         self.setup_dispatch()
         self.stop()
-        with self.assertRaisesRegex(CreationDispatchError, 'before creation result'):
+        with self.assertRaisesRegex(CreationDispatchError, 'before prior syscall result'):
             self.stop()
         self.assertEqual(3, self.ledger.totals.attempts)
 
@@ -165,12 +165,14 @@ class CreationDispatchTest(unittest.TestCase):
         self.stop()
         child = self.dispatch.child_event(1, 11, 'FORK', 12)
         self.stop(result=12)
+        self.stop(ticket=child, tid=12, result=0)
         self.stop(ticket=child, tid=12, number=435)
         self.dispatch.reaped(child, 12)
         self.stop()
         next_child = self.dispatch.child_event(1, 11, 'FORK', 12)
         self.stop(result=12)
         self.assertIsNot(self.accesses[1], self.accesses[2])
+        self.stop(ticket=next_child, tid=12, result=0)
         self.kernel.registers[15] = 435
         self.stop(ticket=next_child, tid=12, number=435)
         self.kernel.suppressed_exit()
@@ -178,6 +180,68 @@ class CreationDispatchTest(unittest.TestCase):
         self.dispatch.reaped(next_child, 12)
         self.dispatch.reaped(1, 11)
         self.dispatch.require_drained()
+
+    def test_coordinator_stray_exit_latches_without_creation_debit(self):
+        self.setup_dispatch()
+        with self.assertRaisesRegex(CreationDispatchError, 'without entry'):
+            self.stop(result=0)
+        self.assertEqual(2, self.ledger.totals.attempts)
+        with self.assertRaisesRegex(CreationDispatchError, 'stopped'):
+            self.stop()
+        self.dispatch.reaped(1, 11)
+        self.assertEqual({}, self.dispatch._sequence)
+
+    def test_noncreation_entry_cannot_hide_following_creation(self):
+        self.setup_dispatch()
+        self.stop(number=39)
+        with self.assertRaisesRegex(CreationDispatchError, 'before prior syscall result'):
+            self.stop(number=435)
+        self.assertEqual(2, self.ledger.totals.attempts)
+        self.assertEqual([], self.kernel.writes)
+
+    def test_duplicate_noncreation_exit_is_rejected(self):
+        self.setup_dispatch()
+        self.stop(number=39)
+        self.stop(result=11)
+        with self.assertRaisesRegex(CreationDispatchError, 'without entry'):
+            self.stop(result=11)
+
+    def newborn(self):
+        self.setup_dispatch()
+        self.stop()
+        child = self.dispatch.child_event(1, 11, 'FORK', 12)
+        self.stop(result=12)
+        return child
+
+    def test_newborn_initial_exit_is_one_shot_and_not_a_debit(self):
+        child = self.newborn()
+        self.stop(ticket=child, tid=12, result=0)
+        self.assertEqual(3, self.ledger.totals.attempts)
+        with self.assertRaisesRegex(CreationDispatchError, 'without entry'):
+            self.stop(ticket=child, tid=12, result=0)
+
+    def test_newborn_initial_exit_rejects_errors_and_parent_return(self):
+        for result, error in ((12, 0), (-38, 1)):
+            child = self.newborn()
+            with self.assertRaisesRegex(CreationDispatchError, 'successful zero'):
+                self.stop(ticket=child, tid=12, result=result, error=error)
+            self.dispatch.reaped(child, 12)
+            self.dispatch.reaped(1, 11)
+            self.assertEqual((1, 0), (self.ledger.totals.live, self.ledger.totals.pending))
+
+    def test_newborn_cannot_skip_initial_exit(self):
+        child = self.newborn()
+        with self.assertRaisesRegex(CreationDispatchError, 'before prior syscall result'):
+            self.stop(ticket=child, tid=12, number=435)
+        self.assertEqual(3, self.ledger.totals.attempts)
+        self.assertEqual([], self.kernel.writes)
+
+    def test_managed_ptrace_is_rejected_before_any_resume_or_write(self):
+        self.setup_dispatch()
+        with self.assertRaisesRegex(CreationDispatchError, 'ptrace syscall forbidden'):
+            self.stop(number=101)
+        self.assertEqual(2, self.ledger.totals.attempts)
+        self.assertEqual([p.GET_SYSCALL_INFO], [r[0] for r in self.kernel.requests])
 
 
 if __name__ == '__main__':
