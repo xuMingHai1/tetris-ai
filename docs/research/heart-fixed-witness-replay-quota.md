@@ -1,5 +1,27 @@
 # 固定动作回放：写入前累计配额组件
 
+## 本次新增修改：已接受的人工套件writer分区
+
+用户2026-11-09在会话 `01a1bdd5-5d02-7580-95b4-42302a6fa60a` 明确接受
+#174具体修订，包含[任务预算方案](heart-fixed-witness-replay-task-budget-proposal.md)
+的三个独立writer额度。`scripts/fixed_witness_replay_writers.py` 的
+`reserve_writers(root)` 将全新10MiB根额度一次原子预扣，再永久分为tracer32KiB、
+宿主32KiB、协调器10MiB-64KiB。已使用、较小或重复分配的root拒绝，不能在失败时
+部分预留报告额度；并发分配仅一个成功。根charge包含全部预留，不再累加子charge。
+失败前缀必须从writer自己的分区预留，未使用余额不回收、不跨区借用。
+
+这是**宿主侧额度分配组件**，尚未接入人工监督器。不能fork/pickle这些ByteQuota，
+或在不同进程各重建一个同额度对象来声称共享计费；后续仍须将每份永久预留唯一绑定到
+实际执行该限制的writer，认证所有权和输出路径，并覆盖复制品及错误前缀。
+本组件不启动task、不执行ptrace/网络/clean-build能力探针、历史22步或完整验收。
+7项synthetic测试覆盖完整分配、非法root、重复/并发分配、额度隔离、失败预留和
+失败I/O不退款；普通Linux Wrapper桥接执行这7项，不代替完整能力验收。
+#170A存储分离已由 #191 交付；构建缓存/target不受该证据分区磁盘硬界限制。
+其余整体最终Review/CI、唯一验收登记和历史执行停止门保持。仅test-only设施，
+不改变生产架构，README/AGENTS无需调整。
+
+## 既有组件与交接记录
+
 本组件落实[已接受设计](../design/heart-fixed-witness-replay.md)的固定10MiB输出上限，
 只提供合作式writer的共享计费原语及管道接线，不是完整诊断supervisor。
 没有历史22步执行、collect入口、网络隔离或runtime许可。
