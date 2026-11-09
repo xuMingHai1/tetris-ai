@@ -127,11 +127,21 @@ class TaskLedger:
             self._live += 1
         return ticket
 
+    def require_tracer(self, tid):
+        """Check the caller's native leader against the original tracer binding.
+
+        The launcher separately authenticates its single-thread OS inventory;
+        this check cannot prove provenance and never creates a reservation.
+        """
+        self._running()
+        if type(tid) is not int or tid != self._tasks[0].tid:
+            self._fail('tracer identity mismatch')
+
     def created(self, reservation, tid):
         """Associate one authenticated fork event, without another debit.
 
         For the coordinator, the adapter supplies the reserved fork's returned
-        TID after its stop handshake. Other TIDs must come from ptrace events.
+        TID before its stop handshake. Other TIDs must come from ptrace events.
         A child may run/reap before the parent's syscall result (notably vfork).
         """
         attempt = self._attempt(reservation)
