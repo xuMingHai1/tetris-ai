@@ -4,6 +4,7 @@ import unittest
 from fixed_witness_replay_dispatch import CreationSyscallDispatcher, CreationDispatchError
 from fixed_witness_replay_lifecycle import CreationLifecycle
 from fixed_witness_replay_tasks import TaskLedger
+from fixed_witness_replay_stops import StopReader, StopReadError
 import fixed_witness_replay_ptrace as p
 from test_fixed_witness_replay_ptrace import KernelFixture, entry, exit_info
 
@@ -279,6 +280,80 @@ class CreationDispatchTest(unittest.TestCase):
         child = self.newborn()
         with self.assertRaisesRegex(CreationDispatchError, 'handshake unavailable'):
             self.dispatch.coordinator_signal_stop(child, 12)
+
+    def shared_stop(self):
+        facts = StopReader(self.ledger).read(11, 0x857f, self.accesses[0])
+        return self.dispatch.syscall_info_stop(1, facts.tid, facts.syscall)
+
+    def test_shared_clone3_facts_read_once_per_charged_stop(self):
+        self.setup_dispatch()
+        self.shared_stop()
+        self.assertEqual((3, 1), (self.ledger.totals.attempts,
+                                 self.ledger.totals.wait_stops))
+        self.kernel.suppressed_exit()
+        self.shared_stop()
+        self.assertEqual([p.GET_SYSCALL_INFO, p.GETREGSET, p.SETREGSET] * 2,
+                         [request[0] for request in self.kernel.requests])
+        self.assertEqual((2, 0), (self.ledger.totals.wait_stops,
+                                 self.ledger.totals.pending))
+        self.dispatch.reaped(1, 11)
+        self.dispatch.require_drained()
+
+    def test_shared_fact_path_keeps_native_abi_rejection_before_debit(self):
+        for raw in (entry(435, 0x40000003), entry(p.X32_BIT + 435)):
+            self.setup_dispatch()
+            self.kernel.info, self.kernel.available = raw
+            with self.assertRaisesRegex(CreationDispatchError, 'CAPABILITY_UNAVAILABLE'):
+                self.shared_stop()
+            self.assertEqual((2, 1), (self.ledger.totals.attempts,
+                                     self.ledger.totals.wait_stops))
+            self.assertEqual([p.GET_SYSCALL_INFO], [r[0] for r in self.kernel.requests])
+
+    def test_shared_exhausted_attempt_has_no_register_intervention(self):
+        self.setup_dispatch(attempts=2)
+        with self.assertRaises(CreationDispatchError):
+            self.shared_stop()
+        self.assertEqual([p.GET_SYSCALL_INFO], [r[0] for r in self.kernel.requests])
+        self.assertEqual(1, self.ledger.totals.wait_stops)
+
+    def test_shared_wait_limit_prevents_all_kernel_access(self):
+        self.setup_dispatch(wait_stops=1)
+        with self.assertRaisesRegex(StopReadError, 'wait-stop limit'):
+            self.shared_stop()
+        self.assertEqual([], self.kernel.requests)
+        self.assertEqual(2, self.ledger.totals.attempts)
+
+    def test_shared_exit_still_checks_live_registers(self):
+        self.setup_dispatch()
+        self.shared_stop()
+        self.kernel.info, self.kernel.available = exit_info()
+        with self.assertRaisesRegex(CreationDispatchError, 'register mismatch'):
+            self.shared_stop()
+        self.assertEqual(1, len(self.kernel.writes))
+        self.assertEqual(1, self.ledger.totals.pending)
+        self.dispatch.reaped(1, 11)
+
+    def test_shared_wrong_birth_or_nondecoded_facts_fail_before_wire_access(self):
+        for ticket, tid, info in ((1, 12, p.decode_syscall_info(*entry())),
+                                  (True, 11, p.decode_syscall_info(*entry())),
+                                  (1, 11, object())):
+            self.setup_dispatch()
+            with self.assertRaises(CreationDispatchError):
+                self.dispatch.syscall_info_stop(ticket, tid, info)
+            self.assertEqual([], self.kernel.requests)
+            self.assertIsNotNone(self.dispatch.stopped)
+
+    def test_shared_duplicate_entry_does_not_charge_or_write_twice(self):
+        self.setup_dispatch()
+        facts = StopReader(self.ledger).read(11, 0x857f, self.accesses[0])
+        self.dispatch.syscall_info_stop(1, 11, facts.syscall)
+        with self.assertRaisesRegex(CreationDispatchError, 'before prior syscall result'):
+            self.dispatch.syscall_info_stop(1, 11, facts.syscall)
+        self.assertEqual((3, 1, 1), (self.ledger.totals.attempts,
+                                    self.ledger.totals.wait_stops,
+                                    len(self.kernel.writes)))
+        self.assertEqual([p.GET_SYSCALL_INFO, p.GETREGSET, p.SETREGSET],
+                         [r[0] for r in self.kernel.requests])
 
 
 if __name__ == '__main__':
