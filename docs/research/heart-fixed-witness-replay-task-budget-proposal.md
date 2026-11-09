@@ -132,6 +132,13 @@ Wrapper和JVM实际线程/进程总数、ptrace对Java启动/ACK时序的影响�
 
 分类：宿主ptrace/ABI/clone fallback不满足为CAPABILITY_UNAVAILABLE；账本漏项、错放行、源/hash/握手变化为IMPLEMENTATION_INVALID；资源耗尽或清理未完成为INCOMPLETE。三者均不是研究BOUNDED_MISS，不授予重跑/加预算；普通实现错误允许修复后按独立Review流程验证，不能重启已登记完整验收来调参。
 
+## 协调器首次握手组件采用记录（2026-11-09）
+
+用户已明确接受 #170 方案 A 与 #174 本具体修订，文末原请求保留为历史设计记录。
+新增[协调器首次握手组件](heart-fixed-witness-replay-coordinator-handshake.md)连接
+共享 stop 计费、self-SIGSTOP sender 核验、一次性 birth 准入、固定 options 与首次 resume。
+仅合成验证；可信子 stub、整体监督/exec 身份与完整人工验收仍未完成，不授予执行权限。
+
 ## 需要用户接受的精确变更及交接
 
 请求仅限：是否接受将[网络设计](heart-fixed-witness-replay-network.md)中**人工套件16子进程**条款替换为本候选的**累计512次task尝试（含线程、失败不退）、live128、2,000,000 trace事件**，及上述执行前ptrace仲裁/clone3 ENOSYS/失败停止语义。用户可以拒绝并继续保留16；不请求泛化“允许以后改协议”的空白授权。

@@ -13,6 +13,7 @@ class ControlKernel:
         self.error = 1
         self.event = 123
         self.siginfo = (17, 0, -6)
+        self.sender = (22, 1000)
 
     def __call__(self, request, tid, address, data):
         self.calls.append((request, tid, address, data))
@@ -22,7 +23,10 @@ class ControlKernel:
         if request == 0x4201:
             ctypes.memmove(data, struct.pack('<Q', self.event), 8)
         elif request == 0x4202:
-            ctypes.memmove(data, struct.pack('<iii', *self.siginfo).ljust(128, b'\0'), 128)
+            raw = bytearray(128)
+            struct.pack_into('<iii', raw, 0, *self.siginfo)
+            struct.pack_into('<iI', raw, 16, *self.sender)
+            ctypes.memmove(data, bytes(raw), 128)
         return self.result
 
 
@@ -52,7 +56,8 @@ class PtraceControlTest(unittest.TestCase):
         access = p.PtraceAccess(kernel)
         for code in (-6, 0, 1, 0x80):
             kernel.siginfo = (17, 0, code)
-            self.assertEqual(p.SignalInfo(17, 0, code), access.signal_info(22, 17))
+            expected = p.SignalInfo(17, 0, code, 22, 1000) if code in (-6, 0) else p.SignalInfo(17, 0, code)
+            self.assertEqual(expected, access.signal_info(22, 17))
         self.assertEqual((0x4202, 22, 0), kernel.calls[0][:3])
         with self.assertRaisesRegex(p.PtraceBoundaryError, 'mismatch'):
             access.signal_info(22, 5)
