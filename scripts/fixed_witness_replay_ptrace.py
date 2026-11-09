@@ -232,7 +232,17 @@ class PtraceAccess:
         Caller retains the stopped task and must not resume if any check fails.
         """
         require(tid not in self._clone3, 'clone3 intervention already pending')
-        info = self.syscall_info(tid)
+        return self.suppress_clone3_from_info(tid, self.syscall_info(tid))
+
+    def suppress_clone3_from_info(self, tid, info):
+        """Reuse this birth's current stopped-task facts without another read.
+
+        Trusted single-owner caller must bind info to this TID/current stop and
+        debit the ledger first. A SyscallInfo value is not an authentication
+        receipt. All native ABI and live register checks still apply.
+        """
+        require(tid not in self._clone3, 'clone3 intervention already pending')
+        require(type(info) is SyscallInfo, 'decoded syscall-info required')
         info.require_native(1)
         require(info.number == CLONE3, 'clone3 entry required')
         registers = self._registers(tid)
@@ -255,7 +265,17 @@ class PtraceAccess:
         """
         require(type(token) is _Clone3Stop and self._clone3.get(token.tid) is token,
                 'unknown clone3 intervention')
-        info = self.syscall_info(token.tid)
+        return self.finish_clone3_from_info(token, self.syscall_info(token.tid))
+
+    def finish_clone3_from_info(self, token, info):
+        """Consume current exit facts; retain token/register/ENOSYS validation.
+
+        The caller owns exact birth/current-stop binding, as for entry facts.
+        The token remains single-use even when the syscall-info read is shared.
+        """
+        require(type(token) is _Clone3Stop and self._clone3.get(token.tid) is token,
+                'unknown clone3 intervention')
+        require(type(info) is SyscallInfo, 'decoded syscall-info required')
         info.require_native(2)
         require((info.instruction_pointer, info.stack_pointer) == (token.ip, token.sp)
                 and info.is_error and info.result == -LINUX_ENOSYS,

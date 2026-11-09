@@ -46,4 +46,22 @@ syscall_stop 返回不授予独立 resume 权限；外层必须先完成全部�
 
 整体最终 Review/CI、兼容性/inputhash 与唯一登记前不得启动真实套件或历史输入。
 #140 BOUNDED_MISS、GoalWindow、#95/#96、reserved/provider/runtime/default 停止门保持。
-本次仅四个新增 test-only 文件；生产结构、依赖和运行方式不变，README/AGENTS 无需调整。
+原组合交付仅四个新增 test-only 文件；生产结构、依赖和运行方式不变，README/AGENTS 无需调整。
+
+## 本次新增修改：共享 syscall-info
+
+接续 #204 的待集成项，`syscall_info_stop(ticket, tid, info)` 接收 StopReader
+已读出的不可变 `StopFacts.syscall`。原 `syscall_stop` 保留独立读取入口并复用同一策略。
+clone3 的 `suppress_clone3_from_info` / `finish_clone3_from_info` 复用相同入口/出口事实，
+仍执行 native ABI、实时 register、固定 ENOSYS 与单次 token 核验；原独立 wire 方法也保留。
+每个 clone3 入口/出口现在各只读取一次 GET_SYSCALL_INFO，调度层不额外计 wait-stop。
+
+这不是可传递的认证凭据：可信单线程 owner 仍须先完成 wait 计费、birth/TID/当前停点认证，
+确保传入本 birth wire 在当前停点读取的事实，并在消费完毕前不恢复任务。
+本 API 无法判断调用方伪造或跨停点传入的数据；不得因此跳过外层认证或宣称完整监督器已验证。
+错误身份、非 SyscallInfo、重复入口仍锁存失败；实时寄存器错配不能被共享事实掩盖。
+
+新增 7 项 synthetic 回归使创建调度 suite 共 33 项：覆盖真实 StopReader/wire/ledger 组合的
+精确读取与计费次数、ABI/attempt/wait-stop 拒绝、实时寄存器错配、错误 birth/输入与重复消费。
+Linux Wrapper bridge 同步要求全部 33 项通过且无 skip。没有实际 fork、ptrace、探针、网络、
+clean-build 验收或历史输入执行。整体 wait/resume、newborn/exec 认证和原执行门仍未完成。

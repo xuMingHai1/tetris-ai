@@ -5,7 +5,7 @@ coordinator admission and exec identity. Each birth owns a separate wire object
 so a reaped clone3 intervention cannot leak into a reused numeric TID.
 """
 from fixed_witness_replay_creation import SYS_CLONE, SYS_FORK, SYS_VFORK, SYS_CLONE3
-from fixed_witness_replay_ptrace import PtraceBoundaryError
+from fixed_witness_replay_ptrace import PtraceBoundaryError, SyscallInfo
 from fixed_witness_replay_lifecycle import CreationLifecycleError
 
 
@@ -93,10 +93,27 @@ class CreationSyscallDispatcher:
         """
         self._running()
         access = self._task(ticket, tid)
+        try:
+            info = access.syscall_info(tid)
+        except PtraceBoundaryError as error:
+            self._fail(str(error))
+        return self.syscall_info_stop(ticket, tid, info)
+
+    def syscall_info_stop(self, ticket, tid, info):
+        """Consume already-read immutable facts, without a second kernel read.
+
+        The trusted outer owner must have charged the wait exactly once and
+        authenticated the birth/TID/current stop before passing StopFacts.syscall
+        from this birth's wire. This method does not certify that provenance or
+        authorize resume. Standalone syscall_stop uses this same policy path.
+        """
+        self._running()
+        access = self._task(ticket, tid)
         if ticket == self._coordinator:
             self._handshake_available = False
         try:
-            info = access.syscall_info(tid)
+            if type(info) is not SyscallInfo:
+                self._fail('decoded syscall-info required')
             if info.operation not in (1, 2):
                 self._fail('unsupported syscall stop operation')
             info.require_native(info.operation)
@@ -114,7 +131,7 @@ class CreationSyscallDispatcher:
                 obligation = self.lifecycle.entry(ticket, info.arch, info.number, info.arguments)
                 self._pending[ticket] = None
                 if obligation.suppress_enosys:
-                    self._pending[ticket] = access.suppress_clone3(tid)
+                    self._pending[ticket] = access.suppress_clone3_from_info(tid, info)
                 return obligation
             if previous is None:
                 self._fail('syscall exit without entry')
@@ -126,7 +143,7 @@ class CreationSyscallDispatcher:
             if ticket in self._pending:
                 token = self._pending[ticket]
                 if token is not None:
-                    access.finish_clone3(token)
+                    access.finish_clone3_from_info(token, info)
                 self.lifecycle.result(ticket, info.result, info.is_error)
                 del self._pending[ticket]
             self._sequence[ticket] = None
