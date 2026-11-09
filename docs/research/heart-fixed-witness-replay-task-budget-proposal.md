@@ -1,5 +1,37 @@
 # 网络人工验收：累计任务预算修订候选
 
+## 本次新增修改：明确接受与分阶段实施（2026-11-09）
+
+用户在 Codex「查看开发进度」会话 `01a1bdd5-5d02-7580-95b4-42302a6fa60a`、
+消息 `01a1be5a-b3ca-7302-a36e-cb291b66b584` 对 #174 明确答复「接受该具体修订」。
+本文件的累计512次task创建尝试（包括线程及失败不退款）、live128、2,000,000次
+wait-stop及创建前ptrace仲裁、clone3固定ENOSYS、清理与失败停止语义已获接受。
+这是直接授权；下文“待接受/16仍有效”是原提案的历史状态，不是当前实施阻塞。
+原900秒/阶段时限与证据10MiB不变；#170方案A已由 #191 实施存储分离。
+
+第一项实现为 `scripts/fixed_witness_replay_tasks.py` 的纯内存 `TaskLedger`：
+tracer初始槽、唯一协调器预留、逐创建尝试永久扣费、pending/live预留、
+失败仅释放live、子事件不重复计费、确认reap释放live、出生ticket区分TID复用、
+vfork子先reap及终态父reap清理pending、clone3拒绝尝试计数、wait-stop到界停止。
+错误状态锁存后拒绝新增工作，但仍接收已预留的事件/结果及reap供清理。
+live上限拒绝仍计已观察的尝试；累计上限拒绝不创建第513个槽。
+事件计数到界即停止，该停点不得恢复。所有ticket均限定整数，未知状态失败关闭。
+
+14项synthetic测试仅注入事件序列，不创建或跟踪任何task。小预算只用于纯账本
+单元测试，不是人工探针可重置的子额度，也不执行原关闭的183/189验收清单。
+Java Linux桥接将这些单元测试接入普通Wrapper CI；Windows直接Python执行。
+
+**尚未具备创建前强制能力。** 账本不调用ptrace、不认证内核事件、不验证errno，
+`clone3_enosys`只记录待适配的干预义务，不证明实际ENOSYS已注入。未来tracer
+必须在恢复syscall前调用reserve，在事件/结果/终态reap时调用对应方法；
+真实出生时间、syscall-info/ABI、CLONE_UNTRACED、clone3寄存器干预、线程exec/TID
+重绑定、EXITKILL及64KiB报告分区仍待实施。当前不支持线程exec重绑定，不能接入
+人工全链。全套固定fixture/task预留表须在整体实现最终Review前冻结；
+整体最终Review/CI与唯一登记前不运行能力探针、完整network/clean-build或历史输入。
+本组件没有修改生产架构，README/AGENTS无须调整。
+
+## 以下为原 PR 的历史提案
+
 状态：**待审查、待用户明确接受；不是现行契约，不可执行。** 基线 main `24bb1770d77a1f186f5d896d469e828c21d285e4`；实现 Draft [#173](https://github.com/xuMingHai1/tetris-ai/pull/173) head `51c1fddb5ce37ee6ae689d6b27adecb1ba8b252f`。关联 [#91](https://github.com/xuMingHai1/tetris-ai/issues/91)。本文件仅准备一个可批准或否决的具体替代设计，不修改已接受的[网络设计](heart-fixed-witness-replay-network.md)及任何冻结协议。现行16子进程限制继续有效。
 
 ## 问题、证据及不确定性
