@@ -6,6 +6,127 @@ from fixed_witness_replay_tasks import TaskAccountingError, TaskLedger
 
 
 class TaskLedgerTest(unittest.TestCase):
+    def test_leader_exec_preserves_birth_and_budgets(self):
+        ledger, leader = self.coordinator()
+        before = ledger.totals
+        result = ledger.exec_identity(leader, 11, 11)
+        self.assertEqual((leader, 11, leader, True, None),
+                         (result.birth, result.tid, result.group_birth,
+                          result.alive, result.terminal))
+        self.assertEqual(before, ledger.totals)
+
+    def test_nonleader_exec_retires_only_replaced_leader(self):
+        ledger, leader = self.coordinator()
+        executor = self.child(ledger, leader, 12, thread=True)
+        sibling = self.child(ledger, leader, 13, thread=True)
+        ledger.reaped(sibling)
+        before = ledger.identity(executor)
+        result = ledger.exec_identity(executor, 12, 11)
+        self.assertEqual(12, before.tid)
+        self.assertEqual((executor, 11, leader, 11, True),
+                         (result.birth, result.tid, result.group_birth,
+                          result.tgid, result.alive))
+        self.assertEqual('exec-replaced', ledger.identity(leader).terminal)
+        self.assertEqual('reaped', ledger.identity(sibling).terminal)
+        self.assertEqual((4, 2), (ledger.totals.attempts, ledger.totals.live))
+        ledger.reaped(executor)
+        ledger.require_drained()
+
+    def test_successive_execs_use_current_leader_and_keep_original_group(self):
+        ledger, original = self.coordinator()
+        first = self.child(ledger, original, 12, thread=True)
+        ledger.exec_identity(first, 12, 11)
+        ledger.exec_identity(first, 11, 11)
+        second = self.child(ledger, first, 13, thread=True)
+        ledger.exec_identity(second, 13, 11)
+        self.assertEqual('exec-replaced', ledger.identity(first).terminal)
+        self.assertEqual((original, 11), (ledger.identity(second).group_birth,
+                                        ledger.identity(second).tgid))
+        self.assertEqual((4, 2), (ledger.totals.attempts, ledger.totals.live))
+
+    def test_exec_cannot_infer_other_sibling_reaps(self):
+        for use_leader in (True, False):
+            ledger, leader = self.coordinator()
+            thread = self.child(ledger, leader, 12, thread=True)
+            self.child(ledger, leader, 13, thread=True)
+            before = ledger.totals
+            with self.assertRaisesRegex(TaskAccountingError, 'siblings'):
+                ledger.exec_identity(leader if use_leader else thread,
+                                     11 if use_leader else 12, 11)
+            self.assertEqual(before.live, ledger.totals.live)
+            self.assertTrue(ledger.identity(leader).alive)
+            self.assertEqual(12, ledger.identity(thread).tid)
+
+    def test_exec_rejects_wrong_birth_tid_group_and_noninteger_facts(self):
+        for birth, old, new in ((0, 10, 10), (99, 12, 11), (2, 99, 11),
+                                (2, 12, 99), (2, True, 11), (2, 12, True),
+                                (True, 11, 11)):
+            with self.subTest(facts=(birth, old, new)):
+                ledger, leader = self.coordinator()
+                thread = self.child(ledger, leader, 12, thread=True)
+                with self.assertRaises(TaskAccountingError):
+                    ledger.exec_identity(birth, old, new)
+                self.assertEqual((3, 3), (ledger.totals.attempts, ledger.totals.live))
+                self.assertEqual(12, ledger.identity(thread).tid)
+
+    def test_exec_rejects_unresolved_group_creation_without_partial_mutation(self):
+        for pending_owner in ('leader', 'executor'):
+            ledger, leader = self.coordinator()
+            thread = self.child(ledger, leader, 12, thread=True)
+            ledger.reserve(leader if pending_owner == 'leader' else thread, 'fork')
+            with self.assertRaisesRegex(TaskAccountingError, 'unresolved'):
+                ledger.exec_identity(thread, 12, 11)
+            self.assertEqual((4, 1), (ledger.totals.live, ledger.totals.pending))
+            self.assertTrue(ledger.identity(leader).alive)
+            self.assertEqual(12, ledger.identity(thread).tid)
+
+    def test_exec_rejects_dead_or_stopped_birth_and_reaped_leader(self):
+        for state in ('executor-dead', 'leader-dead', 'stopped'):
+            ledger, leader = self.coordinator(wait_stops=1)
+            thread = self.child(ledger, leader, 12, thread=True)
+            if state == 'stopped':
+                with self.assertRaises(TaskAccountingError):
+                    ledger.wait_stop()
+            else:
+                ledger.reaped(thread if state == 'executor-dead' else leader)
+            before = ledger.totals
+            with self.assertRaises(TaskAccountingError):
+                ledger.exec_identity(thread, 12, 11)
+            self.assertEqual(before.live, ledger.totals.live)
+
+    def test_replaced_leader_cannot_release_credit_of_migrated_executor(self):
+        ledger, leader = self.coordinator()
+        thread = self.child(ledger, leader, 12, thread=True)
+        ledger.exec_identity(thread, 12, 11)
+        with self.assertRaisesRegex(TaskAccountingError, 'duplicate reap'):
+            ledger.reaped(leader)
+        self.assertEqual(2, ledger.totals.live)
+        ledger.reaped(thread)
+        self.assertEqual(1, ledger.totals.live)
+
+    def test_exec_releases_old_numeric_tid_without_rebinding_old_birth(self):
+        ledger, leader = self.coordinator()
+        thread = self.child(ledger, leader, 12, thread=True)
+        ledger.exec_identity(thread, 12, 11)
+        process = self.child(ledger, thread, 12, kind='fork')
+        self.assertEqual((process, 12), (ledger.identity(process).group_birth,
+                                       ledger.identity(process).tgid))
+        self.assertEqual(11, ledger.identity(thread).tid)
+        self.assertFalse(ledger.identity(leader).alive)
+
+    def test_parent_creation_result_keeps_original_child_tid_after_exec(self):
+        ledger, parent = self.coordinator()
+        leader = ledger.reserve(parent, 'fork')
+        ledger.created(leader, 12)
+        thread = self.child(ledger, leader, 13, thread=True)
+        ledger.exec_identity(thread, 13, 12)
+        # Parent's original fork result names its original child, even though
+        # the leader was silently retired and its TID now belongs to thread.
+        ledger.finish(leader, 12)
+        ledger.reaped(thread)
+        ledger.reaped(parent)
+        ledger.require_drained()
+
     def child(self, ledger, parent, tid, *, thread=False, kind='clone'):
         birth = ledger.reserve(parent, kind, thread=thread)
         ledger.created(birth, tid)
