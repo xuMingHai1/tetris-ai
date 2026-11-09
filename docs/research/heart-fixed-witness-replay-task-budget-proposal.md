@@ -30,6 +30,25 @@ Java Linux桥接将这些单元测试接入普通Wrapper CI；Windows直接Pytho
 整体最终Review/CI与唯一登记前不运行能力探针、完整network/clean-build或历史输入。
 本组件没有修改生产架构，README/AGENTS无须调整。
 
+### 本次新增修改：ptrace wire边界组件
+
+`scripts/fixed_witness_replay_ptrace.py` 实现延迟加载的Linux x86-64 ctypes
+传输边界。GET_SYSCALL_INFO以真实返回长度和operation解析入口/出口，不用奇偶位；
+拒绝截断、未知operation和错误errno编码。compat/x32信息可被解析，但本组件不
+授予放行例外。GETREGSET/SETREGSET只接受完整216字节原生寄存器布局。
+
+`suppress_clone3`在核对原生入口及寄存器一致后，只将orig_rax改为无效syscall；
+`finish_clone3`必须观察同一停点的真实Linux ENOSYS（38）和对应寄存器，才写入固定
+ENOSYS并消费一次性token。不读取可被并发修改的clone_args，不提供任意errno或
+网络结果改写接口。未来tracer必须先扣账本再调用，并在任何错误后停止并清理。
+
+14项纯合成wire测试注入内核格式及fake ptrace回复，普通Linux Wrapper桥接执行
+这些测试；不会调用native ptrace、启动tracee或执行能力探针。该接口没有attach、
+fork、resume或wait-loop入口，尚未接入TaskLedger，也不证明clone3 fallback可用。
+事件认证/出生绑定、CLONE_UNTRACED与其他创建标志仲裁、线程exec重绑定、EXITKILL、
+报告分区和完整固定fixture/task表继续待实施。原整体Review/CI、唯一登记与执行
+停止门均保留。该test-only组件不改变生产架构，README/AGENTS无须调整。
+
 ## 以下为原 PR 的历史提案
 
 状态：**待审查、待用户明确接受；不是现行契约，不可执行。** 基线 main `24bb1770d77a1f186f5d896d469e828c21d285e4`；实现 Draft [#173](https://github.com/xuMingHai1/tetris-ai/pull/173) head `51c1fddb5ce37ee6ae689d6b27adecb1ba8b252f`。关联 [#91](https://github.com/xuMingHai1/tetris-ai/issues/91)。本文件仅准备一个可批准或否决的具体替代设计，不修改已接受的[网络设计](heart-fixed-witness-replay-network.md)及任何冻结协议。现行16子进程限制继续有效。
