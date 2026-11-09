@@ -1,0 +1,193 @@
+"""Pure accounting for the accepted #174 task policy; NOT a ptrace supervisor.
+
+One tracer thread must own this ledger and arbitrate every creation entry before
+resuming it. No process is created, signalled, inspected or reaped here. Opaque
+birth tickets, rather than reusable Linux TIDs, identify tasks and reservations.
+The future syscall adapter must authenticate events and report actual reaps.
+"""
+from dataclasses import dataclass
+
+
+TASK_ATTEMPTS = 512
+LIVE_TASKS = 128
+WAIT_STOPS = 2_000_000
+CREATIONS = frozenset(('coordinator', 'fork', 'vfork', 'clone', 'clone3'))
+
+
+class TaskAccountingError(ValueError):
+    """A limit or unknown transition latched failure; no new work may start."""
+
+
+@dataclass(frozen=True)
+class TaskTotals:
+    attempts: int
+    live: int
+    pending: int
+    wait_stops: int
+    clone3_enosys: int
+    stopped: str | None
+
+
+@dataclass
+class _Task:
+    tid: int
+    alive: bool = True
+
+
+@dataclass
+class _Attempt:
+    parent: int
+    kind: str
+    child: int | None = None
+    finished: bool = False
+
+
+class TaskLedger:
+    """Serial, nonrefundable accounting with fail-closed state transitions.
+
+    Construction accounts for the dedicated tracer, which the trusted host must
+    have reserved BEFORE launch. Smaller limits are for pure synthetic tests;
+    they are not independent allowances for manual probes. A stopped ledger
+    still accepts matching in-flight events/results and reaps for cleanup, but
+    never a new reservation. Caller must kill/reap the tree on any exception.
+    """
+
+    def __init__(self, tracer_tid, *, attempts=TASK_ATTEMPTS, live=LIVE_TASKS,
+                 wait_stops=WAIT_STOPS):
+        for value, ceiling in ((attempts, TASK_ATTEMPTS), (live, LIVE_TASKS),
+                               (wait_stops, WAIT_STOPS)):
+            if type(value) is not int or not 1 <= value <= ceiling:
+                raise ValueError('positive integer within accepted policy required')
+        if type(tracer_tid) is not int or tracer_tid <= 0:
+            raise ValueError('positive tracer TID required')
+        self._attempt_limit, self._live_limit, self._event_limit = attempts, live, wait_stops
+        self._tasks = {0: _Task(tracer_tid)}
+        self._attempts = {}
+        self._pending = {}
+        self._live = 1
+        self._events = 0
+        self._clone3 = 0
+        self._stopped = None
+
+    @property
+    def totals(self):
+        return TaskTotals(1 + len(self._attempts), self._live, len(self._pending),
+                          self._events, self._clone3, self._stopped)
+
+    def _fail(self, reason):
+        if self._stopped is None:
+            self._stopped = reason
+        raise TaskAccountingError(reason)
+
+    def _running(self):
+        if self._stopped is not None:
+            self._fail('ledger stopped')
+
+    def _task(self, ticket):
+        if type(ticket) is not int or ticket not in self._tasks:
+            self._fail('unknown task birth ticket')
+        return self._tasks[ticket]
+
+    def _attempt(self, ticket):
+        if type(ticket) is not int or ticket not in self._attempts:
+            self._fail('unknown creation reservation')
+        attempt = self._attempts[ticket]
+        if attempt.finished or self._pending.get(attempt.parent) != ticket:
+            self._fail('creation reservation already finished')
+        return attempt
+
+    def reserve(self, parent, kind):
+        """Debit before any creation is resumed, including clone3 denial.
+
+        clone3 debits attempts without reserving live space: the adapter MUST
+        suppress the syscall and return ENOSYS, then call finish(ticket, None).
+        All other kinds reserve live space until failure or a confirmed reap.
+        Only the initial coordinator may be created directly by the tracer.
+        """
+        self._running()
+        task = self._task(parent)
+        if not task.alive or parent in self._pending:
+            self._fail('dead parent or unresolved creation')
+        if type(kind) is not str or kind not in CREATIONS:
+            self._fail('unknown creation kind')
+        if (parent == 0) != (kind == 'coordinator') or (parent == 0 and self._attempts):
+            self._fail('only one trusted coordinator fork allowed')
+        if 1 + len(self._attempts) >= self._attempt_limit:
+            self._fail('task attempt limit')
+        # An observed creation attempt is never refunded, even at the live cap.
+        ticket = 1 + len(self._attempts)
+        self._attempts[ticket] = _Attempt(parent, kind)
+        if kind != 'clone3' and self._live >= self._live_limit:
+            self._attempts[ticket].finished = True
+            self._fail('live task limit')
+        self._pending[parent] = ticket
+        if kind == 'clone3':
+            self._clone3 += 1
+        else:
+            self._live += 1
+        return ticket
+
+    def created(self, reservation, tid):
+        """Associate one authenticated fork event, without another debit.
+
+        For the coordinator, the adapter supplies the reserved fork's returned
+        TID after its stop handshake. Other TIDs must come from ptrace events.
+        A child may run/reap before the parent's syscall result (notably vfork).
+        """
+        attempt = self._attempt(reservation)
+        if attempt.kind == 'clone3' or attempt.child is not None:
+            self._fail('unexpected or duplicate creation event')
+        if type(tid) is not int or tid <= 0 or any(
+                task.alive and task.tid == tid for task in self._tasks.values()):
+            self._fail('invalid or already live child TID')
+        attempt.child = reservation
+        self._tasks[reservation] = _Task(tid)
+        return reservation
+
+    def finish(self, reservation, child_tid):
+        """Resolve a creation result; None means authenticated failure/ENOSYS.
+
+        A successful result requires its event, even if the child has reaped.
+        Kernel failure returns a live reservation but never an attempt slot.
+        The adapter must verify the actual errno, including clone3 ENOSYS.
+        """
+        attempt = self._attempt(reservation)
+        if child_tid is None:
+            if attempt.child is not None:
+                self._fail('kernel failure after child event')
+            if attempt.kind != 'clone3':
+                self._live -= 1
+        elif (type(child_tid) is not int or attempt.child is None
+              or self._tasks[attempt.child].tid != child_tid):
+            self._fail('success without matching child event')
+        attempt.finished = True
+        del self._pending[attempt.parent]
+
+    def reaped(self, task_ticket):
+        """Release live credit only after the adapter observed a terminal reap."""
+        task = self._task(task_ticket)
+        if task_ticket == 0 or not task.alive:
+            self._fail('invalid or duplicate reap')
+        if task_ticket in self._pending:
+            # Terminal parent reap closes a syscall killed before its result.
+            # An event-bound child owns its own slot, even after parent death.
+            attempt = self._attempts[self._pending.pop(task_ticket)]
+            if attempt.child is None and attempt.kind != 'clone3':
+                self._live -= 1
+            attempt.finished = True
+        task.alive = False
+        self._live -= 1
+
+    def wait_stop(self):
+        """Count every wait-stop; reaching the frozen ceiling latches failure."""
+        if self._events < self._event_limit:
+            self._events += 1
+        if self._events >= self._event_limit:
+            self._fail('wait-stop limit')
+        self._running()
+
+    def require_drained(self):
+        """Check bookkeeping only; never a capability or COMPLETE certificate."""
+        if self._pending or self._live != 1:
+            self._fail('unreaped tasks or pending creations')
+        self._running()

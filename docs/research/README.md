@@ -147,6 +147,10 @@ HOME/TMP/target 外部写入及源码资源的实际字节下限；2026-11-09用
 prepare现将构建HOME/TMP与证据目录分离并记录分类，证据仍共用10MiB，构建无磁盘硬上限。
 任务预算监督、诊断写隔离和完整验收仍待完成，不提供历史诊断许可。
 
+[#174累计任务政策](heart-fixed-witness-replay-task-budget-proposal.md)亦于2026-11-09
+获用户明确接受；首个纯账本组件覆盖512尝试/128live/2M事件、pending与reap计费。
+synthetic序列测试不证明ptrace创建前强制；真实syscall/ABI接线及整体验收仍待完成。
+
 [实际进程观测组件](heart-fixed-witness-replay-observation.md)读取Linux实际argv/环境/executable/cwd与
 进程身份，人工子进程验证拒绝漂移；尚无JVM握手、loaded-class/网络证明或历史22步执行许可。
 
