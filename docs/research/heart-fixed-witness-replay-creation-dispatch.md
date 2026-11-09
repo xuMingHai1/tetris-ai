@@ -20,7 +20,7 @@ vfork 子可在父结果之前 reap。终态 reap 清除该 birth 的独占 wire
 
 ## 验证与限制
 
-13 项合成测试调用生产 PtraceAccess 的真实 wire 编解码和生命周期，注入 fake ptrace，
+15 项合成测试调用生产 PtraceAccess 的真实 wire 编解码和生命周期，注入 fake ptrace，
 覆盖计费与 register 干预顺序、耗尽拒绝、错误锁存、事件/结果错配、vfork、
 出生身份错误、native ABI 拒绝和带未完成 token 的 TID 复用。
 FixedWitnessCreationDispatchTest 将它们接入普通 Linux Wrapper CI。

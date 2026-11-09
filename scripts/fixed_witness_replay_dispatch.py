@@ -44,8 +44,14 @@ class CreationSyscallDispatcher:
                 or type(tid) is not int or not 0 < tid < 2**31
                 or any(item[0] == tid for item in self._tasks.values())):
             self._fail('invalid or duplicate birth binding')
-        access = self._factory()
-        if any(item[1] is access for item in self._tasks.values()):
+        # The child already exists in the ledger. Preserve its authenticated
+        # identity BEFORE fallible wire initialization so cleanup can reap it.
+        self._tasks[ticket] = (tid, None)
+        try:
+            access = self._factory()
+        except (PtraceBoundaryError, OSError) as error:
+            self._fail(str(error))
+        if access is None or any(item[1] is access for item in self._tasks.values()):
             self._fail('wire access must be exclusive to one birth')
         self._tasks[ticket] = (tid, access)
 

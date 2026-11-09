@@ -29,6 +29,32 @@ class CreationDispatchTest(unittest.TestCase):
             entry(number, arch) if result is None else exit_info(result, error, arch))
         return self.dispatch.syscall_stop(ticket, tid)
 
+    def test_wire_factory_failure_preserves_child_for_cleanup(self):
+        for error in (p.PtraceBoundaryError('unavailable'), OSError('load failed')):
+            self.setup_dispatch()
+            self.stop()
+            def broken_factory():
+                raise error
+            self.dispatch._factory = broken_factory
+            with self.assertRaises(CreationDispatchError):
+                self.dispatch.child_event(1, 11, 'FORK', 12)
+            self.assertIsNotNone(self.dispatch.stopped)
+            self.dispatch.reaped(2, 12)
+            self.dispatch.reaped(1, 11)
+            self.assertEqual((1, 0), (self.ledger.totals.live, self.ledger.totals.pending))
+            with self.assertRaises(CreationDispatchError):
+                self.dispatch.require_drained()
+
+    def test_reused_wire_preserves_child_for_cleanup(self):
+        self.setup_dispatch()
+        self.stop()
+        self.dispatch._factory = lambda: self.accesses[0]
+        with self.assertRaisesRegex(CreationDispatchError, 'exclusive'):
+            self.dispatch.child_event(1, 11, 'FORK', 12)
+        self.dispatch.reaped(2, 12)
+        self.dispatch.reaped(1, 11)
+        self.assertEqual((1, 0), (self.ledger.totals.live, self.ledger.totals.pending))
+
     def test_fork_binds_event_and_result_then_drains(self):
         parent = self.setup_dispatch()
         self.stop()
