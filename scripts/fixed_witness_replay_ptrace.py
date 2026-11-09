@@ -94,11 +94,13 @@ class _Iovec(ctypes.Structure):
 
 @dataclass(frozen=True)
 class SignalInfo:
-    """Linux siginfo header only; not a signal-delivery/resume decision."""
+    """Header plus sender for SI_USER/SI_TKILL; never a resume decision."""
 
     signal: int
     error: int
     code: int
+    sender_pid: int | None = None
+    sender_uid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -173,7 +175,8 @@ class PtraceAccess:
 
         EINVAL (including a group stop) fails closed; callers must not infer a
         delivery stop from it. si_code stays signed for dispatcher policy.
-        No siginfo union/pointer or arbitrary payload is exposed.
+        Only SI_USER/SI_TKILL expose the native sender union at offset 16.
+        Other codes have different unions and must not be read as sender IDs.
         """
         require(type(expected_signal) is int and 1 <= expected_signal <= 64,
                 'invalid expected signal')
@@ -182,6 +185,9 @@ class PtraceAccess:
                 'unexpected siginfo response')
         signal, error, code = struct.unpack_from('<iii', buffer.raw)
         require(signal == expected_signal, 'wait/siginfo signal mismatch')
+        if code in (0, -6):  # SI_USER / SI_TKILL, Linux ABI constants.
+            sender_pid, sender_uid = struct.unpack_from('<iI', buffer.raw, 16)
+            return SignalInfo(signal, error, code, sender_pid, sender_uid)
         return SignalInfo(signal, error, code)
 
     def resume_syscall(self, tid, signal=0):
