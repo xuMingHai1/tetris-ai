@@ -34,7 +34,7 @@ fail closed。newborn 的 terminal reap 可以结算，但不能在首次 stop �
 原 #206 的 13 项 synthetic 回归覆盖单次 syscall read/debit/resume、实际 wire clone3
 仲裁、child 登记顺序、未知身份与 deadline、wait cap、newborn 拒绝/结算、
 signal/EXEC 拒绝、managed ptrace 拒绝和 resume 失败锁存。Linux Wrapper
-bridge 已随下述增量要求 22 项全部通过、无 skip；Windows bridge skip 不作 Linux 证明。
+bridge 已随下述增量要求 23 项全部通过、无 skip；Windows bridge skip 不作 Linux 证明。
 
 ## 本次新增修改：已绑定 newborn 的首次停止
 
@@ -59,8 +59,8 @@ wait-stop 仍先计费。认证后显式调用 `newborn_signal_stop`，一次性
   清除 child 的 SYSCALL_TRACE；[ret_from_fork](https://github.com/torvalds/linux/blob/v6.17/arch/x86/kernel/process.c#L141-L157)
   进入 [syscall_exit_to_user_mode_work](https://github.com/torvalds/linux/blob/v6.17/include/linux/entry-common.h#L153-L175)，
   先做 syscall exit work，再处理 SIGSTOP；恢复后不会再报告该 creation exit。
-  本次独立 Review 发现并修正原 synthetic 零出口假设，coordinator 自发停止的
-  单次零出口例外不变。该修正额外涉及 CreationSyscallDispatcher 及其回归/bridge/说明，
+  #207 独立 Review 发现并修正 newborn synthetic 零出口假设；原保留的 coordinator
+  单次零出口假设已由本次增量修正（见下节）。该修正额外涉及 CreationSyscallDispatcher 及其回归/bridge/说明，
   因为不修正会将已合法接纳的 child 首次 entry 拒绝。
 
 任何其他 siginfo、group-stop EINVAL、重复初始 SIGSTOP、提前 syscall/event、
@@ -75,3 +75,13 @@ wait-stop 仍先计费。认证后显式调用 `newborn_signal_stop`，一次性
 整体最终 Review/CI、兼容性/inputhash 和唯一登记仍先于真实执行。
 #140 BOUNDED_MISS、GoalWindow、#95/#96、reserved/provider/runtime/default
 停止门不变。生产架构/依赖/运行方式不变，README/AGENTS 无需同步。
+
+## 本次新增修改：协调器首次 ENTRY
+
+移除组合回归中的 `handshake_exit()`：初始可信 SIGSTOP 恢复后直接消费真实
+GET_SYSCALL_INFO ENTRY；首次合法 ENTRY/EXIT 各恢复一次，共计三个 wait-stop
+（含初始握手）。clone3 首次 ENTRY 仍先计 attempts/live，再执行固定 ENOSYS 干预。
+新增无入口 EXIT（含成功零）拒绝回归，确认错误锁存、wait 计费、live 保留且无 resume；
+原 deadline-after-policy 与不确定 resume 回归改用合法 ENTRY，确保确实到达对应分支。
+源码与边界见[握手修订说明](heart-fixed-witness-replay-coordinator-handshake.md#本次新增修改首次-syscall-必须是-entry)。
+所有未知身份、普通信号、EXEC/TID 迁移、child-before-parent-event 的限制保持。

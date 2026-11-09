@@ -39,7 +39,8 @@ class CoordinatorHandshakeTest(unittest.TestCase):
             self.assertEqual(1, self.ledger.totals.wait_stops)
             return SignalInfo(19, 0, -6, 11, 1000)
         def options(tid):
-            self.assertEqual('coordinator-handshake', self.dispatch._sequence[self.ticket])
+            self.assertIsNone(self.dispatch._sequence[self.ticket])
+            self.assertFalse(self.dispatch._handshake_available)
         self.access.signal_info.side_effect = read
         self.access.set_options.side_effect = options
         self.accept()
@@ -159,10 +160,13 @@ class CoordinatorHandshakeTest(unittest.TestCase):
         self.assertEqual([(0x4202, 11, 0, None), (0x4200, 11, 0, 0x10001f),
                           (24, 11, 0, 0)], requests)
 
-    def test_handshake_arms_only_one_initial_zero_exit(self):
+    def test_handshake_expects_first_entry_then_matching_exit(self):
         self.accept()
+        self.access.syscall_info.return_value = SyscallInfo(1, 0xc000003e, 10, 20,
+                                                         number=39, arguments=(0,) * 6)
+        self.dispatch.syscall_stop(self.ticket, 11)
         self.access.syscall_info.return_value = SyscallInfo(2, 0xc000003e, 10, 20,
-                                                         result=0, is_error=False)
+                                                         result=11, is_error=False)
         self.dispatch.syscall_stop(self.ticket, 11)
         self.assertIsNone(self.dispatch._sequence[self.ticket])
         from fixed_witness_replay_dispatch import CreationDispatchError

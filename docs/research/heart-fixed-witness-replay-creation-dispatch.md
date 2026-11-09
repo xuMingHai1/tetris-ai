@@ -32,9 +32,9 @@ coordinator 可信准入、线程 exec/TID 重绑定、TRACEME/options/EXITKILL�
 本次新增修改：native 创建及非创建 syscall 均保存内核已报告的入口状态，
 拒绝重复入口和无入口出口，不靠奇偶位推断 operation。coordinator 通常从入口开始；
 外层认证 TRACEME/SIGSTOP 握手后，必须在任何 syscall 处理前显式调用
-coordinator_signal_stop，准入发送该信号的 syscall 的一次性成功零出口。
+coordinator_signal_stop，记录一次性初始握手准入，随后等待首次 syscall entry。
 该方法不认证信号、不安装 options、不恢复任务；错误或重复调用锁存失败，
-不能在普通信号停点重启例外，也不能用于子 birth。
+不能在普通信号停点重复准入，也不能用于子 birth。
 原 #201 synthetic 曾要求新生 birth 的成功零创建出口；本次接纳集成已依据 Linux
 源码修正，见下节。旧测试通过不证明该时序正确。
 退出或被杀时允许直接 reap，包括未完成的 syscall；它只清理状态，不伪造成功出口。
@@ -75,4 +75,17 @@ clean-build 验收或历史输入执行。整体 wait/resume、newborn/exec 认�
 选项/恢复仍由外层负责，方法成功不是恢复许可。原因与 Linux v6.17 源码链接见
 [停点组合说明](heart-fixed-witness-replay-stop-dispatch.md#本次新增修改已绑定-newborn-的首次停止)。
 本次替换旧 zero-exit 测试并补充一次性/身份回归，suite 共 35 项，Linux bridge 同步。
-coordinator 的自发停止例外不变，所有既有预算及整体执行门保持。
+原 #207 保留的 coordinator 自发停止零出口假设已在下述增量修正；既有预算及整体执行门保持。
+
+## 本次新增修改：coordinator 自发停止后也等待 entry
+
+`coordinator_signal_stop` 不再建立 `coordinator-handshake` 零出口例外。
+可信初始 self-SIGSTOP 经外层认证后，仍只允许一次准入；之后接受首次 native
+ENTRY，并要求相应 EXIT。任何没有入口的 EXIT（包括成功零返回）都锁存失败，
+不仲裁创建、不写寄存器、不恢复；terminal reap 清理路径保持。
+
+源码链与限制见[协调器握手说明](heart-fixed-witness-replay-coordinator-handshake.md#本次新增修改首次-syscall-必须是-entry)。
+本次修复原 #201/#202 synthetic 时序假设，不能把这些历史测试通过当作实际能力证明。
+同步创建调度 35 项、握手 13 项与停点组合 23 项合成测试及 Linux bridge 计数；
+移除组合测试的虚构 `handshake_exit()` 前置，deadline/uncertain-resume 测试以合法
+首次 ENTRY 到达各自失败分支。生产游戏及预算、原整体执行门不变。
