@@ -83,6 +83,20 @@ class CreationSyscallDispatcher:
         self._handshake_available = False
         self._sequence[ticket] = 'coordinator-handshake'
 
+    def stop_binding(self, tid):
+        """Resolve a live numeric wait identity to its birth-exclusive wire.
+
+        The outer owner must charge the wait before calling this method and
+        must not resume between lookup, fact collection and policy dispatch.
+        This lookup supplies no newborn admission or exec migration policy.
+        """
+        self._running()
+        if type(tid) is int:
+            for ticket, (bound_tid, access) in self._tasks.items():
+                if tid == bound_tid and access is not None:
+                    return ticket, access
+        self._fail('unknown waited birth binding')
+
     def syscall_stop(self, ticket, tid):
         """Read the actual kernel operation; reserve before clone3 intervention.
 
