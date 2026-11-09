@@ -61,7 +61,7 @@ class StopReader:
                     self._fail('syscall stop lacks entry/exit information')
                 return StopFacts(tid, status, syscall=info)
             if status.kind == 'ptrace-event':
-                return StopFacts(tid, status, event_tid=access.event_message(tid))
+                return StopFacts(tid, status, event_tid=access.event_tid(tid))
             if status.kind == 'signal-stop':
                 return StopFacts(tid, status,
                                  signal_info=access.signal_info(tid, status.signal))

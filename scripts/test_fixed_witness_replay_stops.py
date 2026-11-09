@@ -1,8 +1,9 @@
 """Synthetic wait/ptrace inputs only; no task creation or capability probe."""
+import ctypes
 import unittest
 from unittest.mock import Mock
 
-from fixed_witness_replay_ptrace import PtraceBoundaryError, SignalInfo, SyscallInfo
+from fixed_witness_replay_ptrace import GETEVENTMSG, PtraceAccess, PtraceBoundaryError, SignalInfo, SyscallInfo
 from fixed_witness_replay_stops import StopReadError, StopReader
 from fixed_witness_replay_tasks import TaskLedger
 
@@ -11,7 +12,7 @@ class StopReaderTest(unittest.TestCase):
     def setUp(self):
         self.ledger = TaskLedger(99)
         self.reader = StopReader(self.ledger)
-        self.access = Mock()
+        self.access = Mock(spec=PtraceAccess)
 
     def read(self, word, tid=11):
         return self.reader.read(tid, word, self.access)
@@ -39,7 +40,7 @@ class StopReaderTest(unittest.TestCase):
 
     def test_event_messages_are_not_new_task_reservations(self):
         for event, name in ((1, 'FORK'), (2, 'VFORK'), (3, 'CLONE'), (4, 'EXEC')):
-            self.access.event_message.return_value = 12
+            self.access.event_tid.return_value = 12
             facts = self.read(event << 16 | 0x057f)
             self.assertEqual((name, 12), (facts.status.event, facts.event_tid))
         self.assertEqual((1, 1, 4), (self.ledger.totals.attempts,
@@ -51,6 +52,18 @@ class StopReaderTest(unittest.TestCase):
         self.assertIs(info, self.read(0x137f).signal_info)
         self.access.signal_info.assert_called_once_with(11, 19)
         self.access.resume_syscall.assert_not_called()
+
+    def test_event_uses_real_ptrace_wire(self):
+        calls = []
+        def request(operation, tid, address, data):
+            self.assertEqual(1, self.ledger.totals.wait_stops)
+            calls.append((operation, tid, address))
+            ctypes.cast(data, ctypes.POINTER(ctypes.c_uint64))[0] = 12
+            return 0
+        access = PtraceAccess(request)
+        facts = self.reader.read(11, 0x1057f, access)
+        self.assertEqual(12, facts.event_tid)
+        self.assertEqual([(GETEVENTMSG, 11, 0)], calls)
 
     def test_terminal_results_do_not_release_live_credit(self):
         reservation = self.ledger.reserve(0, 'coordinator')
