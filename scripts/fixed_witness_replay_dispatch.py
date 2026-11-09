@@ -68,11 +68,11 @@ class CreationSyscallDispatcher:
         return self._tasks[ticket][1]
 
     def coordinator_signal_stop(self, ticket, tid):
-        """Arm one initial exit ONLY after the caller authenticates SIGSTOP.
+        """Admit the trusted initial SIGSTOP, then expect the first entry.
 
-        TRACEME's trusted coordinator may stop in kill/tgkill before syscall
-        tracing starts. Its entry was never observed; SYSCALL resume can first
-        report that signal-sending syscall's successful zero exit. This method
+        The trusted self-kill stop is processed after syscall exit work. Setting
+        SYSCALL tracing at this signal stop cannot replay that completed exit;
+        the next syscall stop must be an entry. This method
         does not authenticate the signal, install options or permit resume.
         Never call it for an arbitrary delivery stop or after syscall handling.
         """
@@ -81,7 +81,7 @@ class CreationSyscallDispatcher:
         if ticket != self._coordinator or not self._handshake_available:
             self._fail('coordinator initial handshake unavailable')
         self._handshake_available = False
-        self._sequence[ticket] = 'coordinator-handshake'
+        self._sequence[ticket] = None
 
     def stop_binding(self, tid):
         """Resolve a live numeric wait identity to its birth-exclusive wire.
@@ -165,11 +165,6 @@ class CreationSyscallDispatcher:
                 return obligation
             if previous is None:
                 self._fail('syscall exit without entry')
-            if previous == 'coordinator-handshake':
-                if info.is_error or info.result != 0:
-                    self._fail('initial syscall return must be successful zero')
-                self._sequence[ticket] = None
-                return None
             if ticket in self._pending:
                 token = self._pending[ticket]
                 if token is not None:

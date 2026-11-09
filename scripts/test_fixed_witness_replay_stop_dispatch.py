@@ -28,20 +28,28 @@ class PostHandshakeDispatchTest(unittest.TestCase):
         self.wire.syscall_info.return_value = decode_syscall_info(*raw)
         return self.owner.accept(11, 0x857f)
 
-    def handshake_exit(self):
-        self.syscall(exit_info(0, 0))
-        self.wire.reset_mock()
-
-    def test_handshake_exit_then_native_entry_exit_resume_once_each(self):
-        self.handshake_exit()
+    def test_handshake_then_first_native_entry_exit_resume_once_each(self):
         self.syscall(entry(39))
         self.syscall(exit_info(11, 0))
         self.assertEqual(2, self.wire.syscall_info.call_count)
         self.assertEqual([((11, 0),), ((11, 0),)], self.wire.resume_syscall.call_args_list)
-        self.assertEqual(4, self.ledger.totals.wait_stops)
+        self.assertEqual(3, self.ledger.totals.wait_stops)
+
+    def test_coordinator_unpaired_first_exit_never_resumes(self):
+        for result, error in ((0, 0), (11, 0), (-38, 1)):
+            self.setUp()
+            with self.assertRaisesRegex(ValueError, 'without entry'):
+                self.syscall(exit_info(result, error))
+            self.wire.resume_syscall.assert_not_called()
+            self.assertEqual((2, 2, 2), (self.ledger.totals.attempts,
+                                       self.ledger.totals.live,
+                                       self.ledger.totals.wait_stops))
+            self.wire.reset_mock()
+            with self.assertRaises(StopDispatchError):
+                self.syscall(entry(39))
+            self.assertEqual([], self.wire.mock_calls)
 
     def test_actual_wire_clone3_single_read_and_debit_before_write(self):
-        self.handshake_exit()
         kernel = KernelFixture()
         wire = PtraceAccess(kernel)
         resume = Mock()
@@ -59,11 +67,10 @@ class PostHandshakeDispatchTest(unittest.TestCase):
         self.owner.accept(11, 0x857f)
         self.assertEqual(2, sum(r[0] == 0x420e for r in kernel.requests))
         self.assertEqual(2, resume.call_count)
-        self.assertEqual((3, 2, 4), (self.ledger.totals.attempts,
+        self.assertEqual((3, 2, 3), (self.ledger.totals.attempts,
                                    self.ledger.totals.live, self.ledger.totals.wait_stops))
 
     def test_fork_event_uses_same_wire_and_preserves_child_before_resume(self):
-        self.handshake_exit()
         self.syscall(entry(57))
         self.wire.reset_mock()
         self.wire.event_tid.return_value = 12
@@ -79,7 +86,6 @@ class PostHandshakeDispatchTest(unittest.TestCase):
         self.wire.resume_syscall.assert_called_once_with(11, 0)
 
     def child(self):
-        self.handshake_exit()
         self.syscall(entry(57))
         self.wire.event_tid.return_value = 12
         self.owner.accept(11, 0x1057f)
@@ -236,7 +242,7 @@ class PostHandshakeDispatchTest(unittest.TestCase):
     def test_deadline_after_policy_prevents_resume(self):
         self.clock.side_effect = (90.0, 100.0)
         with self.assertRaises(ValueError):
-            self.syscall(exit_info(0, 0))
+            self.syscall(entry(39))
         self.wire.syscall_info.assert_called_once_with(11)
         self.wire.resume_syscall.assert_not_called()
 
@@ -257,7 +263,6 @@ class PostHandshakeDispatchTest(unittest.TestCase):
             self.wire.resume_syscall.assert_not_called()
 
     def test_managed_ptrace_entry_rejected_before_resume(self):
-        self.handshake_exit()
         with self.assertRaisesRegex(ValueError, 'ptrace'):
             self.syscall(entry(101))
         self.wire.resume_syscall.assert_not_called()
@@ -265,7 +270,7 @@ class PostHandshakeDispatchTest(unittest.TestCase):
     def test_resume_failure_latches_no_retry_but_next_stop_still_debits(self):
         self.wire.resume_syscall.side_effect = OSError('uncertain resume')
         with self.assertRaises(OSError):
-            self.syscall(exit_info(0, 0))
+            self.syscall(entry(39))
         self.wire.reset_mock()
         with self.assertRaises(StopDispatchError):
             self.owner.accept(11, 0x857f)
