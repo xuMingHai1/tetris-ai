@@ -1,10 +1,87 @@
 """Synthetic event sequences only: no fork/ptrace, JVM or historical inputs."""
 import unittest
+from dataclasses import FrozenInstanceError
 
 from fixed_witness_replay_tasks import TaskAccountingError, TaskLedger
 
 
 class TaskLedgerTest(unittest.TestCase):
+    def child(self, ledger, parent, tid, *, thread=False, kind='clone'):
+        birth = ledger.reserve(parent, kind, thread=thread)
+        ledger.created(birth, tid)
+        ledger.finish(birth, tid)
+        return birth
+
+    def test_thread_of_thread_keeps_original_group_birth(self):
+        ledger, leader = self.coordinator()
+        first = self.child(ledger, leader, 12, thread=True)
+        second = self.child(ledger, first, 13, thread=True)
+        for birth, tid in ((leader, 11), (first, 12), (second, 13)):
+            identity = ledger.identity(birth)
+            self.assertEqual((birth, tid, leader, 11, True),
+                             (identity.birth, identity.tid, identity.group_birth,
+                              identity.tgid, identity.alive))
+        self.assertEqual((4, 4), (ledger.totals.attempts, ledger.totals.live))
+
+    def test_process_from_thread_starts_its_own_group(self):
+        for kind in ('fork', 'vfork', 'clone'):
+            with self.subTest(kind=kind):
+                ledger, leader = self.coordinator()
+                thread = self.child(ledger, leader, 12, thread=True)
+                process = self.child(ledger, thread, 13, kind=kind)
+                identity = ledger.identity(process)
+                self.assertEqual((process, 13), (identity.group_birth, identity.tgid))
+
+    def test_reaped_leader_retains_group_and_each_thread_live_credit(self):
+        ledger, leader = self.coordinator()
+        thread = self.child(ledger, leader, 12, thread=True)
+        snapshot = ledger.identity(leader)
+        ledger.reaped(leader)
+        self.assertTrue(snapshot.alive)
+        self.assertFalse(ledger.identity(leader).alive)
+        self.assertEqual(2, ledger.totals.live)
+        descendant = self.child(ledger, thread, 13, thread=True)
+        self.assertEqual((leader, 11), (ledger.identity(descendant).group_birth,
+                                      ledger.identity(descendant).tgid))
+        with self.assertRaises(FrozenInstanceError):
+            snapshot.tid = 99
+        ledger.reaped(thread)
+        ledger.reaped(descendant)
+        ledger.require_drained()
+
+    def test_reused_group_tid_cannot_replace_old_group_birth(self):
+        ledger, parent = self.coordinator()
+        old = self.child(ledger, parent, 12, kind='fork')
+        ledger.reaped(old)
+        new = self.child(ledger, parent, 12, kind='fork')
+        thread = self.child(ledger, new, 13, thread=True)
+        self.assertNotEqual(old, ledger.identity(thread).group_birth)
+        self.assertEqual(new, ledger.identity(thread).group_birth)
+        self.assertFalse(ledger.identity(old).alive)
+        self.assertTrue(ledger.identity(new).alive)
+
+    def test_thread_group_does_not_collapse_live_budget_or_refund_attempts(self):
+        ledger, leader = self.coordinator(live=3)
+        thread = self.child(ledger, leader, 12, thread=True)
+        with self.assertRaisesRegex(TaskAccountingError, 'live task limit'):
+            ledger.reserve(thread, 'clone', thread=True)
+        self.assertEqual((4, 3), (ledger.totals.attempts, ledger.totals.live))
+        # Snapshots remain usable for cleanup after a latched budget failure.
+        self.assertEqual(leader, ledger.identity(thread).group_birth)
+        ledger.reaped(leader)
+        ledger.reaped(thread)
+        self.assertEqual(1, ledger.totals.live)
+
+    def test_thread_marker_requires_exact_boolean_and_clone(self):
+        for kind, marker in (('fork', True), ('vfork', True), ('clone3', True),
+                             ('clone', 1), ('clone', None)):
+            with self.subTest(kind=kind, marker=marker):
+                ledger, parent = self.coordinator()
+                with self.assertRaisesRegex(TaskAccountingError, 'thread relation'):
+                    ledger.reserve(parent, kind, thread=marker)
+                self.assertEqual((2, 2, 0), (ledger.totals.attempts, ledger.totals.live,
+                                           ledger.totals.pending))
+
     def coordinator(self, **limits):
         ledger = TaskLedger(10, **limits)
         ticket = ledger.reserve(0, 'coordinator')
