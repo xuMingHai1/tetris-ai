@@ -2,6 +2,10 @@
 
 ## 本次新增修改：明确接受与分阶段实施（2026-11-09）
 
+本次新增控制传输见 [ptrace 控制接口](heart-fixed-witness-replay-ptrace-control.md)：
+固定 options、event-message、siginfo 与 syscall-resume 的 wire 方法及模拟测试。
+它们尚未接入认证 dispatcher；不能据此宣称创建前强制、EXITKILL 或整套验收通过。
+
 用户在 Codex「查看开发进度」会话 `01a1bdd5-5d02-7580-95b4-42302a6fa60a`、
 消息 `01a1be5a-b3ca-7302-a36e-cb291b66b584` 对 #174 明确答复「接受该具体修订」。
 本文件的累计512次task创建尝试（包括线程及失败不退款）、live128、2,000,000次
