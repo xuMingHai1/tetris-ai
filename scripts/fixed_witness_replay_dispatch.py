@@ -28,6 +28,8 @@ class CreationSyscallDispatcher:
         self._tasks = {}
         self._pending = {}
         self._sequence = {}
+        self._coordinator = coordinator_ticket
+        self._handshake_available = True
         self.stopped = None
         self._bind(coordinator_ticket, coordinator_tid)
 
@@ -65,6 +67,22 @@ class CreationSyscallDispatcher:
             self._fail('unknown or mismatched birth binding')
         return self._tasks[ticket][1]
 
+    def coordinator_signal_stop(self, ticket, tid):
+        """Arm one initial exit ONLY after the caller authenticates SIGSTOP.
+
+        TRACEME's trusted coordinator may stop in kill/tgkill before syscall
+        tracing starts. Its entry was never observed; SYSCALL resume can first
+        report that signal-sending syscall's successful zero exit. This method
+        does not authenticate the signal, install options or permit resume.
+        Never call it for an arbitrary delivery stop or after syscall handling.
+        """
+        self._running()
+        self._task(ticket, tid)
+        if ticket != self._coordinator or not self._handshake_available:
+            self._fail('coordinator initial handshake unavailable')
+        self._handshake_available = False
+        self._sequence[ticket] = 'coordinator-handshake'
+
     def syscall_stop(self, ticket, tid):
         """Read the actual kernel operation; reserve before clone3 intervention.
 
@@ -75,6 +93,8 @@ class CreationSyscallDispatcher:
         """
         self._running()
         access = self._task(ticket, tid)
+        if ticket == self._coordinator:
+            self._handshake_available = False
         try:
             info = access.syscall_info(tid)
             if info.operation not in (1, 2):
@@ -98,9 +118,9 @@ class CreationSyscallDispatcher:
                 return obligation
             if previous is None:
                 self._fail('syscall exit without entry')
-            if previous == 'newborn':
+            if previous in ('newborn', 'coordinator-handshake'):
                 if info.is_error or info.result != 0:
-                    self._fail('newborn creation return must be successful zero')
+                    self._fail('initial syscall return must be successful zero')
                 self._sequence[ticket] = None
                 return None
             if ticket in self._pending:

@@ -243,6 +243,43 @@ class CreationDispatchTest(unittest.TestCase):
         self.assertEqual(2, self.ledger.totals.attempts)
         self.assertEqual([p.GET_SYSCALL_INFO], [r[0] for r in self.kernel.requests])
 
+    def test_authenticated_coordinator_handshake_accepts_one_initial_exit(self):
+        self.setup_dispatch()
+        self.dispatch.coordinator_signal_stop(1, 11)
+        self.stop(result=0)
+        self.stop(number=39)
+        self.stop(result=11)
+        self.assertEqual(2, self.ledger.totals.attempts)
+        with self.assertRaisesRegex(CreationDispatchError, 'without entry'):
+            self.stop(result=0)
+
+    def test_coordinator_handshake_cannot_be_rearmed_or_delayed(self):
+        for after_entry in (False, True):
+            self.setup_dispatch()
+            if after_entry:
+                self.stop(number=39)
+            else:
+                self.dispatch.coordinator_signal_stop(1, 11)
+            with self.assertRaisesRegex(CreationDispatchError, 'handshake unavailable'):
+                self.dispatch.coordinator_signal_stop(1, 11)
+
+    def test_coordinator_handshake_requires_successful_zero_exit(self):
+        for result, error in ((11, 0), (-38, 1)):
+            self.setup_dispatch()
+            self.dispatch.coordinator_signal_stop(1, 11)
+            with self.assertRaisesRegex(CreationDispatchError, 'successful zero'):
+                self.stop(result=result, error=error)
+            self.dispatch.reaped(1, 11)
+        self.setup_dispatch()
+        self.dispatch.coordinator_signal_stop(1, 11)
+        with self.assertRaisesRegex(CreationDispatchError, 'before prior syscall result'):
+            self.stop(number=39)
+
+    def test_child_cannot_use_coordinator_handshake_exception(self):
+        child = self.newborn()
+        with self.assertRaisesRegex(CreationDispatchError, 'handshake unavailable'):
+            self.dispatch.coordinator_signal_stop(child, 12)
+
 
 if __name__ == '__main__':
     unittest.main()
