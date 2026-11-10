@@ -4,6 +4,7 @@ Unknown newborn stops remain unconsumed in the kernel until the parent's
 creation event binds their birth. Never wait(-1), guess a birth or stage a raw
 unknown stop. Native scheduling still requires the host's original watchdog.
 """
+import errno
 import os
 import time
 
@@ -28,7 +29,7 @@ class BoundedWaitOwner:
     the accepted live cap per round. Sleep is at most 10ms and the remaining
     original deadline, never a new timeout. Errors retain cleanup identities.
 
-    This partial loop deliberately stops on EXEC/ordinary signals. Drained
+    EXEC rekeys the next inventory; ordinary signals still stop. Drained
     bookkeeping is NOT a capability, whole-tree cleanup or COMPLETE receipt.
     """
 
@@ -73,6 +74,14 @@ class BoundedWaitOwner:
             except InterruptedError:
                 # EINTR is not a stop and creates no new allowance. Move on to
                 # the next birth; the original deadline is checked each time.
+                continue
+            except ChildProcessError as error:
+                # de_thread exchanges TIDs and silently retires the old leader.
+                # An old nonleader target can disappear BEFORE its TGID's EXEC
+                # stop is consumed. Never treat ECHILD as reap or migration.
+                if (error.errno != errno.ECHILD
+                        or not self.launch.dispatcher.awaiting_exec_migration(ticket, tid)):
+                    raise
                 continue
             if type(result) is not tuple or len(result) != 2:
                 raise WaitOwnerError('malformed wait result')

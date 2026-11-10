@@ -153,13 +153,15 @@ synthetic序列测试不证明ptrace创建前强制；真实syscall/ABI接线及
 
 [出生身份与线程组元数据](heart-fixed-witness-replay-thread-groups.md)在创建入口固定
 CLONE_THREAD 关系，区分组 birth 与数值 TGID，保留逐线程计费和 leader reap 后历史。
-这是 exec 身份迁移的前置模型；EXEC 仍失败关闭，不能据此运行原生验收或历史回放。
+这是 exec 身份迁移的前置模型；它本身不能授权原生验收或历史回放。
 
 [EXEC 身份账本迁移](heart-fixed-witness-replay-exec-ledger.md)区分当前 leader 的内核撤销
-与实际终态 reap，保留原组 birth、逐次尝试计费和迁移后 TID；仅纯模型，EXEC 接线仍关闭。
+与实际终态 reap，保留原组 birth、逐次尝试计费和迁移后 TID；该账本本身仅为纯模型。
 
 [EXEC 入口与事件匹配](heart-fixed-witness-replay-exec-event.md)把旧 TID 的 native exec
-入口绑定到同组 TGID 事件；仅匹配已认证输入，尚不迁移身份或开放 resume。
+入口绑定到同组 TGID 事件；现已在 post-handshake stop 接线完成账本/wire/等待身份
+迁移和保守 resume，要求后续 native 零 EXIT。旧 TID ECHILD 只触发原期限内继续等待
+实际 TGID 事件。仍无完整监督器、原生能力证明或历史执行许可。
 
 [实际进程观测组件](heart-fixed-witness-replay-observation.md)读取Linux实际argv/环境/executable/cwd与
 进程身份，人工子进程验证拒绝漂移；尚无JVM握手、loaded-class/网络证明或历史22步执行许可。

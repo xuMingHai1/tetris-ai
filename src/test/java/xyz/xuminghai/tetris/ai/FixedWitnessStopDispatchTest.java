@@ -31,7 +31,7 @@ class FixedWitnessStopDispatchTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "synthetic dispatch tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 23 tests"), output);
+            assertTrue(output.contains("Ran 32 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {

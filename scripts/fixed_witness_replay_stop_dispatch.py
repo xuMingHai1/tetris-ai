@@ -1,7 +1,8 @@
 """Post-handshake stop composition; no wait loop, probes or historical input.
 
 Birth-bound newborns require their one initial kernel SIGSTOP and complete
-options before first resume. Other signals and EXEC still fail closed.
+options before first resume. EXEC migrates the exact executing birth; ordinary
+signals still fail closed.
 """
 from fixed_witness_replay_ptrace import SignalInfo
 
@@ -15,8 +16,9 @@ class PostHandshakeDispatcher:
 
     The single-thread owner must supply each wait result exactly once, without
     any intervening ptrace/resume, and retain cleanup identities on all errors.
-    Kernel facts are read once through the birth's own wire, after shared stop
-    debit and before creation arbitration and the sole SYSCALL resume. This
+    Kernel facts are read once after shared stop debit. At EXEC the TGID's old
+    wire reads only GETEVENTMSG; the matched executor's wire owns all subsequent
+    reads/resume, never the retired leader's clone3 state. This
     component cannot authenticate a fabricated/replayed wait tuple or replace
     the missing bounded wait/kill/reap owner and frozen ABI capability probe.
     """
@@ -67,8 +69,11 @@ class PostHandshakeDispatcher:
                 child = self.launch.dispatcher.child_event(
                     ticket, tid, facts.status.event, facts.event_tid)
                 self._newborn.add(child)
+            elif kind == 'ptrace-event' and facts.status.event == 'EXEC':
+                matched = self.launch.dispatcher.exec_event(facts.event_tid, tid)
+                ticket, wire = self.launch.dispatcher.install_exec_identity(matched)
             else:
-                raise StopDispatchError('signal/exec stop policy not implemented')
+                raise StopDispatchError('signal stop policy not implemented')
             # Recheck original owner/deadline after fallible kernel/policy work.
             self.launch._owner_and_deadline()
             wire.resume_syscall(tid, 0)

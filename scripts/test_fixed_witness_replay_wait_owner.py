@@ -1,4 +1,5 @@
 """Synthetic targeted waits only; no native fork, wait, ptrace or probes."""
+import errno
 import unittest
 from unittest.mock import Mock, call
 
@@ -220,6 +221,44 @@ class BoundedWaitOwnerTest(unittest.TestCase):
             self.owner.run()
         self.wait.assert_not_called()
         self.assertEqual(2, self.ledger.totals.live)
+
+    def test_old_exec_tid_echild_defers_to_actual_tgid_event_without_refund(self):
+        thread = self.fixture.exec_thread()
+        self.owner._last_birth = 1  # Poll the disappearing executor first.
+        before = self.ledger.totals
+        thread.syscall_info.return_value = decode_syscall_info(*exit_info(0, 0))
+        self.wait.side_effect = [ChildProcessError(errno.ECHILD, 'gone'),
+                                 (11, 0x4057f), (11, 0x857f), (11, 0)]
+        totals = self.owner.run()
+        self.assertEqual([12, 11, 11, 11], [c.args[0] for c in self.wait.call_args_list])
+        self.assertEqual(before.attempts, totals.attempts)
+        self.assertEqual(before.wait_stops + 2, totals.wait_stops)
+        self.assertEqual('exec-replaced', self.ledger.identity(1).terminal)
+        self.assertEqual('reaped', self.ledger.identity(2).terminal)
+        self.wire.resume_syscall.assert_not_called()
+        self.assertEqual([call.resume_syscall(11, 0), call.syscall_info(11),
+                          call.resume_syscall(11, 0)], thread.mock_calls)
+
+    def test_old_exec_tid_echild_without_event_exhausts_original_deadline(self):
+        self.fixture.exec_thread()
+        self.owner._last_birth = 1
+        before = self.ledger.totals
+        self.wait.side_effect = [ChildProcessError(errno.ECHILD, 'gone'), (0, 0)]
+        self.sleep.side_effect = lambda seconds: setattr(self.fixture.clock, 'return_value', 100.0)
+        with self.assertRaisesRegex(ValueError, 'deadline'):
+            self.owner.run()
+        self.assertEqual(before, self.ledger.totals)
+        self.assertEqual(12, self.ledger.identity(2).tid)
+        self.assertTrue(self.ledger.identity(1).alive)
+
+    def test_non_echild_or_nonexec_child_error_never_defers(self):
+        self.fixture.exec_thread()
+        self.owner._last_birth = 1
+        self.wait.side_effect = ChildProcessError(errno.EPERM, 'denied')
+        with self.assertRaises(ChildProcessError):
+            self.owner.run()
+        self.wait.assert_called_once_with(12, WAIT_OPTIONS)
+        self.assertEqual(3, self.ledger.totals.live)
 
 
 if __name__ == '__main__':
