@@ -26,6 +26,11 @@ Linux v6.17 [`kernel/signal.c` 2232–2253](https://github.com/torvalds/linux/bl
 获取前后及每次发送前后复核原owner/deadline和完整birth库存；取得后只向描述符发送，
 不重新查找数字PID。全部描述符在任何发送前取得；失败不会退回kill(pid)。
 
+`CoordinatorLaunch.unsettled_terminal_waits` 保留正常wait/dispatch已经消费、但尚未
+认证结算的terminal PID；记录发生在tuple、reader、owner/deadline与birth验证之前。
+只有成功的认证reap才清除。库存命中此标记时，pidfd路径在获取前拒绝，避免真实wait
+已经释放PID但ledger仍保留live credit的错误路径。未认证terminal不被伪称为reaped。
+
 ## 失败、验证与限制
 
 - 一次尝试，不重试open/send/wait失败；ESRCH/ECHILD都不代表已回收，不退累计额度。
@@ -34,9 +39,12 @@ Linux v6.17 [`kernel/signal.c` 2232–2253](https://github.com/torvalds/linux/bl
   原错误。成功回收后关闭失败仍报告清理未完成。释放描述符不延长工作期限。
 - 终态回收沿用原时限与共享stop计费；发送SIGKILL不释放live credit，真实terminal wait
   才释放。若仍观测到排队stop，先扣原计数后失败，不resume、不称整树已清理。
-- 16项纯合成行为测试涵盖多进程完整顺序、失败锁存、部分获取/发送、期限跨越、
+- 20项纯合成行为测试涵盖多进程完整顺序、失败锁存、部分获取/发送、期限跨越、
   birth/owner变化、未握手/未绑定/线程/未决创建拒绝、stop与ECHILD、关闭失败和一次性。
-  Linux普通JUnit bridge要求16项全部通过且零跳过；Windows bridge仅提供编译验证。
+  真实initial admission收到terminal而失败时，admitted只表示尝试，必须核对handshake.completed
+  及dispatcher绑定，防止打开已被该wait回收的数字PID。
+  还覆盖post-handshake失败terminal、wait目标错配时的保留及成功reap清除。
+  Linux普通JUnit bridge要求20项全部通过且零跳过；Windows bridge仅提供编译验证。
 
 未执行真实pidfd、signal、fork、ptrace、ABI探针、网络clean-build或历史22步。
 本组件不处理未握手launch的安全终止、未决创建/线程EXEC清理及排队stop的完整drain；

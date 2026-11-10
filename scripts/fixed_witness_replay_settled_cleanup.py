@@ -8,6 +8,7 @@ import signal
 
 from fixed_witness_replay_cleanup_reap import CleanupReaper, CleanupReapError
 from fixed_witness_replay_launch import CoordinatorLaunch
+from fixed_witness_replay_handshake import CoordinatorHandshake
 
 SIGKILL = 9  # Frozen Linux ABI; injectable synthetic transport also runs on Windows.
 
@@ -27,7 +28,10 @@ class SettledProcessCleanup:
         # A returned fork PID before authenticated TRACEME admission can have
         # self-reaped under SIGCHLD=IGN/SA_NOCLDWAIT. Do not open that number.
         if (type(launch) is not CoordinatorLaunch or not launch.admitted
-                or launch.dispatcher is None):
+                or launch.dispatcher is None
+                or type(launch.handshake) is not CoordinatorHandshake
+                or not launch.handshake.completed
+                or launch.handshake.dispatcher is not launch.dispatcher):
             raise CleanupReapError('authenticated traced launch required for pidfd binding')
         self.open_pidfd = open_pidfd if open_pidfd is not None else getattr(os, 'pidfd_open', None)
         self.send_signal = (send_signal if send_signal is not None
@@ -46,6 +50,8 @@ class SettledProcessCleanup:
         self.reaper._check()
         if self.reaper._inventory() != identities:
             raise CleanupReapError('cleanup birth inventory changed')
+        if any(item.tid in self.reaper.launch.unsettled_terminal_waits for item in identities):
+            raise CleanupReapError('consumed terminal wait has unresolved birth identity')
 
     def run(self):
         """Attempt once; even ESRCH is an error, never evidence of reap."""
@@ -56,6 +62,7 @@ class SettledProcessCleanup:
         try:
             self.reaper._check()
             identities = self.reaper._inventory()
+            self._same_inventory(identities)
             for item in identities:
                 self._same_inventory(identities)
                 fd = self.open_pidfd(item.tid, 0)

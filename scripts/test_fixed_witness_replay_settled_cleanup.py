@@ -6,8 +6,10 @@ from fixed_witness_replay_settled_cleanup import SettledProcessCleanup
 from fixed_witness_replay_cleanup_reap import CleanupReapError
 from fixed_witness_replay_ptrace import decode_syscall_info
 from fixed_witness_replay_wait_owner import WAIT_OPTIONS
+from fixed_witness_replay_wait_owner import BoundedWaitOwner
 from test_fixed_witness_replay_ptrace import entry, exit_info
 import test_fixed_witness_replay_cleanup_reap as reap_fixture
+import test_fixed_witness_replay_launch as launch_fixture
 
 
 class SettledCleanupTest(unittest.TestCase):
@@ -224,6 +226,53 @@ class SettledCleanupTest(unittest.TestCase):
         with self.assertRaises(CleanupReapError):
             owner.run()
         self.transport.send.assert_called_once()
+
+    def test_failed_actual_initial_admission_never_opens_a_possibly_reaped_pid(self):
+        for raw in (0, 9, 0x857f):
+            with self.subTest(raw=raw):
+                self.setUp()
+                fresh = launch_fixture.CoordinatorLaunchTest()
+                fresh.setUp()
+                fresh.launcher.launch()
+                with self.assertRaises(ValueError):
+                    fresh.launcher.accept_initial_wait(11, raw)
+                self.assertTrue(fresh.launcher.admitted)  # Attempted, NOT completed.
+                self.assertFalse(fresh.launcher.handshake.completed)
+                self.launch = fresh.launcher
+                with self.assertRaisesRegex(CleanupReapError, 'authenticated traced launch'):
+                    self.owner()
+                self.assertEqual([], self.transport.mock_calls)
+
+    def test_consumed_terminal_rejected_after_handshake_never_opens_stale_pid(self):
+        self.fixture.stopped()
+        with self.assertRaises(ValueError):
+            self.fixture.fixture.owner.accept(11, 0)
+        self.assertEqual({11}, self.launch.unsettled_terminal_waits)
+        self.assertTrue(self.ledger.identity(1).alive)
+        with self.assertRaisesRegex(CleanupReapError, 'consumed terminal'):
+            self.owner().run()
+        self.assertEqual([], self.transport.mock_calls)
+
+    def test_actual_wait_mismatched_terminal_retained_before_dispatch_rejection(self):
+        def wait(*args):
+            return (11, 0)
+        owner = BoundedWaitOwner(self.fixture.fixture.owner, waitpid=wait)
+        # Force target validation failure AFTER the native wait consumed PID11.
+        self.launch.dispatcher.waiting_births = Mock(return_value=((1, 99),))
+        with self.assertRaises(ValueError):
+            owner.run()
+        self.assertEqual({11}, self.launch.unsettled_terminal_waits)
+        with self.assertRaisesRegex(CleanupReapError, 'consumed terminal'):
+            self.owner().run()
+        self.assertEqual([], self.transport.mock_calls)
+
+    def test_successful_authenticated_reap_clears_only_its_terminal_marker(self):
+        self.tree()
+        self.launch.unsettled_terminal_waits.add(99)
+        self.fixture.fixture.owner.accept(12, 9)
+        self.assertEqual({99}, self.launch.unsettled_terminal_waits)
+        self.owner().run()
+        self.transport.open.assert_called_once_with(11, 0)
 
 
 if __name__ == '__main__':

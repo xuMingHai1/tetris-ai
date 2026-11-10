@@ -88,6 +88,7 @@ class BoundedWaitOwner:
             if type(result) is not tuple or len(result) != 2:
                 raise WaitOwnerError('malformed wait result')
             waited, status = result
+            self.launch.retain_terminal_wait(waited, status)
             if type(waited) is not int or type(status) is not int:
                 self._reject_wait(waited, status)
             if waited == 0:
