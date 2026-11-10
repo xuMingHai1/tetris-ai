@@ -1,6 +1,6 @@
-"""Pidfd SIGKILL plus terminal reap for settled process births only.
+"""Pidfd SIGKILL plus terminal reap for authenticated process births.
 
-No native operation runs on import. This is not unresolved/thread tree cleanup,
+No native operation runs on import. This is not unbound/thread tree cleanup,
 a capability probe, or permission to execute the historical fixture.
 """
 import os
@@ -17,7 +17,7 @@ class SettledProcessCleanup:
     """Pin every eligible unreaped child before signalling any of them.
 
     The exclusive original tracer must retain wait ownership throughout. With
-    no pending creation and one live birth per original TGID, neither another
+    no unbound creation and one live birth per original TGID, neither another
     reaper nor a nonleader EXEC can free/reuse the PID before pidfd_open. After
     acquisition only the pinned descriptor is signalled, never a numeric PID.
     Existing failure latches and the original deadline/stop budget stay intact.

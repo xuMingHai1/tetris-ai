@@ -1,8 +1,9 @@
 """Terminal-only cleanup waits; no kill, resume, probe or COMPLETE receipt.
 
-This intentionally supports settled process births only. The trusted host must
-still terminate tasks and handle unresolved creations/thread exec transitions.
-Stops are never resumed. Only settled births successfully pidfd-SIGKILLed by
+This supports process births with no unknown children, including event-bound
+creations awaiting parent results. The trusted host must still handle unbound
+creations and thread exec transitions.
+Stops are never resumed. Only known births successfully pidfd-SIGKILLed by
 the composing cleanup owner may drain queued signal/syscall stops.
 """
 import math
@@ -22,7 +23,7 @@ class CleanupReaper:
     """Take over the sole wait owner once, using the launch's original deadline.
 
     No lookup/signalling by cleanup_tid, no wait(-1), no inferred ECHILD reap.
-    A settled, single live birth at each original group TGID cannot silently
+    A single live birth at each original group TGID cannot silently
     retire via another thread's exec. Reject all other inventories before wait.
     Successful return describes terminal accounting only, never suite success.
     """
@@ -61,8 +62,20 @@ class CleanupReaper:
         identities = self.ledger.cleanup_identities()
         if any(item.tid in self.launch.unsettled_terminal_waits for item in identities):
             raise CleanupReapError('consumed terminal wait has unresolved birth identity')
-        if self.ledger.totals.pending:
-            raise CleanupReapError('unresolved creation requires integrated tree cleanup')
+        for pending in self.ledger.cleanup_pending():
+            # A real creation event already identifies this child's immutable
+            # birth. Parent result is not required to kill/reap both tasks;
+            # actual parent reap closes the obligation, never synthetic finish.
+            if pending.child is None or pending.thread:
+                raise CleanupReapError('unresolved creation requires integrated tree cleanup')
+            parent = self.ledger.identity(pending.parent)
+            child = self.ledger.identity(pending.child)
+            if (not parent.alive or pending.child != pending.reservation
+                    or pending.kind not in ('fork', 'vfork', 'clone')
+                    or child.group_birth != child.birth
+                    or child.tid != child.tgid
+                    or (not child.alive and child.terminal != 'reaped')):
+                raise CleanupReapError('ambiguous pending process birth')
         groups = [item.group_birth for item in identities]
         if (len(groups) != len(set(groups))
                 or any(item.tid != item.tgid for item in identities)):

@@ -63,6 +63,21 @@ class _Attempt:
     finished: bool = False
 
 
+@dataclass(frozen=True)
+class PendingCreation:
+    """Read-only reservation facts, including an event-bound child birth.
+
+    A missing child is unresolved, never proof that no kernel child exists.
+    This snapshot neither settles a syscall nor authorizes native cleanup.
+    """
+
+    reservation: int
+    parent: int
+    kind: str
+    thread: bool
+    child: int | None
+
+
 class TaskLedger:
     """Serial, nonrefundable accounting with fail-closed state transitions.
 
@@ -213,6 +228,17 @@ class TaskLedger:
             self._events += 1
         if self._events >= self._event_limit:
             self._fail('wait-stop limit')
+
+    def cleanup_pending(self):
+        """Retain in-flight birth relations after failure without any refund.
+
+        Event-bound children may already be reaped before the parent's result.
+        Keep their birth tickets rather than reconstructing them from TIDs.
+        """
+        return tuple(PendingCreation(ticket, parent, attempt.kind, attempt.thread,
+                                     attempt.child)
+                     for parent, ticket in self._pending.items()
+                     for attempt in (self._attempts[ticket],))
 
     def exec_identity(self, ticket, old_tid, new_tid):
         """Apply externally authenticated EXEC facts; never authorize a resume.
