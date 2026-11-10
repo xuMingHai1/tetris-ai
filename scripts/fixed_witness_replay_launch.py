@@ -112,7 +112,7 @@ class CoordinatorLaunch:
                 CreationLifecycle(self.ledger), self._birth_wire, self.ticket, pid)
             self.handshake = CoordinatorHandshake(
                 self.reader, self.dispatcher, self.access, self.ticket, pid,
-                self.system.getuid())
+                self.system.getuid(), check=self._owner_and_deadline)
             return pid
         except BaseException:
             self.stopped = 'coordinator parent binding failed; cleanup required'
