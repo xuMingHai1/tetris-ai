@@ -6,7 +6,7 @@
 ## 身份与源码依据
 
 `SettledProcessCleanup.run` 组合既有 `CleanupReaper`，先永久撤销正常监督，
-只接受已通过真实初始握手、dispatcher仍保有birth绑定、无pending creation、
+只接受已通过真实初始握手、dispatcher仍保有birth绑定、无未绑定子birth的creation、
 每个group_birth只有一个存活birth且TID等于原TGID的库存。逐一取得pidfd后，
 才向全部已固定描述符发送SIGKILL，最后进入原有正TID终态回收。
 不从 `cleanup_tid` 推断身份，不调用kill(pid)、wait(-1)、ptrace resume或信号注入。
@@ -15,7 +15,7 @@ Linux v6.17 [`kernel/signal.c` 2232–2253](https://github.com/torvalds/linux/bl
 的SIGCHLD忽略/SA_NOCLDWAIT自动回收分支明确要求 `!tsk->ptrace`。
 已绑定、未被唯一tracer回收的单进程birth因此不能在pidfd取得前被该分支释放PID；
 拒绝未握手launch尤其重要：只有fork返回数字的子进程可能在TRACEME前死亡并自动回收。
-同时拒绝多存活线程和未决创建，避免非leader EXEC静默退休或未知子任务破坏该证明。
+同时拒绝多存活线程和未绑定创建，避免非leader EXEC静默退休或未知子任务破坏该证明。
 可信单线程宿主仍须保证没有signal callback/外部reaper调用wait或detach；本组件不建立
 完整可信宿主，也不允许把合成Mock当作真实绑定证据。
 
@@ -63,6 +63,34 @@ PTRACE_CONT/SYSCALL才能继续等待终态。这些源码依据不代表真实�
 stop耗尽原预算或超过原期限仍失败，不重试、重置或追加清理时间。
 
 未执行真实pidfd、signal、fork、ptrace、ABI探针、网络clean-build或历史22步。
-本组件不处理未握手launch的安全终止、未决创建/线程EXEC清理及ptrace事件drain；
+本组件不处理未握手launch的安全终止、未绑定创建/线程EXEC清理及ptrace事件drain；
 不是完整监督器或COMPLETE收据。可信宿主/writer、冻结ABI身份与完整fixture仍待实施，
 原整体最终Review/CI、compatibility/inputhash与唯一登记门继续有效。
+
+## 本次新增修改：事件已绑定、父结果未到达的进程创建
+
+`TaskLedger.cleanup_pending()`返回失败后仍可读取的不可变预留快照，包含parent、
+reservation、kind、thread及child birth；它不结算syscall、不退款，也不授权resume。
+`CleanupReaper._inventory()`仅新增接受每条pending都已有真实创建事件绑定child的
+进程路径；子birth必须属于自己的group且保有dispatcher绑定，或已有认证reap。
+原有单live birth/group、原TGID、terminal隔离、独占owner与原deadline检查继续适用。
+clone3、缺创建事件、线程、未知child及未完成EXEC身份仍拒绝，不猜测内核结果。
+
+Linux v6.17 [`kernel/fork.c:2367–2374`](https://github.com/torvalds/linux/blob/v6.17/kernel/fork.c#L2367)
+在公开新任务前执行`ptrace_init_task`；
+[`2636–2648`](https://github.com/torvalds/linux/blob/v6.17/kernel/fork.c#L2636)
+在唤醒child后报告创建事件，随后才等待vfork完成并返回父syscall结果。
+因此已认证event-bound child即使尚未完成newborn stop/wire初始化，也已在该tracer下；
+结合前述未被唯一owner回收的PID不释放依据，可以沿用全部pidfd先固定、再全部SIGKILL
+的原路径。不能把此依据推广到尚未读取/绑定GETEVENTMSG的创建或未握手coordinator。
+
+父先reap由既有`CreationLifecycle.reaped`关闭该父的pending，child独立保留live slot；
+子先reap仍保留pending直到父真实reap。两者均不伪造成功/失败syscall result，累计attempt
+从不减少。子已被认证reap则不再为该PID打开pidfd。嵌套的全部pending必须同样满足条件，
+任何一条未绑定即在第一次pin前拒绝。正常dispatch失败锁存不会清除。
+
+新增15项fake-only组合行为测试及Linux普通JUnit bridge（30秒上限、要求15项/零skip），
+覆盖父/子先reap、vfork及clone进程、wire/parent resume失败、嵌套pending、未绑定/线程/
+clone3拒绝、部分pin失败、newborn排队stop和terminal消费跨deadline后的隔离。
+Windows只提供bridge编译/平台skip；未运行任何原生ptrace/pidfd/probe或历史输入。
+这里只扩展已知进程birth库存，不是完整整树清理，生产API/运行方式和README/AGENTS不变。
