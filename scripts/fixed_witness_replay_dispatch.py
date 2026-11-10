@@ -264,6 +264,55 @@ class CreationSyscallDispatcher:
         except CreationLifecycleError as error:
             self._fail(str(error))
 
+    def cleanup_creation_binding(self, pending):
+        """Validate an existing process reservation after failure, no new work.
+
+        Only the exclusive cleanup wait owner may use the returned wire to
+        read GETEVENTMSG at an actual matching creation stop. Neither this
+        method nor cleanup_child_event permits resume or authenticates a wait.
+        """
+        ledger = self.lifecycle.ledger
+        if pending not in ledger.cleanup_pending() or pending.child is not None:
+            self._fail('unmatched unbound cleanup reservation')
+        parent = ledger.identity(pending.parent)
+        access = self._task(parent.birth, parent.tid)
+        entry = self._sequence.get(parent.birth)
+        number = {'fork': SYS_FORK, 'vfork': SYS_VFORK, 'clone': SYS_CLONE}.get(pending.kind)
+        if (pending.thread or number is None or not parent.alive
+                or parent.tid != parent.tgid or access is None
+                or parent.birth not in self._pending or self._pending[parent.birth] is not None
+                or parent.birth in self._exec_events or parent.birth in self._exec_exits
+                or type(entry) is not SyscallInfo or entry.operation != 1
+                or entry.number != number):
+            self._fail('unsupported in-flight cleanup creation')
+        try:
+            entry.require_native(1)
+            obligation = self.lifecycle._obligation(parent.birth)
+            if (obligation.reservation != pending.reservation
+                    or obligation.suppress_enosys):
+                self._fail('cleanup creation obligation mismatch')
+        except (PtraceBoundaryError, CreationLifecycleError) as error:
+            self._fail(str(error))
+        return parent, access, obligation.expected_event.upper()
+
+    def cleanup_child_event(self, pending, event, child_tid):
+        """Bind only an already reserved, externally authenticated child event.
+
+        Retain the child's ledger and dispatcher birth before fallible wire
+        setup, exactly as normal dispatch does. All failure latches remain.
+        """
+        _, _, expected = self.cleanup_creation_binding(pending)
+        if type(event) is not str or event != expected:
+            self._fail('unexpected cleanup creation event')
+        if type(child_tid) is not int or not 0 < child_tid < 2**31:
+            self._fail('invalid cleanup child event TID')
+        try:
+            child = self.lifecycle.child_event(pending.parent, event.lower(), child_tid)
+            self._bind(child, child_tid, newborn=True)
+            return child
+        except CreationLifecycleError as error:
+            self._fail(str(error))
+
     def install_exec_identity(self, facts):
         """Install matched EXEC atomically under the sole stop owner, no resume.
 
