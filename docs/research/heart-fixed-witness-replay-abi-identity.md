@@ -3,7 +3,7 @@
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
 不增加 ABI 例外、探针、原生执行次数或预算。仅设计，尚未实现；当前 dispatcher
 继续拒绝所有 compat/x32 syscall。本次新增修改不改变生产架构，README/AGENTS无需同步。
-源码基线：`51e34340442980229b85dd818eb507610541b3a2`。
+源码基线：`993f6ad4caf4439bfffd4694c68bc2bbf4c4105c`（已纳入 #218 独立清理组件）。
 
 ## 问题与源码证据
 
@@ -20,6 +20,8 @@ tracer 的修改。因此例外必须放行原入口，而非跳过调用、改�
 分别绑定 socket 41 和 socketcall 102，均非创建入口；i386 fork/clone/vfork分别为2/120/190。
 [`kernel/seccomp.c:1339–1354`](https://github.com/torvalds/linux/blob/v6.17/kernel/seccomp.c#L1339)
 的 KILL 路径终止任务；不得要求一个普通 syscall EXIT 才确认终止。
+同版本[`kernel/signal.c:1811–1823`](https://github.com/torvalds/linux/blob/v6.17/kernel/signal.c#L1811)
+的`force_sig_seccomp`填写`SYS_SECCOMP`、`si_arch`、`si_syscall`；仅信号号码不证明来源。
 这些是静态依据，不是目标宿主能力结果。实际内核不能提供所需事实时停止，不切 ABI。
 
 ## 路径选择与范围
@@ -73,14 +75,20 @@ group_birth、TID及exec代次绑定，再从该停点读取真实 `/proc` exe/c
    票据仍已消费，不能重试。外层执行这一步仍必须复核原owner/deadline。
 4. `AWAITING_SIGSYS`不允许任何后续syscall ENTRY/EXIT、创建或EXEC，不把它交回普通
    native sequence（后者仍持有特殊入口状态）。允许现有认证信号处理路径保留真实
-   SIGSYS的原siginfo并原信号恢复；不能要求必然出现delivery stop，不能注入SIGSYS。
-   其他普通信号不被解释为成功；按既有信号策略处理但不释放票据/额度，不延长截止。
+   SIGSYS的原siginfo并原信号恢复，但观测到delivery时必须验证`si_code=SYS_SECCOMP(1)`、
+   `si_arch`和`si_syscall`均匹配已消费入口。SI_USER/SI_TKILL及未知code直接使本反例
+   失败，不能经普通信号路径形成成功链。现有`SignalInfo`尚未解析SIGSYS union，
+   实现须补充固定Linux布局的只读wire字段及测试，不能用sender_pid字段替代。
+   不能要求必然出现delivery stop，不能主动注入SIGSYS。其他普通信号不被解释为成功；
+   按既有信号策略处理但不释放票据/额度，不延长截止。
 5. 唯一owner真实wait并认证该birth的`signaled(SIGSYS)`后，先正常reap结算，再标为
    `KERNEL_TERMINAL_OBSERVED`。不要求EXIT；exit(0)、其他终止信号、ECHILD、伪造wait、
    丢失birth或清理主动SIGKILL均不能成功。仅该终态也不能独自证明过滤器：最终checker
    必须同时绑定原filter安装/来源链、entry原样放行记录、无注入记录和清单hash。
 
-探针发生额外创建/EXEC即本反例身份失效；已存在子任务仍按原账本清理，不推断reaped。
+BOUND内native创建继续按原政策仲裁，子birth不继承ABI票据；BOUND再次EXEC立即撤销
+绑定且该模式槽保持已使用，不重新绑定到新exec或转移给其他birth。AWAITING_SIGSYS后
+任何创建/EXEC均失败。已存在子任务仍按原账本清理，不推断reaped。
 状态改变不能清除任何既有失败锁存。失败后normal dispatch不再可用，使用独立cleanup。
 ledger的正常live释放只来自真实reap；两条例外不跳过任何task或stop计费。
 
@@ -98,7 +106,8 @@ ledger的正常live释放只来自真实reap；两条例外不跳过任何task�
 7. BOUND内正常native创建仍预留且按原失败/live规则结算，不走例外。
 8. 例外恢复失败、owner/deadline改变时不重试，不退款，不写register。
 9. 例外后ENTRY/EXIT/EXEC/创建均失败，无native sequence回退。
-10. 有/无SIGSYS delivery stop的真实形状合成路径均能终态结算，不伪造signal。
+10. 有/无SIGSYS delivery stop的真实形状合成路径均能终态结算；拒绝用户来源、
+    未知code、错误arch/syscall或截断union，不伪造signal。
 11. 错信号、正常退出、ECHILD、主动清理、错误birth终态均不得形成成功证据。
 12. shared stop耗尽和既有失败锁存优先于例外；证据输出仍共享预留writer。
 
