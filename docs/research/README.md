@@ -163,6 +163,10 @@ CLONE_THREAD 关系，区分组 birth 与数值 TGID，保留逐线程计费和 
 迁移和保守 resume，要求后续 native 零 EXIT。旧 TID ECHILD 只触发原期限内继续等待
 实际 TGID 事件。仍无完整监督器、原生能力证明或历史执行许可。
 
+[失败后终态回收](heart-fixed-witness-replay-cleanup-reap.md)在原 deadline 内回收已结算的
+process births，保持各层失败锁存及共享事件计费；未决创建和线程身份歧义拒绝。
+它不发送 kill、不恢复任务，也不构成完整整树清理或原生能力证明。
+
 [普通信号递送](heart-fixed-witness-replay-signal-delivery.md)在 birth/GETSIGINFO 认证后
 原号恢复非停止信号，保留真实 SIGSYS 和内核 siginfo；作业控制/group-stop 仍拒绝。
 仅合成验证，不代表原生能力或完整监督器已通过验收。
