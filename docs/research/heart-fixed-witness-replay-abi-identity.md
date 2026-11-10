@@ -1,8 +1,9 @@
 # 固定 ABI 反例的出生身份与一次性准入设计
 
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
-不增加 ABI 例外、探针、原生执行次数或预算。仅设计，尚未实现；当前 dispatcher
-继续拒绝所有 compat/x32 syscall。本次新增修改不改变生产架构，README/AGENTS无需同步。
+不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费子集已实现，真实身份与
+SIGSYS接线尚未实现；当前 dispatcher 继续拒绝所有 compat/x32 syscall。
+本次新增修改不改变生产架构，README/AGENTS无需同步。
 源码基线：`993f6ad4caf4439bfffd4694c68bc2bbf4c4105c`（已纳入 #218 独立清理组件）。
 
 ## 问题与源码证据
@@ -122,5 +123,26 @@ writer分区均保持。全套固定fixture/task预留表、可信host/writer、
 失败按原CAPABILITY_UNAVAILABLE/IMPLEMENTATION_INVALID/INCOMPLETE分类停止，不加预算、
 不换ABI/seed/环境重跑。#140 BOUNDED_MISS、GoalWindow、#95/#96及runtime/default门保持。
 
-本设计完成条件是两个文件的最终diff经独立Review、适用CI、正常合并；不是模型已实现、
-内核能力通过或完整人工验收完成。下一步实施纯匹配/消费模型，随后才接真实身份认证。
+本设计已通过 #219 接受；不表示内核能力或完整人工验收完成。
+
+## 本次新增修改：纯匹配/消费子集
+
+`scripts/fixed_witness_replay_abi_model.py`提供冻结`ProbeRecord`、`ExecIdentity`和
+`AbiProbeModel`。恰好两条同源码/解释器清单以固定排序计算SHA-256，精确匹配canonical
+路径字符串、完整argv与字节hash；路径检查仅为词法检查，不执行文件或proc认证。
+birth/group_birth与exec代次采用正64位值，TID采用正signed-32-bit值；外层适配器将来
+须从真实账本/exec事件映射，不能以模型生成task或exec身份。子birth不继承槽，同birth
+或同TID不能占另一槽。匹配完整ENTRY后先变成`AWAITING_SIGSYS`，返回None；没有resume
+token、ptrace/文件/账本/信号操作。BOUND再次EXEC只能撤销槽，不能重新绑定；错误锁存
+全模型。外层失败可调用`fail`保持已消费状态，但这不是外层owner/deadline/stop门的接线。
+
+本次有限子集覆盖上方第1–6组的匹配/消费、组8的失败后不可重试模型、组9的禁止再次
+消费或EXEC及组12的既有失败锁存；新增18项纯合成测试（含有限表驱动反例），Linux
+普通JUnit bridge强制30秒内完成且零skip。类型/整数宽度、完整六参数ENTRY和共享清单
+漂移均拒绝；truncated wire仍经原decoder拒绝，不补零。原native guard保持不变。
+
+未覆盖的真实能力：组7普通创建仲裁与槽的组合、组8真实owner/deadline/resume失败、
+组10的SIGSYS union与delivery、组11真实wait/reap和终态成功、组12真实共享stop/writer
+接线。模型没有终态成功接口，也不能证明传入hash/路径/身份是真实观察。下一步先补
+固定SIGSYS union只读wire字段和合成反例，再做真实exec/proc认证与dispatcher/checker
+接线；不得因为纯模型通过启用ABI例外或执行probe。所有原完整验收与停止门保持。
