@@ -38,15 +38,31 @@ Linux v6.17 [`kernel/signal.c` 2232–2253](https://github.com/torvalds/linux/bl
 - 所有已拥有描述符最终各关闭一次；不重试close(EINTR)，关闭错误单独保留且不覆盖
   原错误。成功回收后关闭失败仍报告清理未完成。释放描述符不延长工作期限。
 - 终态回收沿用原时限与共享stop计费；发送SIGKILL不释放live credit，真实terminal wait
-  才释放。若仍观测到排队stop，先扣原计数后失败，不resume、不称整树已清理。
-- 20项纯合成行为测试涵盖多进程完整顺序、失败锁存、部分获取/发送、期限跨越、
+  才释放。全部pidfd发送成功后冻结原birth库存，仅这些birth的合法signal/syscall stop
+  可先扣原计数再忽略，继续正TID轮询，不resume、不注入信号、不创建或结算任务。
+  ptrace事件仍失败关闭，尤其不把创建/EXEC事件当作无害stop；独立CleanupReaper未被
+  该组合路径授权时仍拒绝所有stop。累计drained_stops与last_drained_stop保留有界证据，
+  不逐事件分配无限列表。无进展轮次仍最多睡10ms并受原deadline限制。
+- cleanup消费terminal后同样在任何后续验证前写入unsettled_terminal_waits；仅认证reap
+  成功才清除相应PID。期限、目标、birth或reap失败时保留标记，后续库存拒绝该歧义身份。
+- 30项纯合成行为测试涵盖多进程完整顺序、失败锁存、部分获取/发送、期限跨越、
   birth/owner变化、未握手/未绑定/线程/未决创建拒绝、stop与ECHILD、关闭失败和一次性。
   真实initial admission收到terminal而失败时，admitted只表示尝试，必须核对handshake.completed
   及dispatcher绑定，防止打开已被该wait回收的数字PID。
   还覆盖post-handshake失败terminal、wait目标错配时的保留及成功reap清除。
-  Linux普通JUnit bridge要求20项全部通过且零跳过；Windows bridge仅提供编译验证。
+  新增排队stop后终态、轮询公平性、共享预算耗尽、deadline、未知/错目标/ptrace事件拒绝、
+  birth变化与cleanup消费terminal后失败的隔离证据；不调用ptrace读取或resume。
+  Linux普通JUnit bridge要求30项全部通过且零跳过；Windows bridge仅提供编译验证。
+
+Linux v6.17 [`kernel/signal.c:723–735`](https://github.com/torvalds/linux/blob/v6.17/kernel/signal.c#L723)
+说明TASK_WAKEKILL唤醒stopped/traced任务；同文件
+[`1003–1027`](https://github.com/torvalds/linux/blob/v6.17/kernel/signal.c#L1003)对SIGKILL建立
+group exit并唤醒，且[`2371–2377`](https://github.com/torvalds/linux/blob/v6.17/kernel/signal.c#L2371)
+在fatal signal pending时不进入ptrace睡眠。因此已发送SIGKILL后的排队普通stop不需要
+PTRACE_CONT/SYSCALL才能继续等待终态。这些源码依据不代表真实宿主能力验证；任何
+stop耗尽原预算或超过原期限仍失败，不重试、重置或追加清理时间。
 
 未执行真实pidfd、signal、fork、ptrace、ABI探针、网络clean-build或历史22步。
-本组件不处理未握手launch的安全终止、未决创建/线程EXEC清理及排队stop的完整drain；
+本组件不处理未握手launch的安全终止、未决创建/线程EXEC清理及ptrace事件drain；
 不是完整监督器或COMPLETE收据。可信宿主/writer、冻结ABI身份与完整fixture仍待实施，
 原整体最终Review/CI、compatibility/inputhash与唯一登记门继续有效。
