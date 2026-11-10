@@ -11,10 +11,17 @@ import test_fixed_witness_replay_launch as launch_fixture
 from test_fixed_witness_replay_ptrace import entry, exit_info
 
 
-def native_entry(number, flags=0):
+def native_entry(number, flags=None):
     raw, size = entry(number)
     raw = bytearray(raw)
-    struct.pack_into('<Q', raw, 32, flags)
+    if flags is not None:
+        struct.pack_into('<Q', raw, 32, flags)
+    # Opaque non-null filename/argv pointers, not memory or exec-success proof.
+    # execveat additionally needs valid dirfd/flags, not generic fixture args.
+    if number == 59:
+        struct.pack_into('<6Q', raw, 32, 0x7fff1000, 0x7fff2000, 0, 0, 0, 0)
+    elif number == 322:
+        struct.pack_into('<6Q', raw, 32, 2**64 - 100, 0x7fff1000, 0x7fff2000, 0, 0, 0)
     return decode_syscall_info(bytes(raw), size)
 
 
