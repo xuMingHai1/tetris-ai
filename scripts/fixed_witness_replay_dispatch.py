@@ -1,7 +1,7 @@
 """Creation dispatch composition; no wait, resume or capability probe.
 
 The caller owns wait-stop charging, signal/stop authentication, trusted
-coordinator admission and exec identity. Each birth owns a separate wire object
+coordinator admission and raw EXEC stop provenance. Each birth owns a separate wire object
 so a reaped clone3 intervention cannot leak into a reused numeric TID.
 """
 from dataclasses import dataclass
@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from fixed_witness_replay_creation import SYS_CLONE, SYS_FORK, SYS_VFORK, SYS_CLONE3
 from fixed_witness_replay_ptrace import PtraceBoundaryError, SyscallInfo
 from fixed_witness_replay_lifecycle import CreationLifecycleError
+from fixed_witness_replay_tasks import TaskAccountingError
 
 
 class CreationDispatchError(ValueError):
@@ -41,6 +42,7 @@ class CreationSyscallDispatcher:
         self._pending = {}
         self._sequence = {}
         self._exec_events = {}
+        self._exec_exits = set()
         self._coordinator = coordinator_ticket
         self._handshake_available = True
         self.stopped = None
@@ -101,7 +103,8 @@ class CreationSyscallDispatcher:
 
         The outer owner must charge the wait before calling this method and
         must not resume between lookup, fact collection and policy dispatch.
-        This lookup supplies no newborn admission or exec migration policy.
+        At an EXEC stop this resolves the TGID's prior binding, not the executor;
+        event matching and installation must replace it before any resume.
         """
         self._running()
         if type(tid) is int:
@@ -115,7 +118,7 @@ class CreationSyscallDispatcher:
 
         Never include an unbound reservation or the tracer itself. No wait or
         ptrace permission is granted; the owner must retain the same bindings
-        until it consumes a result, and stop on unsupported exec migration.
+        until it consumes a result; EXEC installation supplies the next snapshot.
         """
         self._running()
         if any(access is None for tid, access in self._tasks.values()):
@@ -173,6 +176,10 @@ class CreationSyscallDispatcher:
             previous = self._sequence[ticket]
             if ticket in self._exec_events:
                 self._fail('exec identity transition not installed')
+            if ticket in self._exec_exits:
+                if info.operation != 2 or info.is_error or info.result != 0:
+                    self._fail('successful exec requires native zero exit')
+                self._exec_exits.remove(ticket)
             if previous == 'newborn':
                 self._fail('newborn initial stop admission required')
             if info.operation == 1:
@@ -210,10 +217,10 @@ class CreationSyscallDispatcher:
         and GETEVENTMSG(old_tid) at new_tid before calling. Same PID namespace
         as the tracer is required. A message alone is not authentication.
         No kernel reads, ledger mutation, wire rekey or resume happen here.
-        After success this birth cannot consume another syscall until a future
-        coherent identity transition is implemented; authenticated reap remains
-        available only at the old binding, NOT at a migrated kernel identity.
-        PostHandshakeDispatcher deliberately does not call this partial API.
+        After success this birth cannot consume another syscall until
+        install_exec_identity completes. Between these methods the old binding
+        is not a native cleanup identity. PostHandshakeDispatcher calls both
+        without an intervening wait/resume under the original sole ownership.
         """
         self._running()
         if (type(old_tid) is not int or not 0 < old_tid < 2**31
@@ -221,7 +228,8 @@ class CreationSyscallDispatcher:
             self._fail('invalid exec event TIDs')
         ticket, _ = self.stop_binding(old_tid)
         previous = self._sequence[ticket]
-        if (ticket in self._exec_events or type(previous) is not SyscallInfo
+        if (ticket in self._exec_events or ticket in self._exec_exits
+                or type(previous) is not SyscallInfo
                 or previous.operation != 1 or previous.number not in (59, 322)
                 or ticket in self._pending):
             self._fail('exec event requires unmatched native exec entry')
@@ -256,6 +264,57 @@ class CreationSyscallDispatcher:
         except CreationLifecycleError as error:
             self._fail(str(error))
 
+    def install_exec_identity(self, facts):
+        """Install matched EXEC atomically under the sole stop owner, no resume.
+
+        Keep the executor's exclusive wire and syscall entry, discard only the
+        kernel-retired leader's wire (including its unfinished clone3 token).
+        Ledger validation precedes binding mutation. On failure all old cleanup
+        bindings remain, and the owner must stop the entire session.
+        """
+        self._running()
+        if (type(facts) is not ExecEventFacts
+                or self._exec_events.get(facts.birth) is not facts):
+            self._fail('unmatched exec transition facts')
+        access = self._task(facts.birth, facts.old_tid)
+        leader, _ = self.stop_binding(facts.new_tid)
+        try:
+            self.lifecycle.ledger.exec_identity(facts.birth, facts.old_tid, facts.new_tid)
+        except TaskAccountingError as error:
+            self._fail(str(error))
+        if leader != facts.birth:
+            del self._tasks[leader]
+            self._sequence.pop(leader, None)
+            self._pending.pop(leader, None)
+            self._exec_events.pop(leader, None)
+            self._exec_exits.discard(leader)
+        self._tasks[facts.birth] = (facts.new_tid, access)
+        del self._exec_events[facts.birth]
+        self._exec_exits.add(facts.birth)
+        return facts.birth, access
+
+    def awaiting_exec_migration(self, ticket, tid):
+        """Permit bounded polling of the known TGID after old-TID ECHILD only.
+
+        This is NOT an exec/reap receipt. Preserve all identities and credits;
+        only a later actual EXEC event may install migration. The original
+        deadline remains the bound if no such event arrives.
+        """
+        self._running()
+        self._task(ticket, tid)
+        entry = self._sequence[ticket]
+        identity = self.lifecycle.ledger.identity(ticket)
+        if (type(entry) is not SyscallInfo or entry.number not in (59, 322)
+                or ticket in self._exec_events or not identity.alive
+                or identity.tid != tid or identity.tgid == tid):
+            return False
+        for birth, (bound_tid, _) in self._tasks.items():
+            leader = self.lifecycle.ledger.identity(birth)
+            if (bound_tid == identity.tgid and leader.alive
+                    and leader.group_birth == identity.group_birth):
+                return True
+        return False
+
     def reaped(self, ticket, tid):
         """Only after terminal wait; discard the birth's wire and pending token.
 
@@ -270,11 +329,13 @@ class CreationSyscallDispatcher:
         self._pending.pop(ticket, None)
         self._sequence.pop(ticket, None)
         self._exec_events.pop(ticket, None)
+        self._exec_exits.discard(ticket)
         del self._tasks[ticket]
 
     def require_drained(self):
         """Bookkeeping only; never a capability or COMPLETE certificate."""
-        if self._tasks or self._pending or self._sequence or self._exec_events:
+        if (self._tasks or self._pending or self._sequence
+                or self._exec_events or self._exec_exits):
             self._fail('unreaped dispatch bindings')
         self._running()
         try:

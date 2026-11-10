@@ -31,7 +31,7 @@ class FixedWitnessWaitOwnerTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "synthetic wait owner tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 19 tests"), output);
+            assertTrue(output.contains("Ran 22 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {

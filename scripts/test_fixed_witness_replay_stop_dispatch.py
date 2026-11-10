@@ -284,3 +284,156 @@ class PostHandshakeDispatchTest(unittest.TestCase):
         self.launch.handshake.completed = False
         with self.assertRaises(StopDispatchError):
             PostHandshakeDispatcher(self.launch)
+
+    def exec_thread(self):
+        """Fully observed synthetic thread creation and exec entry."""
+        raw, size = entry(56)
+        raw = bytearray(raw)
+        struct.pack_into('<Q', raw, 32, 0x10000 | 0x100 | 0x800)
+        self.syscall((bytes(raw), size))
+        self.wire.event_tid.return_value = 12
+        self.owner.accept(11, 0x3057f)
+        thread = self.launch.dispatcher.stop_binding(12)[1]
+        thread.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
+        self.owner.accept(12, 0x137f)
+        self.syscall(exit_info(12, 0))
+        thread.syscall_info.return_value = decode_syscall_info(*entry(59))
+        self.owner.accept(12, 0x857f)
+        self.wire.reset_mock()
+        thread.reset_mock()
+        self.wire.event_tid.return_value = 12
+        return thread
+
+    def test_leader_exec_retains_wire_then_requires_zero_exit(self):
+        self.syscall(entry(322))
+        self.wire.reset_mock()
+        self.wire.event_tid.return_value = 11
+        before = self.ledger.totals
+        self.owner.accept(11, 0x4057f)
+        self.assertEqual([call.event_tid(11), call.resume_syscall(11, 0)], self.wire.mock_calls)
+        self.assertEqual(before.live, self.ledger.totals.live)
+        self.assertEqual(before.attempts, self.ledger.totals.attempts)
+        self.syscall(exit_info(0, 0))
+        self.syscall(entry(39))
+        self.syscall(exit_info(11, 0))
+
+    def test_nonleader_exec_rekeys_own_wire_wait_and_cleanup_births(self):
+        thread = self.exec_thread()
+        before = self.ledger.totals
+        self.owner.accept(11, 0x4057f)
+        self.assertEqual([call.event_tid(11)], self.wire.mock_calls)
+        self.assertEqual([call.resume_syscall(11, 0)], thread.mock_calls)
+        self.assertEqual(((2, 11),), self.launch.dispatcher.waiting_births())
+        self.assertIs(thread, self.launch.dispatcher.stop_binding(11)[1])
+        self.assertEqual('exec-replaced', self.ledger.identity(1).terminal)
+        self.assertEqual((11, 1), (self.ledger.identity(2).tid, self.ledger.identity(2).group_birth))
+        self.assertEqual(before.live - 1, self.ledger.totals.live)
+        self.assertEqual(before.attempts, self.ledger.totals.attempts)
+        thread.syscall_info.return_value = decode_syscall_info(*exit_info(0, 0))
+        self.owner.accept(11, 0x857f)
+        self.owner.accept(11, 0)
+        self.launch.dispatcher.require_drained()
+        self.assertEqual('reaped', self.ledger.identity(2).terminal)
+
+    def test_exec_duplicate_or_wrong_following_syscall_never_resumes(self):
+        for raw, info in ((0x4057f, None), (0x857f, entry(39)),
+                          (0x857f, exit_info(-2, 1)), (0x857f, exit_info(1, 0))):
+            self.setUp()
+            self.syscall(entry(59))
+            self.wire.event_tid.return_value = 11
+            self.owner.accept(11, 0x4057f)
+            self.wire.reset_mock()
+            if info is not None:
+                self.wire.syscall_info.return_value = decode_syscall_info(*info)
+            with self.assertRaises(ValueError):
+                self.owner.accept(11, raw)
+            self.wire.resume_syscall.assert_not_called()
+
+    def test_exec_unknown_or_cross_group_old_tid_preserves_bindings(self):
+        for old in (99, 12):
+            self.setUp()
+            self.child()
+            self.syscall(exit_info(12, 0))
+            self.syscall(entry(59))
+            self.wire.event_tid.return_value = old
+            self.wire.reset_mock()
+            before = self.launch.dispatcher.waiting_births()
+            with self.assertRaises(ValueError):
+                self.owner.accept(11, 0x4057f)
+            self.assertEqual({b: t for b, (t, _) in self.launch.dispatcher._tasks.items()}, dict(before))
+            self.wire.resume_syscall.assert_not_called()
+            self.assertEqual(3, self.ledger.totals.live)
+
+    def test_exec_wait_cap_prevents_event_read_or_identity_change(self):
+        thread = self.exec_thread()
+        self.ledger._event_limit = self.ledger.totals.wait_stops + 1
+        with self.assertRaises(StopReadError):
+            self.owner.accept(11, 0x4057f)
+        self.assertEqual([], self.wire.mock_calls)
+        self.assertEqual([], thread.mock_calls)
+        self.assertEqual(12, self.ledger.identity(2).tid)
+
+    def test_exec_pending_group_creation_fails_before_identity_mutation(self):
+        thread = self.exec_thread()
+        self.syscall(entry(435))
+        self.wire.reset_mock()
+        self.wire.event_tid.return_value = 12
+        with self.assertRaisesRegex(ValueError, 'unresolved group creation'):
+            self.owner.accept(11, 0x4057f)
+        self.assertEqual((12, thread), self.launch.dispatcher._tasks[2])
+        self.assertTrue(self.ledger.identity(1).alive)
+        self.assertEqual(3, self.ledger.totals.live)
+        thread.resume_syscall.assert_not_called()
+        self.wire.resume_syscall.assert_not_called()
+
+    def test_exec_compat_exit_rejects_before_resume(self):
+        self.syscall(entry(59))
+        self.wire.event_tid.return_value = 11
+        self.owner.accept(11, 0x4057f)
+        self.wire.reset_mock()
+        with self.assertRaisesRegex(ValueError, 'native syscall'):
+            self.syscall(exit_info(0, 0, arch=0x40000003))
+        self.wire.resume_syscall.assert_not_called()
+
+    def test_successive_exec_and_old_tid_reuse_keep_historical_births(self):
+        thread = self.exec_thread()
+        self.owner.accept(11, 0x4057f)
+        def syscall(raw):
+            thread.syscall_info.return_value = decode_syscall_info(*raw)
+            self.owner.accept(11, 0x857f)
+        syscall(exit_info(0, 0))
+        syscall(entry(59))
+        thread.event_tid.return_value = 11
+        self.owner.accept(11, 0x4057f)
+        syscall(exit_info(0, 0))
+        syscall(entry(57))
+        child_wire = Mock()
+        self.launch.dispatcher._factory = lambda: child_wire
+        thread.event_tid.return_value = 12
+        self.owner.accept(11, 0x1057f)
+        self.assertEqual(3, self.launch.dispatcher.stop_binding(12)[0])
+        self.assertEqual('exec-replaced', self.ledger.identity(1).terminal)
+        self.assertEqual((11, 1), (self.ledger.identity(2).tid, self.ledger.identity(2).group_birth))
+        self.assertIs(child_wire, self.launch.dispatcher.stop_binding(12)[1])
+        syscall(exit_info(12, 0))
+        self.owner.accept(12, 0)
+        self.owner.accept(11, 0)
+        self.launch.dispatcher.require_drained()
+
+    def test_exec_deadline_or_uncertain_resume_keeps_migrated_cleanup_identity(self):
+        for failure in ('deadline', 'resume'):
+            self.setUp()
+            thread = self.exec_thread()
+            if failure == 'deadline':
+                self.clock.side_effect = (90.0, 100.0)
+            else:
+                thread.resume_syscall.side_effect = OSError('uncertain exec resume')
+            with self.assertRaises((ValueError, OSError)):
+                self.owner.accept(11, 0x4057f)
+            self.assertEqual((11, thread), self.launch.dispatcher._tasks[2])
+            self.assertNotIn(1, self.launch.dispatcher._tasks)
+            self.assertEqual(2, self.ledger.totals.live)
+            if failure == 'deadline':
+                thread.resume_syscall.assert_not_called()
+            else:
+                thread.resume_syscall.assert_called_once_with(11, 0)
