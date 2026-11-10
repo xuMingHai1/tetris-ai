@@ -196,6 +196,10 @@ loaded-class/hash 观察绑定后返回 ACK 字节；尚未发送到 JVM，也�
 当前没有可直接采用的普通 frozen-warning recovery discriminator。不得继续从原 seed 调 rank cap、persistence N 或 guard 比例来“救活”已否决设计。若有新假设，先冻结可观测特征与协议，再收集独立证据。
 
 
+[vfork 组合监督验证](heart-fixed-witness-replay-vfork-session.md)串接 fake launch、
+初始握手和统一 wait loop，覆盖父出口不可用时的子 exec/退出及原预算失败路径；
+仅合成验证，不是原生 ptrace、完整清理或历史回放验收。
+
 ## GoalWindow 原型已测量，候选停止
 
 #116 已接受设计；[#94 实施记录](heart-goal-window-prototype.md) 与 [session driver](goal-window-driver.md) 保留测试原型及完整接线说明。#137 后唯一登记的80配对实测已完成，双臂均0 clean，candidate全部68,706次决策为BASELINE_CHOICE；前500块clean与配对clean净收益两个门失败，候选停止，不重跑或调参。详见[实际结果与证据索引](heart-goal-window-result.md)。实现/预检成功不等于候选收益通过；#95/#96、reserved、provider与runtime/default adoption继续停止。
