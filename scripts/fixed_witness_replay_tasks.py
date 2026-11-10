@@ -194,6 +194,26 @@ class TaskLedger:
         return TaskIdentity(ticket, task.tid, task.group_birth,
                             self._tasks[task.group_birth].tid, task.alive, task.terminal)
 
+    def cleanup_identities(self):
+        """Snapshot live tracee births even after failure; no signal permission.
+
+        Includes births whose wire construction failed. Unbound reservations
+        remain in totals.pending and must not be mistaken for a drained tree.
+        """
+        return tuple(self.identity(ticket) for ticket, task in self._tasks.items()
+                     if ticket != 0 and task.alive)
+
+    def cleanup_wait_stop(self):
+        """Charge an observed cleanup stop without clearing the failure latch.
+
+        Same original counter/ceiling as normal supervision. This grants no
+        ptrace access or resume and never permits work beyond an exhausted cap.
+        """
+        if self._events < self._event_limit:
+            self._events += 1
+        if self._events >= self._event_limit:
+            self._fail('wait-stop limit')
+
     def exec_identity(self, ticket, old_tid, new_tid):
         """Apply externally authenticated EXEC facts; never authorize a resume.
 
