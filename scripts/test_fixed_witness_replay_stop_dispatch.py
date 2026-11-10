@@ -262,6 +262,117 @@ class PostHandshakeDispatchTest(unittest.TestCase):
             self.assertEqual(2, self.ledger.totals.wait_stops)
             self.wire.resume_syscall.assert_not_called()
 
+    def test_delivery_signals_preserved_without_new_attempt_or_live_credit(self):
+        for sig in set(range(1, 65)) - {9, 19, 20, 21, 22}:
+            self.setUp()
+            self.wire.signal_info.return_value = SignalInfo(sig, 0, -6, 11, 1000)
+            before = self.ledger.totals
+            self.owner.accept(11, sig << 8 | 0x7f)
+            self.assertEqual([call.signal_info(11, sig), call.resume_syscall(11, sig)],
+                             self.wire.mock_calls)
+            self.assertEqual((before.attempts, before.live, before.wait_stops + 1),
+                             (self.ledger.totals.attempts, self.ledger.totals.live,
+                              self.ledger.totals.wait_stops))
+
+    def test_real_wire_sigsys_keeps_siginfo_and_resumes_with_original_signal(self):
+        requests = []
+        def kernel(request, tid, address, data):
+            self.assertEqual(11, tid)
+            self.assertEqual(2, self.ledger.totals.wait_stops)
+            requests.append((request, data if type(data) is int else None))
+            if request == 0x4202:
+                # SYS_SECCOMP uses a non-sender union, which must stay untouched.
+                raw = struct.pack('<iii4xQII', 31, 0, 1, 0x12345678, 41, 0xc000003e)
+                ctypes.memmove(data, raw.ljust(128, b'\0'), 128)
+            return 0
+        self.launch.dispatcher._tasks[1] = (11, PtraceAccess(kernel))
+        self.owner.accept(11, 0x1f7f)
+        self.assertEqual([(0x4202, None), (24, 31)], requests)
+
+    def test_delivery_then_signal_handler_creation_still_uses_entry_arbitration(self):
+        self.syscall(entry(39))
+        self.syscall(exit_info(11, 0))
+        self.wire.signal_info.return_value = SignalInfo(10, 0, 0, 99, 1000)
+        self.owner.accept(11, 0xa7f)
+        self.syscall(entry(57))
+        self.assertEqual(3, self.ledger.totals.attempts)
+        self.wire.event_tid.return_value = 12
+        self.owner.accept(11, 0x1057f)
+        self.syscall(exit_info(12, 0))
+        self.assertEqual(2, self.launch.dispatcher.stop_binding(12)[0])
+        self.assertEqual([call(11, 0), call(11, 0), call(11, 10),
+                          call(11, 0), call(11, 0), call(11, 0)],
+                         self.wire.resume_syscall.call_args_list)
+
+    def test_delivery_siginfo_failure_and_mismatch_never_resume(self):
+        for info in (None, SignalInfo(12, 0, 0), SignalInfo(True, 0, 0),
+                     SignalInfo(10, 0, None), SignalInfo(10, True, 0)):
+            self.setUp()
+            self.wire.signal_info.return_value = info
+            with self.assertRaises(StopDispatchError):
+                self.owner.accept(11, 0xa7f)
+            self.wire.resume_syscall.assert_not_called()
+            self.assertEqual(2, self.ledger.totals.wait_stops)
+        for error in (OSError('EINVAL group stop'), OSError('unreadable siginfo')):
+            self.setUp()
+            self.wire.signal_info.side_effect = error
+            with self.assertRaises(StopReadError):
+                self.owner.accept(11, 0xa7f)
+            self.wire.resume_syscall.assert_not_called()
+
+    def test_job_control_and_impossible_sigkill_stop_never_resume(self):
+        for sig in (9, 19, 20, 21, 22):
+            self.setUp()
+            self.wire.signal_info.return_value = SignalInfo(sig, 0, 0, 99, 1000)
+            with self.assertRaises(StopDispatchError):
+                self.owner.accept(11, sig << 8 | 0x7f)
+            self.wire.resume_syscall.assert_not_called()
+            self.assertEqual(2, self.ledger.totals.wait_stops)
+
+    def test_delivery_deadline_and_unknown_identity_debit_without_access(self):
+        for tid, clock in ((99, 90.0), (11, 100.0)):
+            self.setUp()
+            self.clock.return_value = clock
+            with self.assertRaises(ValueError):
+                self.owner.accept(tid, 0xa7f)
+            self.assertEqual([], self.wire.mock_calls)
+            self.assertEqual(2, self.ledger.totals.wait_stops)
+        self.setUp(wait_stops=2)
+        with self.assertRaises(StopReadError):
+            self.owner.accept(11, 0xa7f)
+        self.assertEqual([], self.wire.mock_calls)
+
+    def test_delivery_deadline_crossed_during_siginfo_never_resumes(self):
+        def info(*args):
+            self.clock.return_value = 100.0
+            return SignalInfo(10, 0, 0, 99, 1000)
+        self.wire.signal_info.side_effect = info
+        with self.assertRaises(ValueError):
+            self.owner.accept(11, 0xa7f)
+        self.wire.resume_syscall.assert_not_called()
+        self.assertEqual(2, self.ledger.totals.wait_stops)
+
+    def test_delivery_uncertain_resume_latches_without_second_injection(self):
+        self.wire.signal_info.return_value = SignalInfo(15, 0, 0, 99, 1000)
+        self.wire.resume_syscall.side_effect = OSError('uncertain delivery')
+        with self.assertRaises(OSError):
+            self.owner.accept(11, 0xf7f)
+        self.wire.resume_syscall.assert_called_once_with(11, 15)
+        self.wire.reset_mock()
+        with self.assertRaises(StopDispatchError):
+            self.owner.accept(11, 0xf7f)
+        self.assertEqual([], self.wire.mock_calls)
+        self.assertEqual(3, self.ledger.totals.wait_stops)
+
+    def test_delivery_terminal_reap_releases_live_only_at_real_wait(self):
+        self.wire.signal_info.return_value = SignalInfo(15, 0, 0, 99, 1000)
+        before = self.ledger.totals.live
+        self.owner.accept(11, 0xf7f)
+        self.assertEqual(before, self.ledger.totals.live)
+        self.owner.accept(11, 15)
+        self.assertEqual(before - 1, self.ledger.totals.live)
+        self.wire.resume_syscall.assert_called_once_with(11, 15)
+
     def test_managed_ptrace_entry_rejected_before_resume(self):
         with self.assertRaisesRegex(ValueError, 'ptrace'):
             self.syscall(entry(101))

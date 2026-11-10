@@ -2,7 +2,7 @@
 
 Birth-bound newborns require their one initial kernel SIGSTOP and complete
 options before first resume. EXEC migrates the exact executing birth; ordinary
-signals still fail closed.
+delivery stops preserve the kernel signal. Job-control stops still fail closed.
 """
 from fixed_witness_replay_ptrace import SignalInfo
 
@@ -47,6 +47,7 @@ class PostHandshakeDispatcher:
             facts = self.launch.reader.read(tid, raw_status, access)
             ticket, wire = access.binding()
             kind = facts.status.kind
+            resume_signal = 0
             if kind in ('exited', 'signaled'):
                 self.launch.dispatcher.reaped(ticket, tid)
                 self._newborn.discard(ticket)
@@ -72,11 +73,25 @@ class PostHandshakeDispatcher:
             elif kind == 'ptrace-event' and facts.status.event == 'EXEC':
                 matched = self.launch.dispatcher.exec_event(facts.event_tid, tid)
                 ticket, wire = self.launch.dispatcher.install_exec_identity(matched)
+            elif kind == 'signal-stop':
+                # GETSIGINFO must have succeeded on this exact birth. Preserve
+                # the original signal AND kernel siginfo (no SETSIGINFO), in
+                # particular seccomp SIGSYS; zero would silently suppress it.
+                info = facts.signal_info
+                if (type(info) is not SignalInfo
+                        or type(info.signal) is not int or info.signal != facts.status.signal
+                        or type(info.code) is not int or type(info.error) is not int
+                        or info.signal in (9, 19, 20, 21, 22)):
+                    # SIGKILL has no delivery stop. Non-SEIZE group-stop
+                    # preservation needs a separate policy; never wake it by
+                    # suppressing a stopping signal or infer delivery on EINVAL.
+                    raise StopDispatchError('unsupported or invalid signal-delivery stop')
+                resume_signal = info.signal
             else:
-                raise StopDispatchError('signal stop policy not implemented')
+                raise StopDispatchError('unsupported stop kind')
             # Recheck original owner/deadline after fallible kernel/policy work.
             self.launch._owner_and_deadline()
-            wire.resume_syscall(tid, 0)
+            wire.resume_syscall(tid, resume_signal)
             return facts
         except BaseException:
             self.stopped = 'post-handshake dispatch failed; cleanup required'
