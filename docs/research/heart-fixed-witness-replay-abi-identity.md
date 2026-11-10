@@ -2,7 +2,7 @@
 
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
 不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费子集已实现，真实身份与
-SIGSYS接线尚未实现；当前 dispatcher 继续拒绝所有 compat/x32 syscall。
+SIGSYS身份/终态接线尚未实现；只读union解析已补齐，当前 dispatcher 继续拒绝所有 compat/x32 syscall。
 本次新增修改不改变生产架构，README/AGENTS无需同步。
 源码基线：`993f6ad4caf4439bfffd4694c68bc2bbf4c4105c`（已纳入 #218 独立清理组件）。
 
@@ -78,8 +78,8 @@ group_birth、TID及exec代次绑定，再从该停点读取真实 `/proc` exe/c
    native sequence（后者仍持有特殊入口状态）。允许现有认证信号处理路径保留真实
    SIGSYS的原siginfo并原信号恢复，但观测到delivery时必须验证`si_code=SYS_SECCOMP(1)`、
    `si_arch`和`si_syscall`均匹配已消费入口。SI_USER/SI_TKILL及未知code直接使本反例
-   失败，不能经普通信号路径形成成功链。现有`SignalInfo`尚未解析SIGSYS union，
-   实现须补充固定Linux布局的只读wire字段及测试，不能用sender_pid字段替代。
+   失败，不能经普通信号路径形成成功链。`SignalInfo`已提供固定Linux布局的只读
+   SIGSYS union字段；未来本反例身份接线仍须验证，不能用sender_pid字段替代。
    不能要求必然出现delivery stop，不能主动注入SIGSYS。其他普通信号不被解释为成功；
    按既有信号策略处理但不释放票据/额度，不延长截止。
 5. 唯一owner真实wait并认证该birth的`signaled(SIGSYS)`后，先正常reap结算，再标为
@@ -146,3 +146,32 @@ token、ptrace/文件/账本/信号操作。BOUND再次EXEC只能撤销槽，不
 接线。模型没有终态成功接口，也不能证明传入hash/路径/身份是真实观察。下一步先补
 固定SIGSYS union只读wire字段和合成反例，再做真实exec/proc认证与dispatcher/checker
 接线；不得因为纯模型通过启用ABI例外或执行probe。所有原完整验收与停止门保持。
+
+## 本次新增修改：SIGSYS只读wire字段
+
+`decode_signal_info`要求完整128字节、精确bytes和匹配的wait信号。固定Linux
+little-endian x86-64 tracer布局在offset 16读取`<QiI`：64位call address、signed
+32位syscall和unsigned 32位audit arch。布局取自Linux v6.17
+[`include/uapi/asm-generic/siginfo.h`](https://github.com/torvalds/linux/blob/v6.17/include/uapi/asm-generic/siginfo.h#L108)
+的`_sigsys`及header/union定义；
+[`arch/x86/include/uapi/asm/siginfo.h`](https://github.com/torvalds/linux/blob/v6.17/arch/x86/include/uapi/asm/siginfo.h)
+不覆盖native x86-64布局。这里是native tracer的GETSIGINFO输出，不按tracee的
+compat/x32入口arch切换为32位布局。静态源码依据不表示目标宿主能力已验证。
+[`kernel/ptrace.c:1168`](https://github.com/torvalds/linux/blob/v6.17/kernel/ptrace.c#L1168)
+的native GETSIGINFO调用`copy_siginfo_to_user`，compat tracer另走`copy_siginfo_to_user32`；
+[`kernel/signal.c:3500`](https://github.com/torvalds/linux/blob/v6.17/kernel/signal.c#L3500)
+复制native结构并清零扩展区，失败返回EFAULT。
+
+仅`SIGSYS(31)/SYS_SECCOMP(1)`暴露`call_address/syscall/arch`；SI_USER/SI_TKILL
+仅暴露sender，其他code仅保留header。错误arch/number和非零errno原样保留，decoder
+不负责与冻结ENTRY比较，也不授予准入、resume或终态成功。`PtraceAccess.signal_info`
+只发一次GETSIGINFO并委托decoder；错误不重试。内核成功返回时写完整siginfo，ptrace
+没有返回字节数，因此截断检查针对传入decoder的wire bytes，不声称能检测假transport
+返回成功却只写部分buffer的违约行为。
+
+新增12项有限fake-only测试覆盖两固定ABI、union判别、signed/unsigned宽度、全部短
+buffer、错误类型/信号、不可变性及传输失败；Linux JUnit bridge强制30秒内零skip。
+既有普通signal dispatcher继续保留原SIGSYS；本轮未连接ABI模型、身份匹配或终态。
+下一步实现delivery事实与纯模型已消费身份/ENTRY的失败锁存匹配，再做真实exec/proc
+认证、dispatcher/checker及真实wait/reap集成。完整fixture/host/writer/清理及全部原门
+仍未满足，没有执行真实probe、network clean-build或历史22步。
