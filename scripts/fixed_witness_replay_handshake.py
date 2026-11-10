@@ -22,9 +22,11 @@ class CoordinatorHandshake:
     no general signal-reinjection policy is supplied. The dispatcher's one-shot
     coordinator admission validates the birth binding before any SETOPTIONS or
     resume. A successful options call is not a proof of EXITKILL behaviour.
+    The launcher supplies check to revalidate owner/deadline after siginfo and
+    options; standalone model callers retain their own environment checks.
     """
 
-    def __init__(self, reader, dispatcher, access, ticket, tid, uid):
+    def __init__(self, reader, dispatcher, access, ticket, tid, uid, *, check=None):
         if (reader.ledger is not dispatcher.lifecycle.ledger
                 or type(ticket) is not int or ticket <= 0
                 or type(tid) is not int or not 0 < tid < 2**31
@@ -32,6 +34,7 @@ class CoordinatorHandshake:
             raise CoordinatorHandshakeError('invalid coordinator handshake binding')
         self.reader, self.dispatcher, self.access = reader, dispatcher, access
         self.ticket, self.tid, self.uid = ticket, tid, uid
+        self.check = check
         self.attempted = False
         self.completed = False
         self.stopped = None
@@ -66,7 +69,11 @@ class CoordinatorHandshake:
                     or info.sender_uid != self.uid):
                 self._fail('expected trusted coordinator self-SIGSTOP')
             self.dispatcher.coordinator_signal_stop(self.ticket, self.tid)
+            if self.check is not None:
+                self.check()
             self.access.set_options(self.tid)
+            if self.check is not None:
+                self.check()
             self.access.resume_syscall(self.tid, 0)
             self.completed = True
         except (StopReadError, CreationDispatchError, PtraceBoundaryError, OSError) as error:
