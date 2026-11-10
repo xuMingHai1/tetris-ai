@@ -202,7 +202,9 @@ loaded-class/hash 观察绑定后返回 ACK 字节；尚未发送到 JVM，也�
 [独立进程 pidfd 清理](heart-fixed-witness-replay-settled-cleanup.md)在原 owner/deadline
 下先固定已认证的独立进程身份、发送 SIGKILL 再回收；已绑定创建事件的pending进程
 可在父结果缺失时沿用该路径，子/父均只凭实际reap结算；显式清理阶段可在原失败状态下
-读取已预留进程的在途FORK/VFORK事件并绑定child，全程不resume；线程与未握手身份仍拒绝，
+读取已预留进程的在途FORK/VFORK事件并绑定child；正常唯一wait owner已消费事件可通过
+原birth/预留记录一次性接管，成功读取的GETEVENTMSG不重读、不重复扣费，全程不resume；
+线程与未握手身份仍拒绝，
 成功发送后仅原birth的排队signal/syscall stop可共享计费后继续等待，不resume；
 仅合成验证，不代表完整整树清理或原生验收。
 

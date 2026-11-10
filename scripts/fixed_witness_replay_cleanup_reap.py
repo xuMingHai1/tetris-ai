@@ -12,7 +12,7 @@ import time
 
 from fixed_witness_replay_launch import CoordinatorLaunch
 from fixed_witness_replay_wait import decode_wait_status
-from fixed_witness_replay_wait_owner import WAIT_OPTIONS
+from fixed_witness_replay_wait_owner import WAIT_OPTIONS, BoundedWaitOwner, _OwnedWait
 
 
 class CleanupReapError(ValueError):
@@ -44,6 +44,7 @@ class CleanupReaper:
         self.creation_binding_started = False
         self.bound_creations = []
         self.last_creation_event = None
+        self.adopted_wait = None
         self._check()
         launch._cleanup_reap_claimed = True
         # Permanently revoke every normal wait/resume route. Keep an existing
@@ -131,6 +132,26 @@ class CleanupReaper:
                 progress = False
                 for item, (parent, access, expected_event) in bindings:
                     self._check()
+                    receipt = self._retained_wait(item, parent, expected_event)
+                    if receipt is not None:
+                        # This stop was already debited by normal StopReader.
+                        # A successful GETEVENTMSG is reused; an uncertain read
+                        # is never retried, and no second wait consumes the stop.
+                        if receipt.event_attempted and not receipt.event_read:
+                            raise CleanupReapError('retained event read was uncertain')
+                        if not receipt.event_attempted:
+                            receipt.event_attempted = True
+                            receipt.event_tid = access.event_tid(parent.tid)
+                            receipt.event_read = True
+                        child_tid = receipt.event_tid
+                        status = decode_wait_status(receipt.raw)
+                        self.last_creation_event = (item, parent, status, child_tid)
+                        self._check()
+                        child = dispatcher.cleanup_child_event(item, status.event, child_tid)
+                        self.bound_creations.append((parent.birth, child, child_tid))
+                        self._check()
+                        progress = True
+                        continue
                     try:
                         result = self.waitpid(parent.tid, WAIT_OPTIONS)
                     except InterruptedError:
@@ -169,6 +190,36 @@ class CleanupReaper:
         except BaseException:
             self.stopped = 'cleanup creation binding incomplete; preserve identities'
             raise
+
+    def _retained_wait(self, pending, parent, expected_event):
+        """Adopt a failed normal owner's exact record once, never raw tuples.
+
+        Only the registered BoundedWaitOwner issues records before dispatch.
+        Direct accept(), decoded StopFacts and caller-created tuples are not
+        provenance. Birth and reservation snapshots must still match exactly.
+        """
+        post = getattr(self.launch, '_normal_wait_dispatcher', None)
+        if post is None:
+            return None
+        owner = getattr(post, '_wait_owner', None)
+        if type(owner) is not BoundedWaitOwner or owner.last_wait is None:
+            return None
+        receipt = owner.last_wait
+        if type(receipt) is not _OwnedWait:
+            raise CleanupReapError('unmatched retained wait owner or birth')
+        if receipt.parent.birth != parent.birth:
+            return None
+        if (owner.dispatcher is not post or post.launch is not self.launch
+                or not owner.started or owner.stopped is None or post.stopped is None
+                or receipt.adopted or receipt.parent != parent
+                or receipt.pending != (pending,) or receipt.tid != parent.tid):
+            raise CleanupReapError('retained wait no longer matches pending creation')
+        receipt.adopted = True
+        self.adopted_wait = receipt
+        status = decode_wait_status(receipt.raw)
+        if status.kind != 'ptrace-event' or status.event != expected_event:
+            raise CleanupReapError('retained wait is not the matching creation event')
+        return receipt
 
     def _after_pidfd_kill(self, identities):
         """Composing owner calls only after every pinned SIGKILL succeeded.

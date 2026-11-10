@@ -7,6 +7,7 @@ unknown stop. Native scheduling still requires the host's original watchdog.
 import errno
 import os
 import time
+from dataclasses import dataclass
 
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
 from fixed_witness_replay_tasks import LIVE_TASKS
@@ -18,6 +19,24 @@ WAIT_OPTIONS = 1 | 0x40000000 | 0x20000000
 
 class WaitOwnerError(ValueError):
     """Whole-tree cleanup required; never retry a failed wait session."""
+
+
+@dataclass
+class _OwnedWait:
+    """Internal sole-waiter record, never supplied by a raw-stop caller.
+
+    Capture pre-wait birth/reservation and retain even partial GETEVENTMSG work.
+    A failed request is uncertain and must never be retried during cleanup.
+    """
+
+    parent: object
+    pending: tuple
+    tid: int
+    raw: int
+    event_attempted: bool = False
+    event_read: bool = False
+    event_tid: object = None
+    adopted: bool = False
 
 
 class BoundedWaitOwner:
@@ -47,6 +66,8 @@ class BoundedWaitOwner:
         self._last_birth = 0
         self.started = False
         self.stopped = None
+        self.last_wait = None
+        dispatcher._wait_owner = self
 
     def _check(self):
         if (self.dispatcher.stopped is not None or self.launch.stopped is not None
@@ -71,6 +92,9 @@ class BoundedWaitOwner:
         births = sorted(births, key=lambda item: (item[0] <= self._last_birth, item[0]))
         for ticket, tid in births:
             self._check()
+            parent = self.launch.ledger.identity(ticket)
+            pending = tuple(item for item in self.launch.ledger.cleanup_pending()
+                            if item.parent == ticket and item.child is None)
             try:
                 result = self.waitpid(tid, WAIT_OPTIONS)
             except InterruptedError:
@@ -99,7 +123,8 @@ class BoundedWaitOwner:
                 self._reject_wait(waited, status)
             # No owner/deadline recheck before accept: an observed stop must
             # debit even if the wait crossed the deadline or ownership changed.
-            self.dispatcher.accept(waited, status)
+            self.last_wait = _OwnedWait(parent, pending, waited, status)
+            self.dispatcher._accept_owned_wait(self, self.last_wait)
             self._last_birth = ticket
             return 'event'
         self._check()
