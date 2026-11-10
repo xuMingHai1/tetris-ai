@@ -29,7 +29,9 @@ class BoundedWaitOwner:
     the accepted live cap per round. Sleep is at most 10ms and the remaining
     original deadline, never a new timeout. Errors retain cleanup identities.
 
-    EXEC rekeys the next inventory; ordinary signals still stop. Drained
+    EXEC rekeys the next inventory; authenticated ordinary delivery preserves
+    the signal. WNOHANG polling continues servicing a vfork child while its
+    parent's syscall result is unavailable. Job-control stops fail closed. Drained
     bookkeeping is NOT a capability, whole-tree cleanup or COMPLETE receipt.
     """
 
