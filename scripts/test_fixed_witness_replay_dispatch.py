@@ -10,6 +10,120 @@ from test_fixed_witness_replay_ptrace import KernelFixture, entry, exit_info
 
 
 class CreationDispatchTest(unittest.TestCase):
+    def test_exec_event_matches_both_native_entries_without_identity_mutation(self):
+        for number in (59, 322):
+            self.setup_dispatch()
+            self.stop(number=number)
+            before = self.ledger.totals
+            facts = self.dispatch.exec_event(11, 11)
+            self.assertEqual((1, 11, 11, number),
+                             (facts.birth, facts.old_tid, facts.new_tid, facts.entry.number))
+            self.assertEqual(before, self.ledger.totals)
+            self.assertEqual(((1, 11),), self.dispatch.waiting_births())
+            self.assertEqual([p.GET_SYSCALL_INFO], [r[0] for r in self.kernel.requests])
+
+    def exec_thread(self):
+        self.setup_dispatch()
+        raw, size = entry(56)
+        # Native clone(flags=CLONE_THREAD|CLONE_SIGHAND|CLONE_VM).
+        import struct
+        raw = bytearray(raw)
+        struct.pack_into('<Q', raw, 32, 0x10000 | 0x800 | 0x100)
+        self.kernel.info, self.kernel.available = bytes(raw), size
+        self.dispatch.syscall_stop(1, 11)
+        child = self.dispatch.child_event(1, 11, 'CLONE', 12)
+        self.stop(result=12)
+        self.dispatch.newborn_signal_stop(child, 12)
+        self.stop(ticket=child, tid=12, number=59)
+        return child
+
+    def test_nonleader_exec_binds_old_tid_entry_and_keeps_both_wires(self):
+        child = self.exec_thread()
+        bindings = self.dispatch.waiting_births()
+        before = self.ledger.totals
+        facts = self.dispatch.exec_event(12, 11)
+        self.assertEqual(child, facts.birth)
+        self.assertEqual(bindings, self.dispatch.waiting_births())
+        self.assertEqual(before, self.ledger.totals)
+        self.assertTrue(self.ledger.identity(1).alive)
+        self.assertEqual(12, self.ledger.identity(child).tid)
+        self.assertIs(self.accesses[0], self.dispatch.stop_binding(11)[1])
+        self.assertIs(self.accesses[1], self.dispatch.stop_binding(12)[1])
+
+    def test_exec_event_rejects_missing_wrong_failed_and_newborn_entry(self):
+        for state in ('missing', 'getpid', 'creation', 'failed-exec', 'newborn'):
+            self.setup_dispatch()
+            old = new = 11
+            if state == 'getpid':
+                self.stop(number=39)
+            elif state == 'creation':
+                self.stop()
+            elif state == 'failed-exec':
+                self.stop(number=59)
+                self.stop(result=-2, error=1)
+            elif state == 'newborn':
+                self.stop()
+                self.dispatch.child_event(1, 11, 'FORK', 12)
+                old = new = 12
+            before = self.ledger.totals
+            with self.assertRaisesRegex(CreationDispatchError, 'unmatched native exec'):
+                self.dispatch.exec_event(old, new)
+            self.assertEqual(before.live, self.ledger.totals.live)
+            self.assertIsNotNone(self.dispatch.stopped)
+
+    def test_exec_event_rejects_unknown_wrong_group_and_invalid_tids(self):
+        for old, new in ((99, 11), (12, 12), (12, 99), (True, 11),
+                         (12, True), (0, 11), (12, 2**31)):
+            self.exec_thread()
+            before = self.ledger.totals
+            with self.assertRaises(CreationDispatchError):
+                self.dispatch.exec_event(old, new)
+            self.assertEqual(before, self.ledger.totals)
+
+    def test_exec_event_does_not_match_another_process_exec_entry(self):
+        child = self.newborn()
+        self.dispatch.newborn_signal_stop(child, 12)
+        self.stop(ticket=child, tid=12, number=59)
+        with self.assertRaisesRegex(CreationDispatchError, 'live group identity'):
+            self.dispatch.exec_event(12, 11)
+        self.assertEqual(3, self.ledger.totals.live)
+
+    def test_matched_exec_blocks_duplicate_event_and_all_following_syscall_stops(self):
+        for next_action in ('duplicate', 'entry', 'exit'):
+            self.setup_dispatch()
+            self.stop(number=59)
+            self.dispatch.exec_event(11, 11)
+            with self.assertRaises(CreationDispatchError):
+                if next_action == 'duplicate':
+                    self.dispatch.exec_event(11, 11)
+                elif next_action == 'entry':
+                    self.stop(number=39)
+                else:
+                    self.stop(result=0)
+            self.assertEqual((2, 2), (self.ledger.totals.attempts, self.ledger.totals.live))
+
+    def test_failed_exec_may_retry_but_reaped_birth_cannot_supply_event(self):
+        self.setup_dispatch()
+        self.stop(number=59)
+        self.stop(result=-2, error=1)
+        self.stop(number=322)
+        self.dispatch.exec_event(11, 11)
+        # Synthetic old-identity reap only; no actual EXEC or cleanup claim.
+        self.dispatch.reaped(1, 11)
+        self.dispatch.require_drained()
+        with self.assertRaises(CreationDispatchError):
+            self.dispatch.exec_event(11, 11)
+
+    def test_exec_event_rejects_stopped_ledger_without_retiring_leader(self):
+        self.setup_dispatch(wait_stops=1)
+        self.stop(number=59)
+        with self.assertRaisesRegex(ValueError, 'wait-stop limit'):
+            self.ledger.wait_stop()
+        with self.assertRaisesRegex(CreationDispatchError, 'ledger stopped'):
+            self.dispatch.exec_event(11, 11)
+        self.assertTrue(self.ledger.identity(1).alive)
+        self.assertEqual(11, self.ledger.identity(1).tid)
+
     def setup_dispatch(self, **limits):
         self.ledger = TaskLedger(10, **limits)
         ticket = self.ledger.reserve(0, 'coordinator')
