@@ -125,6 +125,28 @@ ECHILD或terminal均失败，不猜测不存在/已回收。消费terminal时先
 新增17项fake-only测试和Linux普通JUnit bridge（30秒上限、17项零skip），覆盖失败后
 FORK/VFORK/clone完整绑定到kill/reap、原预算/失败保持、idle/EINTR、错误事件/身份、
 stop耗尽、期限/owner变化、wire失败保留、ECHILD与terminal隔离、畸形结果和一次性。
-原已绑定pending测试保持独立。本组件不自动调用本阶段，也不处理正常owner已消费却未
-保存的创建事件；这些接线与线程EXEC、未握手身份和复杂ptrace-event drain仍待实施。
+原已绑定pending测试保持独立。本组件不自动调用本阶段；正常owner已消费事件的接管
+见下方新增记录。线程EXEC、未握手身份和复杂ptrace-event drain仍待实施。
 未执行原生fork/ptrace/pidfd/signal/probe、网络clean-build或历史22步。
+
+## 本次新增修改：接管正常 wait owner 已消费的创建事件
+
+`BoundedWaitOwner`在实际定向wait前保存parent birth和未绑定预留快照，获得匹配结果后、
+进入`PostHandshakeDispatcher`前保存内部`_OwnedWait`记录。正常`StopReader`仍先扣共享
+stop，再检查owner/deadline及读取内核。`_StopAccess`将GETEVENTMSG的尝试标记、成功值
+存到该记录；读取抛错时保留不确定状态，不能以清理名义重试。直接`accept()`和调用方的
+raw tuple/StopFacts都不会产生该来源记录；此机制仍以唯一可信host/waiter为前提。
+
+失败后显式`bind_creation_events()`先检查注册的原正常wait owner、失败状态、原deadline、
+完整parent identity、同一reservation及原FORK/VFORK映射，再一次性接管匹配记录。
+已成功读取GETEVENTMSG时复用该值，不进行第二次wait、GETEVENTMSG或stop扣费；
+已扣费但尚未尝试读取时，只允许清理owner读取一次。不确定读取、非创建事件、身份或
+预留变化、重复接管都失败关闭。没有记录的预留继续沿用既有实际新事件等待阶段。
+已绑定child不会重复接管，wire初始化失败仍保留birth，所有原失败和累计/live预算不变。
+原deadline已到时只保留证据，不延长时间来完成接管。
+
+16项新增fake-only行为测试及Linux普通JUnit bridge（30秒、要求16项零skip）覆盖上述
+接管到pin/kill/reap，以及vfork/legacy clone映射、原owner恢复、预算耗尽、跨deadline、
+不确定读取、直接调用拒绝、身份/预留变化、重复child和wire失败。仅合成验证；未运行
+原生任务、ptrace/pidfd/signal/probe、网络clean-build或历史输入。生产/冻结协议未变，
+完整host接线与复杂整树清理仍未完成，原整体验收和停止门继续保持。

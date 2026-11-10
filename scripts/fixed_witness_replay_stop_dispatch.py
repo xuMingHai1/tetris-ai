@@ -33,6 +33,19 @@ class PostHandshakeDispatcher:
         self.launch = launch
         self.stopped = None
         self._newborn = set()
+        self._active_wait = None
+        launch._normal_wait_dispatcher = self
+
+    def _accept_owned_wait(self, owner, receipt):
+        """Only the registered wait loop may retain cleanup-readable facts."""
+        if (getattr(self, '_wait_owner', None) is not owner
+                or owner.last_wait is not receipt or self._active_wait is not None):
+            raise StopDispatchError('exclusive actual wait record required')
+        self._active_wait = receipt
+        try:
+            return self.accept(receipt.tid, receipt.raw)
+        finally:
+            self._active_wait = None
 
     def accept(self, tid, raw_status):
         """Account before identity/deadline checks; never retry uncertain resume.
@@ -123,4 +136,15 @@ class _StopAccess:
         # or event stop before accessing the kernel, retaining cleanup credit.
         if ticket in self.owner._newborn and name != 'signal_info':
             raise StopDispatchError('newborn initial signal stop required')
+        if name == 'event_tid' and self.owner._active_wait is not None:
+            receipt = self.owner._active_wait
+            def read_event(tid):
+                if receipt.event_attempted:
+                    raise StopDispatchError('event message already attempted')
+                receipt.event_attempted = True
+                result = wire.event_tid(tid)
+                receipt.event_tid = result
+                receipt.event_read = True
+                return result
+            return read_event
         return getattr(wire, name)
