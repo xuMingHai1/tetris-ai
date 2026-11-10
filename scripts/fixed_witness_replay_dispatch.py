@@ -4,6 +4,8 @@ The caller owns wait-stop charging, signal/stop authentication, trusted
 coordinator admission and exec identity. Each birth owns a separate wire object
 so a reaped clone3 intervention cannot leak into a reused numeric TID.
 """
+from dataclasses import dataclass
+
 from fixed_witness_replay_creation import SYS_CLONE, SYS_FORK, SYS_VFORK, SYS_CLONE3
 from fixed_witness_replay_ptrace import PtraceBoundaryError, SyscallInfo
 from fixed_witness_replay_lifecycle import CreationLifecycleError
@@ -11,6 +13,16 @@ from fixed_witness_replay_lifecycle import CreationLifecycleError
 
 class CreationDispatchError(ValueError):
     """Latch failure and clean up the whole session; do not resume."""
+
+
+@dataclass(frozen=True)
+class ExecEventFacts:
+    """Matched entry/event facts only, never identity migration or resume proof."""
+
+    birth: int
+    old_tid: int
+    new_tid: int
+    entry: SyscallInfo
 
 
 class CreationSyscallDispatcher:
@@ -28,6 +40,7 @@ class CreationSyscallDispatcher:
         self._tasks = {}
         self._pending = {}
         self._sequence = {}
+        self._exec_events = {}
         self._coordinator = coordinator_ticket
         self._handshake_available = True
         self.stopped = None
@@ -158,6 +171,8 @@ class CreationSyscallDispatcher:
                 self._fail('unsupported syscall stop operation')
             info.require_native(info.operation)
             previous = self._sequence[ticket]
+            if ticket in self._exec_events:
+                self._fail('exec identity transition not installed')
             if previous == 'newborn':
                 self._fail('newborn initial stop admission required')
             if info.operation == 1:
@@ -188,6 +203,46 @@ class CreationSyscallDispatcher:
         except (PtraceBoundaryError, CreationLifecycleError) as error:
             self._fail(str(error))
 
+    def exec_event(self, old_tid, new_tid):
+        """Match an externally authenticated EXEC event to its native entry.
+
+        The sole owner must charge the wait and authenticate PTRACE_EVENT_EXEC
+        and GETEVENTMSG(old_tid) at new_tid before calling. Same PID namespace
+        as the tracer is required. A message alone is not authentication.
+        No kernel reads, ledger mutation, wire rekey or resume happen here.
+        After success this birth cannot consume another syscall until a future
+        coherent identity transition is implemented; authenticated reap remains
+        available only at the old binding, NOT at a migrated kernel identity.
+        PostHandshakeDispatcher deliberately does not call this partial API.
+        """
+        self._running()
+        if (type(old_tid) is not int or not 0 < old_tid < 2**31
+                or type(new_tid) is not int or not 0 < new_tid < 2**31):
+            self._fail('invalid exec event TIDs')
+        ticket, _ = self.stop_binding(old_tid)
+        previous = self._sequence[ticket]
+        if (ticket in self._exec_events or type(previous) is not SyscallInfo
+                or previous.operation != 1 or previous.number not in (59, 322)
+                or ticket in self._pending):
+            self._fail('exec event requires unmatched native exec entry')
+        try:
+            previous.require_native(1)
+        except PtraceBoundaryError as error:
+            self._fail(str(error))
+        ledger = self.lifecycle.ledger
+        if ledger.totals.stopped is not None:
+            self._fail('task ledger stopped')
+        identity = ledger.identity(ticket)
+        if not identity.alive or identity.tid != old_tid or identity.tgid != new_tid:
+            self._fail('exec event does not match live group identity')
+        target, _ = self.stop_binding(new_tid)
+        leader = ledger.identity(target)
+        if not leader.alive or leader.group_birth != identity.group_birth:
+            self._fail('exec event target is outside the birth group')
+        facts = ExecEventFacts(ticket, old_tid, new_tid, previous)
+        self._exec_events[ticket] = facts
+        return facts
+
     def child_event(self, ticket, tid, event, child_tid):
         """Consume decoded event plus a caller-authenticated GETEVENTMSG TID."""
         self._running()
@@ -214,11 +269,12 @@ class CreationSyscallDispatcher:
             self._fail(str(error))
         self._pending.pop(ticket, None)
         self._sequence.pop(ticket, None)
+        self._exec_events.pop(ticket, None)
         del self._tasks[ticket]
 
     def require_drained(self):
         """Bookkeeping only; never a capability or COMPLETE certificate."""
-        if self._tasks or self._pending or self._sequence:
+        if self._tasks or self._pending or self._sequence or self._exec_events:
             self._fail('unreaped dispatch bindings')
         self._running()
         try:

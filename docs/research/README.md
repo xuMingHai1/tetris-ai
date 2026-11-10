@@ -158,6 +158,9 @@ CLONE_THREAD 关系，区分组 birth 与数值 TGID，保留逐线程计费和 
 [EXEC 身份账本迁移](heart-fixed-witness-replay-exec-ledger.md)区分当前 leader 的内核撤销
 与实际终态 reap，保留原组 birth、逐次尝试计费和迁移后 TID；仅纯模型，EXEC 接线仍关闭。
 
+[EXEC 入口与事件匹配](heart-fixed-witness-replay-exec-event.md)把旧 TID 的 native exec
+入口绑定到同组 TGID 事件；仅匹配已认证输入，尚不迁移身份或开放 resume。
+
 [实际进程观测组件](heart-fixed-witness-replay-observation.md)读取Linux实际argv/环境/executable/cwd与
 进程身份，人工子进程验证拒绝漂移；尚无JVM握手、loaded-class/网络证明或历史22步执行许可。
 
