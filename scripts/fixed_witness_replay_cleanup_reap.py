@@ -41,6 +41,9 @@ class CleanupReaper:
         self._killed_births = ()
         self.drained_stops = 0
         self.last_drained_stop = None
+        self.creation_binding_started = False
+        self.bound_creations = []
+        self.last_creation_event = None
         self._check()
         launch._cleanup_reap_claimed = True
         # Permanently revoke every normal wait/resume route. Keep an existing
@@ -59,6 +62,8 @@ class CleanupReaper:
             raise CleanupReapError('original cleanup deadline exhausted')
 
     def _inventory(self):
+        if self.stopped is not None:
+            raise CleanupReapError('cleanup already failed')
         identities = self.ledger.cleanup_identities()
         if any(item.tid in self.launch.unsettled_terminal_waits for item in identities):
             raise CleanupReapError('consumed terminal wait has unresolved birth identity')
@@ -90,6 +95,80 @@ class CleanupReaper:
                               or identities[0].birth != self.launch.ticket):
             raise CleanupReapError('unbound cleanup inventory')
         return identities
+
+    def bind_creation_events(self):
+        """Consume in-flight process events before pidfd inventory acquisition.
+
+        Explicit, one-shot cleanup phase: never normal StopReader/dispatch,
+        resume, syscall-result settlement or a new reservation. Only positive
+        known parent TIDs are polled; no child stop or unknown task is guessed.
+        Other stops, ECHILD and terminal results fail closed (terminal PID is
+        quarantined before checks). The original deadline bounds idle polling.
+        """
+        if self.creation_binding_started or self.started or self._killed_births:
+            raise CleanupReapError('cleanup creation binding already attempted or too late')
+        self.creation_binding_started = True
+        try:
+            while True:
+                self._check()
+                identities = self.ledger.cleanup_identities()
+                if (len({item.group_birth for item in identities}) != len(identities)
+                        or any(item.tid != item.tgid
+                               or item.tid in self.launch.unsettled_terminal_waits
+                               for item in identities)):
+                    raise CleanupReapError('ambiguous cleanup creation inventory')
+                pending = tuple(item for item in self.ledger.cleanup_pending()
+                                if item.child is None)
+                if not pending:
+                    self._inventory()
+                    return tuple(self.bound_creations)
+                dispatcher = self.launch.dispatcher
+                if dispatcher is None:
+                    raise CleanupReapError('cleanup creation dispatcher required')
+                # Validate the whole selected batch BEFORE the first wait.
+                bindings = tuple((item, dispatcher.cleanup_creation_binding(item))
+                                 for item in pending)
+                progress = False
+                for item, (parent, access, expected_event) in bindings:
+                    self._check()
+                    try:
+                        result = self.waitpid(parent.tid, WAIT_OPTIONS)
+                    except InterruptedError:
+                        continue
+                    self.last_wait = (parent.birth, result)
+                    if type(result) is not tuple or len(result) != 2:
+                        raise CleanupReapError('malformed cleanup creation wait')
+                    tid, raw = result
+                    self.launch.retain_terminal_wait(tid, raw)
+                    if type(raw) is int and raw & 0xff == 0x7f:
+                        self.ledger.cleanup_wait_stop()
+                    self._check()
+                    if type(tid) is not int or type(raw) is not int:
+                        raise CleanupReapError('invalid cleanup creation wait tuple')
+                    if tid == 0 and raw == 0:
+                        continue
+                    if tid != parent.tid or self.ledger.identity(parent.birth) != parent:
+                        raise CleanupReapError('cleanup creation parent mismatch')
+                    status = decode_wait_status(raw)
+                    if status.kind != 'ptrace-event' or status.event != expected_event:
+                        raise CleanupReapError('matching in-flight creation event required')
+                    child_tid = access.event_tid(tid)
+                    self.last_creation_event = (item, parent, status, child_tid)
+                    self._check()
+                    child = dispatcher.cleanup_child_event(item, status.event, child_tid)
+                    # Binding is retained even if the post-read deadline fails.
+                    self.bound_creations.append((parent.birth, child, child_tid))
+                    self._check()
+                    progress = True
+                if not progress:
+                    self._check()
+                    remaining = self.launch.deadline - self.launch.clock()
+                    if not math.isfinite(remaining) or remaining <= 0:
+                        raise CleanupReapError('original cleanup deadline exhausted')
+                    self.sleep(min(0.01, remaining))
+        except BaseException:
+            self.stopped = 'cleanup creation binding incomplete; preserve identities'
+            raise
 
     def _after_pidfd_kill(self, identities):
         """Composing owner calls only after every pinned SIGKILL succeeded.

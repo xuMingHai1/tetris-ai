@@ -94,3 +94,37 @@ Linux v6.17 [`kernel/fork.c:2367–2374`](https://github.com/torvalds/linux/blob
 clone3拒绝、部分pin失败、newborn排队stop和terminal消费跨deadline后的隔离。
 Windows只提供bridge编译/平台skip；未运行任何原生ptrace/pidfd/probe或历史输入。
 这里只扩展已知进程birth库存，不是完整整树清理，生产API/运行方式和README/AGENTS不变。
+
+## 本次新增修改：失败后读取在途进程创建事件
+
+`CleanupReaper.bind_creation_events()`是显式的一次性清理阶段，由同一个独占wait owner
+在`SettledProcessCleanup.run()`取得任何pidfd前调用。它只接受已有native入口、dispatcher
+pending及lifecycle obligation一致的fork/vfork/legacy process clone预留；先检查整批
+已知parent的原birth/TGID和独占wire，再用原`WNOHANG|__WALL|__WNOTHREAD`轮询正parent TID。
+没有事件时最多睡10ms，仍受原deadline约束；不resume来制造事件、不建立新预留或额度。
+
+实际wait得到原obligation预期的FORK/VFORK事件后，先扣共享stop，再读取该parent wire的
+GETEVENTMSG。`CreationSyscallDispatcher.cleanup_child_event()`在失败状态下只绑定原预留
+的child，不经过正常`_running`路径、不清除任何失败。child ledger/dispatcher birth在
+fallible wire初始化前保留；初始化失败则本阶段停止，不丢失已出生任务。GETEVENTMSG后
+遇到owner/deadline失败时，保留`last_creation_event`原事实，不能当作已认证birth继续pin。
+
+源码依据为Linux v6.17
+[`kernel/fork.c:2636–2648`](https://github.com/torvalds/linux/blob/v6.17/kernel/fork.c#L2636)
+的创建事件/父返回顺序，及
+[`include/linux/ptrace.h:160–184`](https://github.com/torvalds/linux/blob/v6.17/include/linux/ptrace.h#L160)
+规定GETEVENTMSG使用ptracer namespace中的child PID。仍要求原同PID namespace、唯一
+owner/没有外部ptracer的可信host条件，静态依据不是宿主能力结果。
+
+正常StopReader和PostHandshakeDispatcher始终保持失败锁存；本阶段不设置options、
+不写register、不读取syscall-info、不注入信号、不消费parent result。完成绑定后才能沿用
+已有全库存pin/SIGKILL/真实reap路径。非预期stop、EXEC、线程、clone3、未知/重复child、
+ECHILD或terminal均失败，不猜测不存在/已回收。消费terminal时先记录原PID隔离标记；
+只有既有认证reap能释放live credit。失败后不重试本阶段，也不继续pin或执行正常工作。
+
+新增17项fake-only测试和Linux普通JUnit bridge（30秒上限、17项零skip），覆盖失败后
+FORK/VFORK/clone完整绑定到kill/reap、原预算/失败保持、idle/EINTR、错误事件/身份、
+stop耗尽、期限/owner变化、wire失败保留、ECHILD与terminal隔离、畸形结果和一次性。
+原已绑定pending测试保持独立。本组件不自动调用本阶段，也不处理正常owner已消费却未
+保存的创建事件；这些接线与线程EXEC、未握手身份和复杂ptrace-event drain仍待实施。
+未执行原生fork/ptrace/pidfd/signal/probe、网络clean-build或历史22步。
