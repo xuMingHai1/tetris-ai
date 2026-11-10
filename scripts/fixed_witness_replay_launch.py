@@ -48,6 +48,19 @@ class CoordinatorLaunch:
         self.ticket = self.cleanup_tid = self.dispatcher = self.handshake = None
         self.attempted = self.admitted = False
         self.stopped = None
+        # Actual terminal waits may consume a PID before later authentication
+        # fails. Retain that ambiguity independently of live-credit accounting.
+        self.unsettled_terminal_waits = set()
+
+    def retain_terminal_wait(self, tid, raw_status):
+        """Record possible consumed terminals before any fallible validation.
+
+        Only authenticated reap may clear a marker. Non-stop malformed words
+        also retain ambiguity; this method grants no accounting/reap authority.
+        """
+        if (type(tid) is int and 0 < tid < 2**31 and type(raw_status) is int
+                and raw_status & 0xff != 0x7f):
+            self.unsettled_terminal_waits.add(tid)
 
     @classmethod
     def for_host(cls, ledger, command, cwd, environment, stdio, deadline):
