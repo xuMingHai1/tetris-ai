@@ -197,15 +197,19 @@ class VforkSessionTest(unittest.TestCase):
         self.assertEqual(calls, self.wait.call_count)
         self.assertEqual(1, len(self.events))
 
-    def test_sigchld_during_pending_parent_preserves_vfork_result_obligation(self):
+    def test_sigchld_after_parent_result_preserves_next_syscall_sequence(self):
         self.start_vfork()
         self.stop(12, 0)
+        # syscall-exit work precedes signal delivery on return to user mode.
+        self.parent_result()
         self.parent.signal_info.return_value = SignalInfo(17, 0, 1, 12, 1000)
         self.stop(11, 0x117f)
-        self.parent_result()
+        self.stop(11, 0x857f, native_entry(39))
+        self.stop(11, 0x857f, decode_syscall_info(*exit_info(11, 0)))
         self.stop(11, 0)
         self.drained()
-        self.assertEqual([call(11, 0), call(11, 0), call(11, 17), call(11, 0)],
+        self.assertEqual([call(11, 0), call(11, 0), call(11, 0), call(11, 17),
+                          call(11, 0), call(11, 0)],
                          self.parent.resume_syscall.call_args_list)
 
     def test_vfork_reservation_exhaustion_never_releases_creation_entry(self):

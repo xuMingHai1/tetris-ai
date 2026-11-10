@@ -11,6 +11,10 @@ Linux v6.17 [kernel/fork.c](https://github.com/torvalds/linux/blob/v6.17/kernel/
 `wait_for_vfork_done`，最后返回子 PID。TRACEVFORK_DONE 未被当前冻结 options
 启用，因此不新增该事件，也不等待它来推进状态。
 
+同版本 [include/linux/entry-common.h](https://github.com/torvalds/linux/blob/v6.17/include/linux/entry-common.h#L172)
+先执行 syscall exit work，再进入返回用户态的 signal loop。SIGCHLD 用例因此放在
+父 vfork 出口之后，再检查下一次普通 syscall；不伪造在出口前的信号交付时序。
+
 `CoordinatorLaunch.launch` 先预留协调器；`InitialWaitOwner.run` 在原 owner/deadline
 下完成握手并移交 dispatcher；`BoundedWaitOwner.run` 对已绑定 birth 做正 TID
 WNOHANG 轮询。父出口不可用返回0，继续轮询子任务；未知子不被 wait(-1) 消费。
@@ -26,7 +30,7 @@ WNOHANG 轮询。父出口不可用返回0，继续轮询子任务；未知子�
 
 - native vfork 与 legacy clone(VM|VFORK|SIGCHLD)，分别接 execve/execveat；
 - 子 exec 先于父结果、父结果先于观测到的子 EXEC、子退出/致命信号先于父结果；
-- 子 exec 失败后重试，及 pending 父任务收到 SIGCHLD 后保持原结果义务；
+- 子 exec 失败后重试，及父结果之后交付 SIGCHLD 并继续下一次 syscall；
 - pending vfork 耗尽原时限、子 EXEC stop 跨时限先扣计数再拒绝访问；
 - 共享停点额度到界阻止读取 EXEC facts，累计创建额度不足阻止恢复入口；
 - 子已 reap 后父结果错配仍保留父 credit/pending，锁存且不重试。
