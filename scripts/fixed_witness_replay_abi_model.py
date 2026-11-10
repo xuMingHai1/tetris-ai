@@ -49,6 +49,7 @@ class ProbeRecord:
                 and all(type(value) is str and re.fullmatch('[0-9a-f]{64}', value)
                         for value in (self.source_sha256, self.interpreter_sha256))
                 and type(self.argv) is tuple
+                and all(type(arg) is str for arg in self.argv)
                 and self.argv == (self.interpreter, '-I', '-B', self.source, self.mode))
 
 

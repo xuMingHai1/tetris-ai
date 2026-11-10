@@ -2,6 +2,7 @@
 from dataclasses import FrozenInstanceError, replace
 import struct
 import unittest
+from unittest.mock import ANY
 
 from fixed_witness_replay_abi_model import AbiModelError, AbiProbeModel, ExecIdentity, ProbeRecord
 from fixed_witness_replay_ptrace import PtraceBoundaryError, SyscallInfo, decode_syscall_info
@@ -72,6 +73,11 @@ class AbiModelTest(unittest.TestCase):
             ExecIdentity(1, 1, 1, 1).generation = 2
         with self.assertRaises(AbiModelError):
             AbiProbeModel((replace(first, argv=list(first.argv)), second))
+        with self.assertRaises(AbiModelError):
+            AbiProbeModel((replace(first, argv=(ANY,) * 5), second))
+        model = AbiProbeModel(records())
+        with self.assertRaises(AbiModelError):
+            model.bind('x32', ExecIdentity(2, 2, 100, 1), replace(first, argv=(ANY,) * 5))
 
     def test_lexical_paths_hashes_and_exact_argv(self):
         first, second = records()
