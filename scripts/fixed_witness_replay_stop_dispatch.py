@@ -42,6 +42,7 @@ class PostHandshakeDispatcher:
         whole-tree cleanup must use authenticated live birth state, never that
         stale number alone. After failure, this is not a cleanup reap API.
         """
+        self.launch.retain_terminal_wait(tid, raw_status)
         access = _StopAccess(self, tid)
         try:
             facts = self.launch.reader.read(tid, raw_status, access)
@@ -50,6 +51,7 @@ class PostHandshakeDispatcher:
             resume_signal = 0
             if kind in ('exited', 'signaled'):
                 self.launch.dispatcher.reaped(ticket, tid)
+                self.launch.unsettled_terminal_waits.discard(tid)
                 self._newborn.discard(ticket)
                 return facts
             if ticket in self._newborn:

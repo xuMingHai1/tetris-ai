@@ -199,6 +199,10 @@ loaded-class/hash 观察绑定后返回 ACK 字节；尚未发送到 JVM，也�
 当前没有可直接采用的普通 frozen-warning recovery discriminator。不得继续从原 seed 调 rank cap、persistence N 或 guard 比例来“救活”已否决设计。若有新假设，先冻结可观测特征与协议，再收集独立证据。
 
 
+[独立进程 pidfd 清理](heart-fixed-witness-replay-settled-cleanup.md)在原 owner/deadline
+下先固定已认证的独立进程身份、发送 SIGKILL 再回收；未决创建/线程与未握手身份仍拒绝，
+仅合成验证，不代表完整整树清理或原生验收。
+
 [vfork 组合监督验证](heart-fixed-witness-replay-vfork-session.md)串接 fake launch、
 初始握手和统一 wait loop，覆盖父出口不可用时的子 exec/退出及原预算失败路径；
 仅合成验证，不是原生 ptrace、完整清理或历史回放验收。
