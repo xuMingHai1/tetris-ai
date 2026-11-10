@@ -22,6 +22,9 @@ deadline 和 tuple 校验前扣同一个 wait-stop 计数，达到原上限即�
 - `ECHILD`、错误目标、未知 status、观测到 stop、owner/deadline 失效均为不完整。
   不推断已 reap，不 retry，不通过 signal injection 解决停止。`last_wait` 保留最后一次
   消费结果，`reaped` 只记录完成账本结算的终态；跨 deadline 消费终态也不能报成功。
+  cleanup也在后续验证前隔离已消费terminal PID，成功认证reap才清除，避免失败后复用。
+  只有[组合pidfd清理](heart-fixed-witness-replay-settled-cleanup.md)已成功发送SIGKILL的
+  精确birth库存可以drain普通signal/syscall stop；独立调用仍拒绝stop，ptrace事件始终拒绝。
 - idle/EINTR 不产生额度，最多 sleep 10ms 且不超过原剩余时限。没有额外清理窗口。
   原宿主 watchdog、已预留清理时间、计费 writer 和失败证据输出仍由后续宿主承担。
 

@@ -80,6 +80,7 @@ class SettledProcessCleanup:
                     raise CleanupReapError('invalid pidfd signal transport result')
                 self.signalled.append(item.birth)
                 self._same_inventory(identities)
+            self.reaper._after_pidfd_kill(identities)
             result = self.reaper.run()
             failed = False
             return result

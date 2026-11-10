@@ -4,6 +4,7 @@ from unittest.mock import Mock, call
 
 from fixed_witness_replay_settled_cleanup import SettledProcessCleanup
 from fixed_witness_replay_cleanup_reap import CleanupReapError
+from fixed_witness_replay_tasks import TaskAccountingError
 from fixed_witness_replay_ptrace import decode_syscall_info
 from fixed_witness_replay_wait_owner import WAIT_OPTIONS
 from fixed_witness_replay_wait_owner import BoundedWaitOwner
@@ -158,14 +159,125 @@ class SettledCleanupTest(unittest.TestCase):
                     self.owner().run()
                 self.assertEqual([], self.transport.mock_calls)
 
-    def test_pending_stop_after_kill_debits_shared_budget_and_fails_without_resume(self):
+    def test_pending_stops_after_kill_debit_shared_budget_without_resume(self):
         self.fixture.stopped()
-        self.transport.wait.return_value = (11, 0x137f)
-        with self.assertRaisesRegex(CleanupReapError, 'observed stop'):
-            self.owner().run()
-        self.assertEqual((2, 2), (self.ledger.totals.live, self.ledger.totals.wait_stops))
+        self.transport.wait.side_effect = [(11, 0x137f), (11, 0x857f), (11, 9)]
+        owner = self.owner()
+        result = owner.run()
+        self.assertEqual((1, 3), (self.ledger.totals.live, self.ledger.totals.wait_stops))
+        self.assertEqual(2, owner.reaper.drained_stops)
+        self.assertEqual('syscall-stop', owner.reaper.last_drained_stop[2].kind)
+        self.assertEqual('signaled', result[0][2].kind)
+        self.assertEqual([call(0.01), call(0.01)], self.fixture.sleep.call_args_list)
         self.transport.close.assert_called_once_with(70)
         self.assertEqual([], self.fixture.fixture.wire.mock_calls)
+
+    def test_killed_stop_drain_remains_round_robin_across_processes(self):
+        self.tree()
+        self.transport.wait.side_effect = [(11, 0x857f), (12, 9), (11, 9)]
+        owner = self.owner()
+        result = owner.run()
+        self.assertEqual([(2, 12), (1, 11)], [(b, t) for b, t, _ in result])
+        self.assertEqual([call(11, WAIT_OPTIONS), call(12, WAIT_OPTIONS),
+                          call(11, WAIT_OPTIONS)], self.transport.wait.call_args_list)
+        self.assertEqual(1, owner.reaper.drained_stops)
+        self.assertEqual([], self.fixture.fixture.wire.mock_calls)
+
+    def test_ptrace_events_after_kill_remain_unhandled_and_fail_closed(self):
+        for event in (1, 2, 3, 4):
+            with self.subTest(event=event):
+                self.setUp()
+                self.transport.wait.return_value = (11, (event << 16) | 0x057f)
+                owner = self.owner()
+                with self.assertRaisesRegex(CleanupReapError, 'observed stop'):
+                    owner.run()
+                self.assertEqual((2, 2), (self.ledger.totals.live, self.ledger.totals.wait_stops))
+                self.assertEqual(0, owner.reaper.drained_stops)
+                self.assertEqual([], self.fixture.fixture.wire.mock_calls)
+
+    def test_wrong_target_or_invalid_stop_cannot_enter_drain(self):
+        for tid, raw in ((99, 0x137f), (11, 0x7f), (11, 0x99057f)):
+            self.setUp()
+            self.transport.wait.return_value = (tid, raw)
+            owner = self.owner()
+            with self.assertRaises(ValueError):
+                owner.run()
+            self.assertEqual(2, self.ledger.totals.wait_stops)
+            self.assertEqual(0, owner.reaper.drained_stops)
+            self.assertEqual(2, self.ledger.totals.live)
+
+    def test_queued_stop_after_deadline_is_charged_but_not_drained(self):
+        def wait(*args):
+            self.fixture.fixture.clock.return_value = 100.0
+            return (11, 0x857f)
+        self.transport.wait.side_effect = wait
+        owner = self.owner()
+        with self.assertRaisesRegex(CleanupReapError, 'deadline'):
+            owner.run()
+        self.assertEqual(2, self.ledger.totals.wait_stops)
+        self.assertEqual(0, owner.reaper.drained_stops)
+        self.assertEqual(2, self.ledger.totals.live)
+
+    def test_queued_stops_cannot_allocate_a_new_budget(self):
+        self.fixture.setUp(wait_stops=2)
+        self.launch, self.ledger = self.fixture.launch, self.fixture.ledger
+        self.fixture.stopped()
+        self.transport.wait.return_value = (11, 0x857f)
+        owner = self.owner()
+        with self.assertRaises(TaskAccountingError):
+            owner.run()
+        self.assertEqual(0, owner.reaper.drained_stops)
+        self.assertEqual(2, self.ledger.totals.wait_stops)
+        self.assertEqual(2, self.ledger.totals.live)
+        self.assertEqual('ledger failure', self.ledger.totals.stopped)
+
+    def test_endless_stop_stream_expires_on_original_deadline(self):
+        self.transport.wait.return_value = (11, 0x137f)
+        self.fixture.sleep.side_effect = lambda seconds: setattr(
+            self.fixture.fixture.clock, 'return_value', 100.0)
+        owner = self.owner()
+        with self.assertRaisesRegex(CleanupReapError, 'deadline'):
+            owner.run()
+        self.transport.wait.assert_called_once()
+        self.transport.send.assert_called_once()
+        self.assertEqual(2, self.ledger.totals.live)
+
+    def test_terminal_consumed_at_cleanup_expiry_is_quarantined(self):
+        def wait(*args):
+            self.fixture.fixture.clock.return_value = 100.0
+            return (11, 9)
+        self.transport.wait.side_effect = wait
+        with self.assertRaisesRegex(CleanupReapError, 'deadline'):
+            self.owner().run()
+        self.assertEqual({11}, self.launch.unsettled_terminal_waits)
+        self.assertEqual(2, self.ledger.totals.live)
+
+    def test_mismatched_terminal_and_failed_reap_keep_consumed_marker(self):
+        for failure in ('target', 'reap'):
+            self.setUp()
+            self.transport.wait.return_value = (99 if failure == 'target' else 11, 9)
+            if failure == 'reap':
+                self.launch.dispatcher.reaped = Mock(side_effect=ValueError('failed reap'))
+            with self.assertRaises(ValueError):
+                self.owner().run()
+            self.assertEqual({99 if failure == 'target' else 11},
+                             self.launch.unsettled_terminal_waits)
+            self.assertEqual(2, self.ledger.totals.live)
+
+    def test_cleanup_authenticated_terminal_clears_only_its_marker(self):
+        self.launch.unsettled_terminal_waits.add(99)
+        self.owner().run()
+        self.assertEqual({99}, self.launch.unsettled_terminal_waits)
+
+    def test_changed_birth_during_queued_stop_is_not_drained(self):
+        def wait(*args):
+            self.ledger.reaped(1)
+            return (11, 0x857f)
+        self.transport.wait.side_effect = wait
+        owner = self.owner()
+        with self.assertRaisesRegex(CleanupReapError, 'birth changed'):
+            owner.run()
+        self.assertEqual(0, owner.reaper.drained_stops)
 
     def test_echild_after_signal_is_not_reap(self):
         self.transport.wait.side_effect = ChildProcessError('not reaped here')

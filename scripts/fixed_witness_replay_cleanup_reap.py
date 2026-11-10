@@ -2,7 +2,8 @@
 
 This intentionally supports settled process births only. The trusted host must
 still terminate tasks and handle unresolved creations/thread exec transitions.
-An observed stop is charged and rejected, never resumed by this component.
+Stops are never resumed. Only settled births successfully pidfd-SIGKILLed by
+the composing cleanup owner may drain queued signal/syscall stops.
 """
 import math
 import os
@@ -36,6 +37,9 @@ class CleanupReaper:
         self.stopped = None
         self.reaped = []
         self.last_wait = None
+        self._killed_births = ()
+        self.drained_stops = 0
+        self.last_drained_stop = None
         self._check()
         launch._cleanup_reap_claimed = True
         # Permanently revoke every normal wait/resume route. Keep an existing
@@ -55,6 +59,8 @@ class CleanupReaper:
 
     def _inventory(self):
         identities = self.ledger.cleanup_identities()
+        if any(item.tid in self.launch.unsettled_terminal_waits for item in identities):
+            raise CleanupReapError('consumed terminal wait has unresolved birth identity')
         if self.ledger.totals.pending:
             raise CleanupReapError('unresolved creation requires integrated tree cleanup')
         groups = [item.group_birth for item in identities]
@@ -72,11 +78,26 @@ class CleanupReaper:
             raise CleanupReapError('unbound cleanup inventory')
         return identities
 
+    def _after_pidfd_kill(self, identities):
+        """Composing owner calls only after every pinned SIGKILL succeeded.
+
+        Freeze exact birth identities, not TIDs or a generic permission flag.
+        This does not authorize ptrace event handling or further task creation.
+        """
+        self._check()
+        if self.started or self._killed_births or self._inventory() != identities:
+            raise CleanupReapError('settled killed inventory required before wait')
+        self._killed_births = identities
+
     def _consume(self, item, result):
         self.last_wait = (item.birth, result)
         if type(result) is not tuple or len(result) != 2:
             raise CleanupReapError('malformed cleanup wait result')
         tid, raw = result
+        # A terminal wait can already have released the kernel PID even if
+        # later owner/deadline/tuple/birth validation fails. Never lose that
+        # ambiguity or let another cleanup open a reused numeric PID.
+        self.launch.retain_terminal_wait(tid, raw)
         # Shared debit precedes deadline/owner/tuple validation, including a
         # wrong target stop. Never use the latched normal StopReader here.
         if type(raw) is int and raw & 0xff == 0x7f:
@@ -89,14 +110,20 @@ class CleanupReaper:
         if tid != item.tid:
             raise CleanupReapError('cleanup wait target mismatch')
         status = decode_wait_status(raw)
-        if status.kind not in ('exited', 'signaled'):
-            raise CleanupReapError('cleanup observed stop; termination remains required')
         if self.ledger.identity(item.birth) != item:
             raise CleanupReapError('cleanup birth changed during wait')
+        if status.kind not in ('exited', 'signaled'):
+            if (item in self._killed_births
+                    and status.kind in ('signal-stop', 'syscall-stop')):
+                self.drained_stops += 1
+                self.last_drained_stop = (item.birth, item.tid, status)
+                return False
+            raise CleanupReapError('cleanup observed stop; termination remains required')
         if self.launch.dispatcher is None:
             self.ledger.reaped(item.birth)
         else:
             self.launch.dispatcher.reaped(item.birth, item.tid)
+        self.launch.unsettled_terminal_waits.discard(item.tid)
         self.reaped.append((item.birth, item.tid, status))
         return True
 
