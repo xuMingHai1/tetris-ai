@@ -5,6 +5,7 @@ from unittest.mock import Mock, call, patch
 from fixed_witness_replay_launch import CoordinatorLaunch, CoordinatorLaunchError
 from fixed_witness_replay_ptrace import PtraceAccess, SignalInfo
 from fixed_witness_replay_stub import CoordinatorStub
+from fixed_witness_replay_startup_pin import CoordinatorPin
 from fixed_witness_replay_tasks import TaskLedger, TaskAccountingError
 
 
@@ -214,17 +215,23 @@ class CoordinatorLaunchTest(unittest.TestCase):
         self.assertEqual(2, self.ledger.totals.live)
 
     def test_host_preparation_loads_wires_without_reserving_or_forking(self):
+        pin = CoordinatorPin(Mock(), Mock(), Mock())
         with patch('fixed_witness_replay_launch.CoordinatorStub.for_host',
                    return_value=self.stub) as stub_factory, patch(
                        'fixed_witness_replay_launch.PtraceAccess.for_host',
                        return_value=self.access), patch(
-                           'fixed_witness_replay_launch.os.getpid', return_value=10):
+                           'fixed_witness_replay_launch.os.getpid', return_value=10), patch(
+                               'fixed_witness_replay_launch.CoordinatorPin.for_host',
+                               return_value=pin):
             launcher = CoordinatorLaunch.for_host(
                 self.ledger, ['/trusted/python'], '/build', {}, (7, 8, 9), 100.0)
         stub_factory.assert_called_once_with(['/trusted/python'], '/build', {}, 10)
         self.assertFalse(launcher.attempted)
         self.assertEqual(1, self.ledger.totals.attempts)
         self.assertEqual([], self.access.mock_calls)
+        self.assertIs(pin, launcher.startup_pin)
+        pin.action.assert_not_called()
+        pin.open_pidfd.assert_not_called()
 
 
 if __name__ == '__main__':
