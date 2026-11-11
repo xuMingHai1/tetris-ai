@@ -5,7 +5,9 @@ import unittest
 from unittest.mock import ANY
 
 from fixed_witness_replay_abi_model import AbiModelError, AbiProbeModel, ExecIdentity, ProbeRecord
-from fixed_witness_replay_ptrace import PtraceBoundaryError, SyscallInfo, decode_syscall_info
+from fixed_witness_replay_ptrace import (
+    PtraceBoundaryError, SignalInfo, SyscallInfo, decode_signal_info, decode_syscall_info,
+)
 
 
 def records():
@@ -20,6 +22,14 @@ def entry(mode='x32'):
     arch, number = (0xc000003e, 0x40000029) if mode == 'x32' else (0x40000003, 102)
     raw = struct.pack('<B3xIQQ7Q', 1, arch, 7, 8, number, *range(6))
     return decode_syscall_info(raw, len(raw))
+
+
+def delivery(mode='x32'):
+    info = entry(mode)
+    raw = bytearray(128)
+    struct.pack_into('<iii', raw, 0, 31, 0, 1)
+    struct.pack_into('<QiI', raw, 16, 0xffffffffffffffff, info.number, info.arch)
+    return decode_signal_info(bytes(raw), 31)
 
 
 class AbiModelTest(unittest.TestCase):
@@ -233,6 +243,142 @@ class AbiModelTest(unittest.TestCase):
             self.consume(model, identity, mode)
             with self.assertRaises(PtraceBoundaryError):
                 entry(mode).require_native(1)
+
+    def observe(self, model, identity, mode='x32', info=None):
+        return model.observe_sigsys(mode, identity, model.manifest_sha256,
+                                    delivery(mode) if info is None else info)
+
+    def test_both_deliveries_match_without_terminal_or_resume_authority(self):
+        for mode in ('x32', 'compat'):
+            model, identity = self.bound(mode)
+            self.consume(model, identity, mode)
+            for _ in range(2):
+                self.assertIsNone(self.observe(model, identity, mode))
+                self.assertEqual('AWAITING_SIGSYS', model.state(mode))
+                self.assertIsNone(model.stopped)
+            # Delivery facts do not restore the consumed ENTRY ticket.
+            with self.assertRaises(AbiModelError):
+                self.consume(model, identity, mode)
+
+    def test_delivery_not_required_to_keep_consumed_state(self):
+        model, identity = self.bound()
+        self.consume(model, identity)
+        self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+        self.assertIsNone(model.stopped)
+
+    def test_delivery_requires_consumed_phase(self):
+        for phase in ('UNBOUND', 'BOUND', 'REVOKED'):
+            model = AbiProbeModel(records())
+            identity = ExecIdentity(2, 2, 100, 1)
+            if phase != 'UNBOUND':
+                model.bind('x32', identity, records()[0])
+            if phase == 'REVOKED':
+                model.revoke_exec('x32', identity)
+            with self.subTest(phase=phase), self.assertRaises(AbiModelError):
+                self.observe(model, identity)
+            self.assertEqual(phase, model.state('x32'))
+
+    def test_delivery_rejects_each_identity_field_and_invalid_types(self):
+        changes = [replace(ExecIdentity(2, 2, 100, 1), **{field: value})
+                   for field, value in (('birth', 3), ('group_birth', 3),
+                                        ('tid', 101), ('generation', 2), ('tid', True))]
+        for identity in changes + [None, ANY]:
+            model, original = self.bound()
+            self.consume(model, original)
+            with self.subTest(identity=identity), self.assertRaises(AbiModelError):
+                self.observe(model, identity)
+            self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+
+    def test_delivery_rejects_manifest_mode_and_cross_slot(self):
+        for mode, digest in (('x32', 'c' * 64), ('x32', ANY),
+                             ('compat', None), ('other', None), (True, None)):
+            model, identity = self.bound()
+            self.consume(model, identity)
+            with self.subTest(mode=mode), self.assertRaises(AbiModelError):
+                model.observe_sigsys(mode, identity,
+                                     model.manifest_sha256 if digest is None else digest,
+                                     delivery())
+        model = AbiProbeModel(records())
+        identities = [ExecIdentity(2, 2, 100, 1), ExecIdentity(3, 3, 101, 1)]
+        for record, identity in zip(records(), identities):
+            model.bind(record.mode, identity, record)
+            self.consume(model, identity, record.mode)
+        with self.assertRaises(AbiModelError):
+            self.observe(model, identities[0], 'compat', delivery('compat'))
+
+    def test_delivery_rejects_sender_and_unknown_discriminants(self):
+        for code in (0, -6, -1, 2):
+            raw = bytearray(128)
+            struct.pack_into('<iii', raw, 0, 31, 0, code)
+            struct.pack_into('<QiI', raw, 16, 0, 0x40000029, 0xc000003e)
+            model, identity = self.bound()
+            self.consume(model, identity)
+            with self.subTest(code=code), self.assertRaises(AbiModelError):
+                self.observe(model, identity, info=decode_signal_info(bytes(raw), 31))
+
+    def test_delivery_rejects_wrong_abi_or_number_without_masking(self):
+        for mode in ('x32', 'compat'):
+            for arch, number in ((0xc000003e, 41), (0x40000003, 120),
+                                 (0xc000003e, 0x40000038), (0, 102),
+                                 (delivery(mode).arch, -1),
+                                 (delivery(mode).arch, (1 << 32) + delivery(mode).syscall)):
+                model, identity = self.bound(mode)
+                self.consume(model, identity, mode)
+                with self.subTest(mode=mode, arch=arch, number=number), self.assertRaises(AbiModelError):
+                    self.observe(model, identity, mode,
+                                 replace(delivery(mode), arch=arch, syscall=number))
+
+    def test_delivery_requires_typed_complete_discriminated_union(self):
+        changes = [{'signal': True}, {'signal': 15}, {'code': True}, {'error': True},
+                   {'error': 1 << 31}, {'error': -(1 << 31) - 1},
+                   {'call_address': None}, {'call_address': True},
+                   {'call_address': -1}, {'call_address': 1 << 64},
+                   {'syscall': None}, {'syscall': True}, {'arch': None}, {'arch': True},
+                   {'arch': 1 << 32}, {'sender_pid': 0}, {'sender_uid': 0}]
+        infos = [replace(delivery(), **change) for change in changes]
+        infos.extend([{}, ANY, SignalInfo(31, 0, 1)])
+        for info in infos:
+            model, identity = self.bound()
+            self.consume(model, identity)
+            with self.subTest(info=info), self.assertRaises(AbiModelError):
+                self.observe(model, identity, info=info)
+            self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+
+    def test_delivery_preserves_typed_header_errno_without_invented_constraint(self):
+        for error in (-(1 << 31), -1, 1, (1 << 31) - 1):
+            model, identity = self.bound()
+            self.consume(model, identity)
+            self.assertIsNone(self.observe(model, identity,
+                                          info=replace(delivery(), error=error, call_address=0)))
+            self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+
+    def test_delivery_mismatch_latches_across_slots_and_later_exact_facts(self):
+        model, identity = self.bound()
+        self.consume(model, identity)
+        with self.assertRaises(AbiModelError):
+            self.observe(model, identity, info=replace(delivery(), code=0))
+        first = model.stopped
+        with self.assertRaises(AbiModelError):
+            self.observe(model, identity)
+        with self.assertRaises(AbiModelError):
+            model.bind('compat', ExecIdentity(3, 3, 101, 1), records()[1])
+        self.assertEqual(first, model.stopped)
+        self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+        self.assertEqual('UNBOUND', model.state('compat'))
+
+    def test_preexisting_failure_precedes_matching_delivery(self):
+        model, identity = self.bound()
+        self.consume(model, identity)
+        with self.assertRaises(AbiModelError):
+            model.fail('shared stop budget exhausted')
+        with self.assertRaisesRegex(AbiModelError, 'shared stop budget exhausted'):
+            self.observe(model, identity)
+        self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+
+    def test_delivery_wire_truncation_remains_decoder_failure(self):
+        for size in (0, 12, 16, 27, 127, 129):
+            with self.subTest(size=size), self.assertRaises(PtraceBoundaryError):
+                decode_signal_info(bytes(size), 31)
 
 
 if __name__ == '__main__':
