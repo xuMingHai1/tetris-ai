@@ -1,5 +1,7 @@
 """Frozen launcher -> probe -> ENTRY -> real-shaped reap; entirely fake I/O."""
 import hashlib
+import ctypes
+import struct
 import unittest
 from unittest.mock import Mock
 
@@ -7,12 +9,44 @@ from fixed_witness_replay_abi_observation import AbiObservationError
 from fixed_witness_replay_exec_observation import OwnedExecObservations
 from fixed_witness_replay_network import encoded, policy_hash
 from fixed_witness_replay_probe_launch import ProbeLaunch
-from fixed_witness_replay_ptrace import decode_syscall_info, SignalInfo
+from fixed_witness_replay_ptrace import decode_syscall_info, SignalInfo, PtraceAccess
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
 from fixed_witness_replay_wait_owner import BoundedWaitOwner
 import test_fixed_witness_replay_exec_binding as fixture
 from test_fixed_witness_replay_abi_observation import metadata
 from test_fixed_witness_replay_ptrace import entry, exit_info
+
+
+def wire_kernel(mock):
+    """Encode fake facts through the actual typed ptrace boundary, never libc."""
+    def call(request, tid, address, data):
+        if request == 0x4201:
+            ctypes.cast(data, ctypes.POINTER(ctypes.c_uint64)).contents.value = mock.event_tid(tid)
+        elif request == 0x420e:
+            info = mock.syscall_info(tid)
+            if info.operation == 1:
+                raw, size = entry(info.number, info.arch)
+            else:
+                raw, size = exit_info(info.result, int(info.is_error), info.arch)
+            ctypes.memmove(data, raw, len(raw))
+            return size
+        elif request == 0x4202:
+            info = mock.signal_info(tid, mock.signal_info.return_value.signal)
+            raw = bytearray(128)
+            struct.pack_into('<iii', raw, 0, info.signal, info.error, info.code)
+            if info.code == 1:
+                struct.pack_into('<QiI', raw, 16, info.call_address, info.syscall, info.arch)
+            else:
+                struct.pack_into('<iI', raw, 16, info.sender_pid or 0, info.sender_uid or 0)
+            ctypes.memmove(data, bytes(raw), len(raw))
+        elif request == 24:
+            mock.resume_syscall(tid, data)
+        elif request == 0x4200:
+            mock.set_options(tid)
+        else:
+            raise AssertionError('unexpected fake wire request')
+        return 0
+    return call
 
 
 class FilterExecChainTest(unittest.TestCase):
@@ -22,6 +56,8 @@ class FilterExecChainTest(unittest.TestCase):
         self.record, self.other = self.f.record, self.f.other
         self.files, self.wire = self.f.f.files, self.f.f.wire
         self.birth = self.f.f.birth
+        self.typed_wire = PtraceAccess(wire_kernel(self.wire))
+        self.f.f.launch.dispatcher._tasks[self.birth] = (11 if not thread else 12, self.typed_wire)
         self.net = {
             'schema': 'fixed-witness-network-v1', 'python': self.record.interpreter,
             'python_sha256': self.record.interpreter_sha256,

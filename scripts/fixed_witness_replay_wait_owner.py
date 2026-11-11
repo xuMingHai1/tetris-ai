@@ -7,7 +7,7 @@ unknown stop. Native scheduling still requires the host's original watchdog.
 import errno
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from fixed_witness_replay_abi_model import ExecIdentity
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
@@ -38,6 +38,9 @@ class SettledReap:
     raw: int
     status: object
     exec_identity: object = None
+    # Object identity is checked separately; never serialize transport internals
+    # or make dataclass value equality an ownership receipt.
+    wire: object = field(default=None, compare=False, repr=False)
 
 
 @dataclass
@@ -57,6 +60,7 @@ class _OwnedWait:
     event_tid: object = None
     adopted: bool = False
     facts: object = None
+    resume_attempted: bool = False
 
 
 class BoundedWaitOwner:
@@ -160,7 +164,7 @@ class BoundedWaitOwner:
             raise WaitOwnerError('invalid installed EXEC epoch')
         return identity
 
-    def _retain_reap(self, parent, tid, raw, facts, exec_identity):
+    def _retain_reap(self, parent, tid, raw, facts, exec_identity, wire=None):
         if facts.status.kind not in ('exited', 'signaled'):
             return
         self._reap_gates()
@@ -178,7 +182,7 @@ class BoundedWaitOwner:
                 or len(self._settled_reaps) >= TASK_ATTEMPTS - 1):
             raise WaitOwnerError('terminal reap settlement mismatch')
         self._settled_reaps[parent.birth] = SettledReap(
-            parent, after, raw, facts.status, exec_identity)
+            parent, after, raw, facts.status, exec_identity, wire)
         observations = self.dispatcher._exec_observations
         if observations is not None:
             observations.observe_reap(self.dispatcher, self._settled_reaps[parent.birth])
@@ -204,6 +208,9 @@ class BoundedWaitOwner:
             # Freeze the installed epoch before the fallible wait. A terminal
             # dispatch must not change it; EXEC stops themselves retain no reap.
             exec_identity = self._exec_identity(parent)
+            # Sampling must not reject an observed terminal before its actual
+            # wait is retained. Normal dispatch still validates the binding.
+            wire = self.launch.dispatcher._tasks.get(ticket, (None, None))[1]
             pending = tuple(item for item in self.launch.ledger.cleanup_pending()
                             if item.parent == ticket and item.child is None)
             try:
@@ -236,7 +243,7 @@ class BoundedWaitOwner:
             # debit even if the wait crossed the deadline or ownership changed.
             self.last_wait = _OwnedWait(parent, pending, waited, status)
             facts = self.dispatcher._accept_owned_wait(self, self.last_wait)
-            self._retain_reap(parent, waited, status, facts, exec_identity)
+            self._retain_reap(parent, waited, status, facts, exec_identity, wire)
             self._last_birth = ticket
             return 'event'
         self._check()

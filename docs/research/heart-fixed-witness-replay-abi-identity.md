@@ -447,3 +447,43 @@ birth不继承；不创建任务、wait owner、预算或额外的resume。
 证明。完整no-injection checker、host冻结来源与互斥writer、复杂清理、全套fixture及
 原最终整体Review/CI/执行门禁仍缺，不能标记KERNEL_TERMINAL_OBSERVED。
 未执行原生probe、network clean-build或历史22步，未改冻结guard/预算/生产代码。
+
+## 本次新增修改：原network probe wire干预约束
+
+配置`network_launches`并绑定ABI模型时，`OwnedExecObservations.observe`在第一次
+launcher EXEC的有界文件观察前封闭该birth的原`PtraceAccess`；第二次EXEC只接受
+同一对象的相邻identity/原manifest。原wire失败或已有未分类写入不能重新绑定。
+纯观察与既有非network配置不获得这条检查，也不构成完整验收路径。
+
+`PtraceAccess._request`在原transport调用前登记attempt，正常返回才登记completed；
+不确定、禁止或未知请求永久锁存失败。封闭后仅允许现有只读请求、一次性原wait
+resume和已校验native clone3的精确寄存器写入；没有CONT/DETACH/POKE/SETSIGINFO、
+任意SETREGSET或raw SYSCALL旁路。clone3仍先由原创建dispatcher扣尝试预算，再按
+既有寄存器校验只写orig_rax=-1和固定ENOSYS；单次scope核对完整register bytes，
+不把clone3规则扩展成ABI结果改写许可。无新增任务、预算或证据writer。
+
+每次network resume由原configuration同步持有一次性scope；原wire回调消费它，复核
+当前owner/active wait receipt/facts/birth/EXEC/manifest和原signal。仅持有configuration、
+identity和manifest不能再次resume。普通launcher/probe native stop复用原创建策略后
+也走同一入口；ABI ENTRY和delivery继续复用既有专门校验。
+
+`BoundedWaitOwner`在实际wait前只读保留原wire，正常真实reap仍先结算和保留；
+`observe_reap`再核对该对象与原network wire相同且wire无失败/未完成请求。事后发现
+注入尝试或换wire会撤销成功，但不回滚真实reap/live credit。
+
+新增19项fake-only测试与30秒Linux零skip bridge；既有14项两阶段EXEC fixture改为
+经过实际typed ptrace编解码的假kernel。覆盖旁路请求、外来/重复resume、原owner token
+复用、source观察中干预、不确定调用、clone3边界及terminal前换wire。
+
+这是可信cooperative host内原wire的约束与记账，不证明Python私有状态防篡改、其他
+独立transport/外部signal不存在、实际filter安装字节或完整no-injection能力。host原始
+来源冻结/互斥同根writer、完整filter checker、复杂cleanup与整套fixture及原整体最终
+Review/CI/compatibility/inputhash/唯一登记仍必需。整体原生验收、研究结果与用户可见
+功能仍未完成；未执行任何native probe/network clean-build/历史输入，停止门不变。
+
+本次新增修改（GitHub P2复审）：封闭前的raw SYSCALL同样保留未授权标记，即使调用
+正常返回也不能进入后续probe绑定。初始CoordinatorHandshake仅在其原self-SIGSTOP
+验证和完整options后临时持有一次性facts；普通stop仅由原BoundedWaitOwner的active
+receipt恢复，receipt在调用前即登记一次性attempt，失败或重入也不恢复。两者都走
+typed wire的受限入口，不能用fabricated raw accept替代；
+不确定调用仍不重试。已有wire fixture因此改为原birth绑定与实际fake wait入口。
