@@ -149,7 +149,7 @@ prepare现将构建HOME/TMP与证据目录分离并记录分类，证据仍共�
 
 [固定 ABI 探针身份设计](heart-fixed-witness-replay-abi-identity.md)细化两条已接受的
 非创建入口例外、出生/exec绑定和一次性消费；纯匹配/消费模型已实现，真实exec/proc与
-SIGSYS终态接线待完成；只读siginfo union、纯模型delivery匹配与有界exec/proc观察已补齐，
+SIGSYS终态接线待完成；只读siginfo union、纯模型delivery/终态事实匹配与有界exec/proc观察已补齐，
 唯一wait owner的EXEC代次/停点观察门已接线（14项fake-only组合测试）；host来源、证据写入
 总门、ABI/checker与真实终态仍待组合。当前native拒绝不变，子集不授予原生执行权限。
 
