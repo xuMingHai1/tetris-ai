@@ -14,6 +14,7 @@ import sys
 
 from fixed_witness_replay_abi_model import ExecIdentity, ProbeRecord
 from fixed_witness_replay_observation import _stat
+from fixed_witness_replay_probe_launch import ProbeLaunch
 
 
 PROC_LIMIT = 64 * 1024
@@ -33,6 +34,15 @@ class ExecObservation:
     identity: ExecIdentity
     record: ProbeRecord
     start_ticks: int
+
+
+@dataclass(frozen=True)
+class _LauncherImage:
+    source: str
+    source_sha256: str
+    interpreter: str
+    interpreter_sha256: str
+    argv: tuple
 
 
 class ProcFiles:
@@ -133,7 +143,7 @@ class AbiExecObserver:
         return (info.st_dev, info.st_ino, info.st_mode, info.st_size,
                 info.st_mtime_ns, info.st_ctime_ns)
 
-    def _snapshot(self, record, identity):
+    def _snapshot(self, record, identity, network=None, launcher=False):
         root = '/proc/' + str(identity.tid)
         before = _stat(self._file(identity, root + '/stat', PROC_LIMIT, proc=True)[0], identity.tid)
         status = self._file(identity, root + '/status', PROC_LIMIT, proc=True)[0]
@@ -150,6 +160,22 @@ class AbiExecObserver:
                 or fields[b'TracerPid'] != str(self.owner).encode('ascii')
                 or not fields[b'State'].startswith(b't (')):
             raise AbiObservationError('expected migrated EXEC tracing stop')
+        security = None
+        if network is not None:
+            security = {}
+            for line in status.splitlines():
+                key, separator, value = line.partition(b':')
+                if key in (b'NoNewPrivs', b'Seccomp', b'Seccomp_filters'):
+                    if not separator or key in security or not value.strip().isdigit():
+                        raise AbiObservationError('ambiguous network proc status')
+                    security[key] = int(value.strip())
+            count = network['inherited_filters'] + (0 if launcher else 1)
+            if (set(security) != {b'NoNewPrivs', b'Seccomp', b'Seccomp_filters'}
+                    or security[b'Seccomp_filters'] != count
+                    or security[b'NoNewPrivs'] not in (0, 1)
+                    or security[b'Seccomp'] != (2 if count else 0)
+                    or (not launcher and security[b'NoNewPrivs'] != 1)):
+                raise AbiObservationError('network installation status mismatch')
         raw = self._file(identity, root + '/cmdline', PROC_LIMIT, proc=True)[0]
         expected = b'\0'.join(arg.encode('utf-8', errors='strict') for arg in record.argv) + b'\0'
         if raw != expected:
@@ -167,12 +193,21 @@ class AbiExecObserver:
         if (source != record.source_sha256 or interpreter != record.interpreter_sha256
                 or actual != interpreter or executable_file != proc_file):
             raise AbiObservationError('frozen source or executable bytes/identity mismatch')
+        library_file = None
+        if network is not None:
+            library = network['library']
+            path = library['path']
+            if self._call(identity, self.files.canonical, path) != path:
+                raise AbiObservationError('frozen library path changed')
+            value, library_file = self._file(identity, path, INTERPRETER_LIMIT, digest=True)
+            if value != library['sha256']:
+                raise AbiObservationError('frozen library bytes changed')
         after = _stat(self._file(identity, root + '/stat', PROC_LIMIT, proc=True)[0], identity.tid)
         if before != after or before['start_ticks'] <= 0:
             raise AbiObservationError('proc lifetime changed during observation')
-        return before, source_file, executable_file
+        return before, source_file, executable_file, security, library_file
 
-    def observe(self, record, identity):
+    def observe(self, record, identity, *, network_launch=None, launcher=False):
         """Compare two bounded real-shaped observations, never bind the model.
 
         Expected bytes/argv come from the independently frozen manifest. There
@@ -186,8 +221,20 @@ class AbiExecObserver:
             if (type(record) is not ProbeRecord or not record.valid()
                     or type(identity) is not ExecIdentity or not identity.valid()):
                 raise AbiObservationError('frozen record and exec identity required')
-            first = self._snapshot(record, identity)
-            if first != self._snapshot(record, identity):
+            network = None
+            image = record
+            if network_launch is not None:
+                if type(network_launch) is not ProbeLaunch or network_launch.probe != record:
+                    raise AbiObservationError('original frozen network/probe relation required')
+                network = network_launch.network()
+                if launcher:
+                    image = _LauncherImage(network['launcher'], network['launcher_sha256'],
+                                           record.interpreter, record.interpreter_sha256,
+                                           network_launch.argv())
+            elif launcher:
+                raise AbiObservationError('launcher requires frozen network relation')
+            first = self._snapshot(image, identity, network, launcher)
+            if first != self._snapshot(image, identity, network, launcher):
                 raise AbiObservationError('exec evidence changed between observations')
             self._gate(identity)
             return ExecObservation(identity, record, first[0]['start_ticks'])
