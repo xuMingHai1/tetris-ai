@@ -4,6 +4,7 @@ from unittest.mock import Mock, call
 
 from fixed_witness_replay_initial_wait import InitialWaitOwner, InitialWaitError, WAIT_OPTIONS
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
+from fixed_witness_replay_cleanup_reap import CleanupReaper, CleanupReapError
 import test_fixed_witness_replay_launch as fixture
 
 
@@ -132,6 +133,83 @@ class InitialWaitOwnerTest(unittest.TestCase):
         self.assertFalse(self.launch.handshake.completed)
         with self.assertRaises(InitialWaitError):
             self.owner.run()
+
+
+    def assert_quarantined_without_credit(self, tid=11):
+        self.assertIn(tid, self.launch.unsettled_terminal_waits)
+        self.assertEqual((2, 2, 0), (self.fixture.ledger.totals.attempts,
+                                   self.fixture.ledger.totals.live,
+                                   self.fixture.ledger.totals.wait_stops))
+        self.assertTrue(self.fixture.ledger.identity(1).alive)
+        self.assertEqual([], self.fixture.access.mock_calls)
+
+    def test_consumed_initial_terminal_forbids_cleanup_waiting_that_pid_again(self):
+        for raw in (0, 7 << 8, 9, 31 | 0x80):
+            with self.subTest(raw=raw):
+                self.setUp()
+                self.wait.return_value = (11, raw)
+                with self.assertRaises(ValueError):
+                    self.owner.run()
+                self.assert_quarantined_without_credit()
+                cleanup_wait = Mock(return_value=(11, 9))
+                reaper = CleanupReaper(self.launch, waitpid=cleanup_wait, sleep=self.sleep)
+                failure = self.launch.stopped
+                with self.assertRaisesRegex(CleanupReapError, 'unresolved birth'):
+                    reaper.run()
+                cleanup_wait.assert_not_called()
+                self.assertEqual(failure, self.launch.stopped)
+                self.assertEqual(1, self.wait.call_count)
+                self.assertEqual([], reaper.reaped)
+
+    def test_terminal_crossing_deadline_is_quarantined_before_admission_check(self):
+        def waited(*args):
+            self.fixture.clock.return_value = 100.0
+            return (11, 9)
+        self.wait.side_effect = waited
+        with self.assertRaises(ValueError):
+            self.owner.run()
+        self.assert_quarantined_without_credit()
+
+    def test_terminal_crossing_owner_change_keeps_consumed_pid_ambiguity(self):
+        def waited(*args):
+            self.fixture.system.getpid.return_value = 99
+            return (11, 0)
+        self.wait.side_effect = waited
+        with self.assertRaises(ValueError):
+            self.owner.run()
+        self.assert_quarantined_without_credit()
+
+    def test_foreign_terminal_retains_actual_pid_without_relabeling_coordinator(self):
+        self.wait.return_value = (12, 9)
+        with self.assertRaises(ValueError):
+            self.owner.run()
+        self.assert_quarantined_without_credit(12)
+        self.assertNotIn(11, self.launch.unsettled_terminal_waits)
+        self.assertEqual(11, self.launch.cleanup_tid)
+
+    def test_malformed_nonstop_word_still_quarantines_consumed_pid(self):
+        self.wait.return_value = (11, 0x10000)
+        with self.assertRaises(ValueError):
+            self.owner.run()
+        self.assert_quarantined_without_credit()
+
+    def test_direct_admission_terminal_retained_even_when_gate_already_closed(self):
+        for gate in ('stopped', 'admitted', 'handshake'):
+            with self.subTest(gate=gate):
+                self.setUp()
+                setattr(self.launch, gate, {'stopped': 'original failure',
+                                          'admitted': True, 'handshake': None}[gate])
+                with self.assertRaises(ValueError):
+                    self.launch.accept_initial_wait(11, 9)
+                self.assert_quarantined_without_credit()
+                self.wait.assert_not_called()
+
+    def test_idle_eintr_and_trusted_stop_do_not_create_terminal_ambiguity(self):
+        self.wait.side_effect = [(0, 0), InterruptedError(), (11, 0x137f)]
+        self.owner.run()
+        self.assertEqual(set(), self.launch.unsettled_terminal_waits)
+        self.assertTrue(self.launch.handshake.completed)
+        self.assertEqual(1, self.fixture.ledger.totals.wait_stops)
 
 
 if __name__ == '__main__':
