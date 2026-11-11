@@ -150,8 +150,9 @@ prepare现将构建HOME/TMP与证据目录分离并记录分类，证据仍共�
 [固定 ABI 探针身份设计](heart-fixed-witness-replay-abi-identity.md)细化两条已接受的
 非创建入口例外、出生/exec绑定和一次性消费；纯匹配/消费模型已实现，真实exec/proc与
 SIGSYS终态接线待完成；只读siginfo union、纯模型delivery/终态事实匹配与有界exec/proc观察已补齐，
-可信EXEC代次/共享门适配仍待接线；唯一wait owner已保留结算后终态记录并核验原owner成员关系，
-尚未关联ABI ENTRY/exec与manifest。当前native拒绝不变，子集不授予resume或原生执行权限。
+唯一wait owner的EXEC代次/停点观察门已接线（15项fake-only组合测试）；host来源、证据写入
+总门、ABI/checker与真实终态仍待组合。唯一wait owner已保留结算后终态记录并核验原owner
+成员关系，尚未关联ABI ENTRY/exec与manifest。当前native拒绝不变，子集不授予原生执行权限。
 
 [#174累计任务政策](heart-fixed-witness-replay-task-budget-proposal.md)亦于2026-11-09
 获用户明确接受；首个纯账本组件覆盖512尝试/128live/2M事件、pending与reap计费。
