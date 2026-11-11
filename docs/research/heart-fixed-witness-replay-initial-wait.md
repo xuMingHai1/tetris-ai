@@ -49,3 +49,34 @@ credit；不以 ECHILD 或隔离标记推断已回收。Linux 原有 JUnit bridg
 COMPLETE 收据。未执行 native fork/wait/ptrace/pidfd/signal/probe、网络 clean-build
 或历史22步。#170A/#174既有明确接受、全部预算和整体执行门不变。
 生产代码、构建输入和冻结协议未改；README/AGENTS无需同步。
+
+
+## 本次新增修改：一个可调用的 tracer 生命周期入口
+
+`TracerSupervisor.run()`接受原可信host准备的`CoordinatorLaunch`，一次串联
+`launch -> InitialWaitOwner -> PostHandshakeDispatcher -> BoundedWaitOwner.run`。
+`InitialWaitOwner`现在将原可选`OwnedExecObservations`交给第一次且唯一的dispatcher claim；
+之前该入口固定创建无配置dispatcher，ABI配置只能在已握手fixture内另行装配。
+新入口不读取历史输入、不提供CLI、不自行构造探针/环境，也不在import/构造时加载native wire。
+
+任一阶段失败会保留原异常与已建立的owner/ledger；若仍有live/pending责任，立即一次性调用
+已有`SettledProcessCleanup.run()`，包括#241已接通的在途创建接管、pin/kill/真实reap。
+cleanup仍用原绝对deadline、累计task/stop额度、失败锁存与terminal PID隔离，不退款、不重试。
+无法清理的身份、已耗尽期限、未认证启动或close失败单独留在`cleanup_error`，原异常原样抛回。
+正常返回只表示原账本drained，**不表示套件COMPLETE、filter能力或两个ABI全部验收通过**。
+
+15项fake-only组合fixture覆盖完整launch/握手/两次EXEC/精确ENTRY/真实形状reap链，
+以及普通失败后的自动清理、在途event不确定读取不重试、期限/启动失败、close失败与一次性。
+Linux普通JUnit bridge要求15项/零skip、30秒；所有fork/wait/ptrace/pidfd/signal均注入。
+
+有限剩余集成清单：
+
+1. 本入口的原可信Java host调用、原来源/manifest冻结及完整filter/external no-injection checker。
+2. host/tracer/coordinator三个互斥writer的同根10MiB额度传输与实际写前执行；
+   `reserve_writers`仍只是分区，当前入口要求host提供已计费stdio，不伪称已实施此条件。
+3. 复杂thread EXEC/leader提前退出/job-control清理、pin/binding失败及全部固定fixture/task预留表。
+4. EXITKILL终末负例及整体最终revision独立Review/适用CI/原执行前门禁、compatibility/inputhash和唯一登记。
+
+这些完成前不执行native probe、network clean-build或历史22步。整体原生验收尚未完成；
+本次无研究结果或用户可见游戏功能。仅test-only调用关系变化，不改生产API/运行方式，
+README/AGENTS无需同步；原170A/174已接受，预算/guard和停止门不变。

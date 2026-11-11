@@ -2,6 +2,7 @@
 import os
 import time
 
+from fixed_witness_replay_exec_observation import OwnedExecObservations
 from fixed_witness_replay_launch import CoordinatorLaunch
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
 
@@ -17,13 +18,16 @@ class InitialWaitError(ValueError):
 class InitialWaitOwner:
     """Claim an already launched coordinator and wait for its trusted stop.
 
-    Only a successful handshake transfers control to PostHandshakeDispatcher.
+    Only a successful handshake transfers control to PostHandshakeDispatcher,
+    carrying the original optional observation configuration into its one claim.
     The caller must remain the sole waiter; no signal handler or other thread
     may consume statuses. This supplies no watchdog, source authentication,
     whole-tree cleanup, or permission to execute a capability probe.
     """
 
-    def __init__(self, launch, *, waitpid=os.waitpid, sleep=time.sleep):
+    def __init__(self, launch, *, waitpid=os.waitpid, sleep=time.sleep, exec_observations=None):
+        if exec_observations is not None and type(exec_observations) is not OwnedExecObservations:
+            raise InitialWaitError('fixed exec observation configuration required')
         if (type(launch) is not CoordinatorLaunch or launch.stopped is not None
                 or launch.handshake is None or launch.admitted
                 or getattr(launch, '_initial_wait_owner_claimed', False)):
@@ -31,6 +35,7 @@ class InitialWaitOwner:
         launch._owner_and_deadline()
         launch._initial_wait_owner_claimed = True
         self.launch, self.waitpid, self.sleep = launch, waitpid, sleep
+        self.exec_observations = exec_observations
         self.started = False
         self.stopped = None
 
@@ -58,7 +63,8 @@ class InitialWaitOwner:
                     # Admission accounts an observed stop before checking a
                     # changed owner/deadline or touching a different task.
                     self.launch.accept_initial_wait(tid, status)
-                    return PostHandshakeDispatcher(self.launch)
+                    return PostHandshakeDispatcher(
+                        self.launch, exec_observations=self.exec_observations)
                 self._check()
                 remaining = self.launch.deadline - self.launch.clock()
                 if remaining <= 0:
