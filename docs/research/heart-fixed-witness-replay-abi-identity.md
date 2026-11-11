@@ -318,3 +318,22 @@ thread EXEC迁移。只注入fake wait/ptrace，不执行native probe、proc、n
 `AbiProbeModel.observe_terminal`、未产生`KERNEL_TERMINAL_OBSERVED`或完整能力凭据。
 ABI/checker/source/filter/no-injection及共享writer总门和整体验收仍待接线；native guard、
 原预算与停止条件保持，README/AGENTS生产架构无需变更。
+
+## 本次新增修改：真实reap的EXEC代次快照
+
+#230的`SettledReap`新增可空`exec_identity`。唯一`BoundedWaitOwner`在调用真实
+wait之前，从普通dispatcher已成功安装的EXEC代次与当前birth/group/TID建立不可变
+快照；只有真实终态成功结算、原owner/deadline/共享失败门仍成立、代次未漂移时，
+才随原始wait bits保留。没有EXEC的终态保持None，不从SIGSYS、proc或外部整数推断。
+非leader EXEC使用迁移后的executor birth及原group；退休leader没有reap记录。
+
+`require_exec_reap`先验证原owner中的同一记录对象，再精确匹配有效`ExecIdentity`
+及仍保留的installed generation。复制记录、错birth/group/TID/代次、失效owner、
+后续失败和deadline均锁存session；不刷新快照或重试。若wait/结算期间发生代次漂移，
+保留实际reap及已经释放的live credit，不签发记录、不回滚实际回收。
+
+此门只证明执行代次与真实reap的关联，不认证probe绑定、manifest、已消费ENTRY、
+SIGSYS原因、filter或no-injection；正常退出和其他信号同样可保留代次。尚未接通ABI
+terminal adapter/checker或network入口，native guard和原预算/停止条件保持。
+新增14项有限fake-only测试及Linux普通JUnit桥，要求30秒内全部通过、零skip；无真实
+wait/ptrace/proc/信号/探针或历史输入执行。README/AGENTS架构无需修改。
