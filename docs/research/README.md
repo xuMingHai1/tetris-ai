@@ -154,6 +154,9 @@ SIGSYS终态接线待完成；只读siginfo union、纯模型delivery/终态事�
 总门、ABI/checker与真实终态仍待组合。唯一wait owner已保留结算后终态记录并核验原owner
 成员关系，尚未关联ABI ENTRY/exec与manifest。当前native拒绝不变，子集不授予原生执行权限。
 
+EXEC观察可显式绑定到自身新建的两槽ABI模型（13项fake-only组合测试）；绑定前后复核
+同一停点共享门，失败不回滚槽或resume。该增量尚未接通非native ENTRY或真实终态/checker。
+
 [#174累计任务政策](heart-fixed-witness-replay-task-budget-proposal.md)亦于2026-11-09
 获用户明确接受；首个纯账本组件覆盖512尝试/128live/2M事件、pending与reap计费。
 synthetic序列测试不证明ptrace创建前强制；真实syscall/ABI接线及整体验收仍待完成。
