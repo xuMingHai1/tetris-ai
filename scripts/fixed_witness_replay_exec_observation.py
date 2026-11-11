@@ -49,6 +49,47 @@ class OwnedExecObservations:
             raise AbiObservationError('exec observation configuration already claimed')
         self._dispatcher = dispatcher
 
+    def observe_reap(self, dispatcher, record):
+        """Join an original settled EXEC reap to this configuration's model.
+
+        This hook runs only after normal terminal settlement. It adds no wait,
+        resume, credit release or ABI entry permission. A matched terminal is
+        still not filter/no-injection proof or KERNEL_TERMINAL_OBSERVED.
+        """
+        if self._abi_model is None:
+            return
+        try:
+            if self.stopped is not None or dispatcher is not self._dispatcher:
+                raise AbiObservationError('terminal observation session stopped or foreign')
+            owner = getattr(dispatcher, '_wait_owner', None)
+            if owner is None:
+                raise AbiObservationError('original settled wait owner required')
+            # Validate provenance even before inspecting the birth. Neither a
+            # copied record nor an external status tuple may select a slot.
+            owner.require_settled_reap(record)
+            if record.before.birth not in self._records:
+                return
+            observed = tuple(item for item in self.observations
+                             if item.identity.birth == record.before.birth)
+            if len(observed) != 1 or observed[0].record != self._records[record.before.birth]:
+                raise AbiObservationError('completed owned EXEC observation required')
+            observation = observed[0]
+            owner.require_exec_reap(record, observation.identity)
+            self._abi_model.observe_terminal(
+                observation.record.mode, observation.identity,
+                self._abi_model.manifest_sha256, record.status)
+            # A fallible post-match gate never restores a consumed model slot
+            # or rolls back the real reap. Failure revokes the whole session.
+            owner.require_exec_reap(record, observation.identity)
+        except BaseException:
+            self.stopped = 'owned terminal observation failed; no retry'
+            dispatcher.stopped = dispatcher.launch.stopped = self.stopped
+            try:
+                self._abi_model.fail(self.stopped)
+            except AbiModelError:
+                pass
+            raise
+
     def observe(self, dispatcher, matched, generation):
         """Internal dispatch hook, while the exact charged wait is still held."""
         try:
