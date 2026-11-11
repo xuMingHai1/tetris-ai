@@ -2,7 +2,8 @@
 
 Inputs are observations supplied by the trusted EXEC binding adapter. Nothing here reads
 files/proc, debits stops, resumes, settles tasks or certifies SIGSYS. The normal
-dispatcher remains native-only. A matching result is not an admission receipt.
+creation dispatcher remains native-only; owned fixed-entry selection lives in
+the outer adapter. A matching result is not an admission receipt.
 """
 from dataclasses import dataclass
 import hashlib
@@ -73,8 +74,8 @@ class AbiProbeModel:
 
     This finite subset matches supplied entry, delivery and terminal facts.
     The owned EXEC adapter authenticates observations before binding. This model
-    itself performs no I/O or outer owner/deadline/shared ledger checks. ENTRY,
-    delivery and terminal matching still require future dispatcher integration;
+    itself performs no I/O or outer owner/deadline/shared ledger checks. The
+    owned adapter joins ENTRY/delivery/terminal facts under those shared gates;
     model state alone grants no resume or real wait/reap authority.
     """
 
