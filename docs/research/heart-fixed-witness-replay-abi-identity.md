@@ -254,3 +254,29 @@ Linux普通JUnit bridge强制30秒内42项全部通过且零skip。测试中的E
 验证调用方锁存后的优先性，不声称已实现真实wait错误或清理接线。本轮没有新增系统
 调用、native probe或历史输入执行；真实wait/reap、身份认证、无注入/来源checker、
 共享门与全部整体验收仍未完成，native guard与原预算/停止条件保持。
+
+## 本次新增修改：唯一wait owner的结算后终态记录
+
+`BoundedWaitOwner`现在在正TID定向wait匹配原birth、普通dispatcher完成真实reap结算之后，
+保存不可变`SettledReap(before, after, raw, status)`。原owner/deadline、reader/ledger、
+creation dispatcher/lifecycle/policy和独占wait注册仍须有效；核对相同birth/group/TID、
+`reaped`标志、无未结算终态及绑定已移除，才记录一次。最多保留511个birth记录，来自
+原512尝试上限（含tracer），不是新增task/stop预算；只保存在内存，不输出证据文件。
+
+`settled_reaps`仅返回不可变诊断快照；`require_settled_reap`要求原owner内部保存的同一
+对象及当前相同账本终态，并重验共享门，不接受相等副本、raw tuple、另一个session或
+直接`accept`/cleanup路径。验证失败锁存session，不得换正确记录重试；已有诊断保留，
+后续失败撤销可用性。此方法只核验事实来源、不消费槽、不resume、不再wait或释放额度。
+
+ECHILD不算reap；结算前失败保留已消费wait及原未结算集合。结算后门失败保留真实额度
+释放与last_wait，不回滚真实reap、不补发成功记录。非leader EXEC后只记录迁移executor
+birth的真实reap，旧leader的`exec-replaced`不是终态wait。退出码、各种终止信号和core位
+均原样保存；不把SIGSYS的bits升级为过滤器或无注入证明。
+
+新增15项fake-only组合测试及Linux普通JUnit桥，强制30秒内15项全部通过且零skip；覆盖
+复制/跨owner伪造、后续失败撤销、消费后超时、结算失败/后置门失败、终态身份漂移及
+thread EXEC迁移。只注入fake wait/ptrace，不执行native probe、proc、network clean-build
+或历史输入。本组件尚未关联认证EXEC代次、已消费ABI ENTRY与manifest，未调用
+`AbiProbeModel.observe_terminal`、未产生`KERNEL_TERMINAL_OBSERVED`或完整能力凭据。
+ABI/checker/source/filter/no-injection及共享writer总门和整体验收仍待接线；native guard、
+原预算与停止条件保持，README/AGENTS生产架构无需变更。
