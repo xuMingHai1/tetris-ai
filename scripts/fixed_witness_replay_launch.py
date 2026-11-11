@@ -142,8 +142,12 @@ class CoordinatorLaunch:
 
         No internal wait or retry is introduced. Rejecting an expired/foreign
         owner still charges an observed stop, without accessing any stopped task.
+        A consumed terminal may already have released its kernel PID even when
+        admission fails. Quarantine it before any gate; this neither authenticates
+        a reap nor releases live credit. Cleanup must not wait that number again.
         Subsequent waits belong to the authenticated whole-tree loop.
         """
+        self.retain_terminal_wait(tid, raw_status)
         if self.stopped is not None or self.handshake is None or self.admitted:
             raise CoordinatorLaunchError('coordinator initial admission unavailable')
         self.admitted = True
