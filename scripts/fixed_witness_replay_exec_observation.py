@@ -9,6 +9,7 @@ from fixed_witness_replay_abi_model import AbiModelError, AbiProbeModel, ExecIde
 from fixed_witness_replay_abi_observation import AbiExecObserver, AbiObservationError
 from fixed_witness_replay_ptrace import SyscallInfo
 from fixed_witness_replay_wait import decode_wait_status
+from fixed_witness_replay_probe_launch import ProbeLaunch
 
 
 @dataclass(frozen=True)
@@ -32,7 +33,7 @@ class OwnedExecObservations:
     latch this configuration and the outer wait session, retaining cleanup state.
     """
 
-    def __init__(self, records, *, files=None, bind_abi=False):
+    def __init__(self, records, *, files=None, bind_abi=False, network_launches=()):
         if type(bind_abi) is not bool:
             raise AbiObservationError('explicit boolean ABI binding selection required')
         if (type(records) is not tuple or not 1 <= len(records) <= 2
@@ -45,6 +46,18 @@ class OwnedExecObservations:
                 or len({record.mode for _, record in records}) != len(records)):
             raise AbiObservationError('unique fixed probe births and modes required')
         self._records = dict(records)
+        if (type(network_launches) is not tuple
+                or any(type(pair) is not tuple or len(pair) != 2
+                       or type(pair[0]) is not int or pair[0] not in self._records
+                       or type(pair[1]) is not ProbeLaunch
+                       or pair[1].probe != self._records[pair[0]] for pair in network_launches)
+                or len({pair[0] for pair in network_launches}) != len(network_launches)
+                or (network_launches and {pair[0] for pair in network_launches} != set(self._records))):
+            raise AbiObservationError('exact frozen network launch per selected birth required')
+        self._network_launches = dict(network_launches)
+        self._launch_observations = {}
+        self._launch_resume_attempts = set()
+        self._launch_resumed = set()
         # Construct our own pristine two-slot model from frozen expectations;
         # never accept a caller's mutable or already-consumed model.
         self._abi_model = AbiProbeModel(tuple(record for _, record in records)) if bind_abi else None
@@ -218,6 +231,38 @@ class OwnedExecObservations:
         gates held. Source/filter installation and external no-injection proof
         remain host/checker prerequisites; these records do not certify them.
         """
+        if (birth in self._launch_observations
+                and facts.status.kind == 'ptrace-event' and facts.status.event == 'EXEC'
+                and not any(item.identity.birth == birth for item in self.observations)):
+            try:
+                identity = self._launch_observations[birth].identity
+                owner = getattr(dispatcher, '_wait_owner', None)
+                receipt = dispatcher._active_wait
+                def check():
+                    if owner is None:
+                        raise AbiObservationError('original launcher wait owner required')
+                    owner._reap_gates()
+                    if (dispatcher is not self._dispatcher or self.stopped is not None
+                            or owner.last_wait is not receipt or receipt is None
+                            or receipt.adopted or receipt.facts is not facts
+                            or receipt.raw != 0x4057f or receipt.tid != identity.tid
+                            or not receipt.event_attempted or not receipt.event_read
+                            or owner._exec_identity(dispatcher.launch.ledger.identity(birth)) != identity
+                            or dispatcher.launch.dispatcher.stop_binding(identity.tid) != (birth, wire)
+                            or type(signal) is not int or signal != 0):
+                        raise AbiObservationError('original launcher EXEC resume lost')
+                check()
+                if birth in self._launch_resume_attempts:
+                    raise AbiObservationError('launcher resume already attempted')
+                self._launch_resume_attempts.add(birth)
+                wire.resume_syscall(identity.tid, 0)
+                self._launch_resumed.add(birth)
+                check()
+                return True
+            except BaseException:
+                self.fail('owned launcher resume failed; no retry')
+                dispatcher.stopped = dispatcher.launch.stopped = self.stopped
+                raise
         if (self._abi_model is None or birth not in self._records
                 or self._abi_model.state(self._records[birth].mode) != 'AWAITING_SIGSYS'):
             return False
@@ -287,9 +332,12 @@ class OwnedExecObservations:
                 raise AbiObservationError('ABI binding model stopped')
             if matched.birth not in self._records:
                 return
+            network_launch = self._network_launches.get(matched.birth)
+            launcher = network_launch is not None and matched.birth not in self._launch_observations
             if matched.birth in self._attempted:
                 raise AbiObservationError('selected probe birth executed again')
-            self._attempted.add(matched.birth)
+            if not launcher:
+                self._attempted.add(matched.birth)
             launch = dispatcher.launch
             receipt = dispatcher._active_wait
             identity = launch.ledger.identity(matched.birth)
@@ -328,9 +376,28 @@ class OwnedExecObservations:
                 return expected
 
             check()
+            if network_launch is not None and not launcher:
+                previous = self._launch_observations[expected.birth]
+                if (expected.birth not in self._launch_resumed
+                        or expected != ExecIdentity(previous.identity.birth,
+                                                    previous.identity.group_birth,
+                                                    previous.identity.tid,
+                                                    previous.identity.generation + 1)):
+                    raise AbiObservationError('original adjacent launcher EXEC required')
             observer = AbiExecObserver(launch.owner, check, files=self._files)
-            observation = observer.observe(self._records[expected.birth], expected)
+            if network_launch is None:
+                observation = observer.observe(self._records[expected.birth], expected)
+            else:
+                observation = observer.observe(self._records[expected.birth], expected,
+                                               network_launch=network_launch, launcher=launcher)
             check()
+            if launcher:
+                self._launch_observations[expected.birth] = observation
+                return
+            if network_launch is not None:
+                previous = self._launch_observations[expected.birth]
+                if previous.start_ticks != observation.start_ticks:
+                    raise AbiObservationError('launcher/probe process lifetime changed')
             if self._abi_model is not None:
                 self._abi_model.bind(observation.record.mode, observation.identity, observation.record)
                 # Retain a completed binding if this last gate fails, but latch

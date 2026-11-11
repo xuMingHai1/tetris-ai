@@ -420,3 +420,30 @@ ENTRY。覆盖未知ABI/模式、未完native序列、raw/copy/旧receipt、代�
 接通冻结source/filter/no-injection checker、host互斥writer/清理和整套fixture，最终整体
 Review/CI、兼容性/inputhash与唯一登记后才可执行。#170A/#174已明确接受；
 原预算、#140/GoalWindow、#95/#96及runtime/default停止门不变。
+
+## 本次新增修改：网络 launcher 与 probe 的相邻 EXEC 接线
+
+`ProbeLaunch`保存可信host执行前冻结的原`network.chain`记录的canonical JSON及
+对应`ProbeRecord`，严格关联解释器hash、完整probe argv、policy hash和库身份；
+不运行chain/validate/install，不接受调用方布尔证书，不产生能力或执行权限。
+宿主仍须在原来源认证链冻结该记录，不能把随意构造的JSON当成来源认证。
+
+`OwnedExecObservations(network_launches=...)`要求全部所选birth的精确映射。
+第一次原owned EXEC观察launcher完整argv（包括原JSON）、源码/解释器/库字节与
+继承filter基数，不绑定ABI模型；原wait owner在原wire上仅执行一次signal-zero
+resume，尝试在调用前保留，正常返回与共享门通过才能进入下一阶段。
+第二次EXEC必须是同birth/group/TID的相邻代次且proc start time相同，核对probe
+源码/解释器/库、精确argv和NoNewPrivs=1/Seccomp=2/filter基数加一后才绑定原模型。
+随后复用现有精确ENTRY、原样delivery、真实reap和终态匹配路径。第三次EXEC撤销，
+birth不继承；不创建任务、wait owner、预算或额外的resume。
+
+两阶段观察均复用`AbiExecObserver`的双快照、有界chunk、每次I/O前后原共享门及
+描述符一次关闭。原observation-only与不配置network_launches的路径保持原契约。
+14项fake-only测试覆盖两种ABI、线程EXEC迁移、可选delivery到终态、跳过launcher、
+源码/库/安全状态漂移、非相邻代次/生命周期变化、不确定resume及超时保留、再次EXEC
+撤销和冻结配置错配；Linux JUnit bridge要求30秒内14项零skip。
+
+这只是可信cooperative host前提下的安装来源观察链，不是filter字节/运行中完整性
+证明。完整no-injection checker、host冻结来源与互斥writer、复杂清理、全套fixture及
+原最终整体Review/CI/执行门禁仍缺，不能标记KERNEL_TERMINAL_OBSERVED。
+未执行原生probe、network clean-build或历史22步，未改冻结guard/预算/生产代码。
