@@ -68,6 +68,8 @@ class PostHandshakeDispatcher:
         access = _StopAccess(self, tid)
         try:
             facts = self.launch.reader.read(tid, raw_status, access)
+            if self._active_wait is not None:
+                self._active_wait.facts = facts
             ticket, wire = access.binding()
             kind = facts.status.kind
             resume_signal = 0
@@ -76,6 +78,9 @@ class PostHandshakeDispatcher:
                 self.launch.unsettled_terminal_waits.discard(tid)
                 self._newborn.discard(ticket)
                 return facts
+            abi_entry = False
+            if self._exec_observations is not None:
+                abi_entry = self._exec_observations.observe_stop(self, ticket, facts)
             if ticket in self._newborn:
                 # Non-SEIZE ptrace_init_task queues a bare pending SIGSTOP;
                 # collect_signal synthesizes SI_USER with zero sender/uid.
@@ -89,7 +94,8 @@ class PostHandshakeDispatcher:
                 wire.set_options(tid)
                 self._newborn.remove(ticket)
             elif kind == 'syscall-stop':
-                self.launch.dispatcher.syscall_info_stop(ticket, tid, facts.syscall)
+                if not abi_entry:
+                    self.launch.dispatcher.syscall_info_stop(ticket, tid, facts.syscall)
             elif kind == 'ptrace-event' and facts.status.event in ('FORK', 'VFORK', 'CLONE'):
                 child = self.launch.dispatcher.child_event(
                     ticket, tid, facts.status.event, facts.event_tid)
@@ -126,6 +132,8 @@ class PostHandshakeDispatcher:
             wire.resume_syscall(tid, resume_signal)
             return facts
         except BaseException:
+            if self._exec_observations is not None:
+                self._exec_observations.fail('post-handshake dispatch failed; no retry')
             self.stopped = 'post-handshake dispatch failed; cleanup required'
             self.launch.stopped = self.stopped
             raise

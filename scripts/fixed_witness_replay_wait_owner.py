@@ -56,6 +56,7 @@ class _OwnedWait:
     event_read: bool = False
     event_tid: object = None
     adopted: bool = False
+    facts: object = None
 
 
 class BoundedWaitOwner:

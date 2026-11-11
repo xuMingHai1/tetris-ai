@@ -3,8 +3,9 @@
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
 不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费、只读union解析、delivery/终态事实匹配与
 有界exec/proc观察、唯一wait owner的EXEC代次/停点门与结算后模型终态接线子集已实现；
-ENTRY/delivery准入及来源/filter/no-injection完整checker仍未接通，
-当前 dispatcher 继续拒绝所有 compat/x32 syscall。
+唯一wait owner下的精确ENTRY及delivery接线也已实现；来源/filter/no-injection完整checker、
+host证据writer及整套fixture仍未接通，不能执行原生probe/network clean-build或历史输入。
+普通creation dispatcher的native guard不变；只有已认证绑定的两个固定ENTRY可走内部接线。
 本次新增修改不改变生产架构，README/AGENTS无需同步。
 源码基线：`993f6ad4caf4439bfffd4694c68bc2bbf4c4105c`（已纳入 #218 独立清理组件）。
 
@@ -363,3 +364,32 @@ EXEC核对迁移executor birth及原group，退休leader不能充当终态记录
 原native guard继续拒绝非native ENTRY；ENTRY/delivery准入、source/filter/no-injection
 checker、host证据writer及整套fixture仍待接线，不能执行network clean-build或历史
 22步。原预算与所有执行停止门保持；README/AGENTS生产架构无需修改。
+
+## 本次新增修改：唯一wait停点的ENTRY／delivery完整模拟接线（2026-11-11）
+
+接续 #235 的真实reap到模型终态连接，`PostHandshakeDispatcher.accept`将本次
+`StopReader`读出的原始不可变facts保留在唯一owner的当前receipt中；
+`OwnedExecObservations.observe_stop`只消费该对象，不接受副本、raw accept、其他owner、
+脱离active wait的旧receipt或调用方传入的身份/manifest。核对当前ledger birth/group/TID、
+EXEC generation、原冻结记录与完整观察、原owner/deadline及共享门，并在消费后复核。
+
+BOUND内native入口/出口仍走原完整sequence/创建仲裁。只有固定x32 socket或compat
+socketcall精确ENTRY、且之前native序列/EXEC exit已完成，才先消费为AWAITING_SIGSYS，
+再回到同一dispatcher执行一次`resume_syscall(tid, 0)`。不写寄存器、不截断ABI、不改
+返回值、不注入信号、不复制创建仲裁；`CreationSyscallDispatcher`的native guard未改。
+AWAITING_SIGSYS后的任何syscall/创建/EXEC停点在政策变更前失败。可选SIGSYS delivery
+必须由同一停点读取的SYS_SECCOMP union精确匹配，再保留原signal=31恢复；其他普通
+信号保持原政策，不算成功。终态仍经 #235 的原owner实际reap结算后匹配。
+后置门、普通政策或resume失败会撤销整个模型/session；已消费槽不恢复，不能重试。
+
+新增16项有限fake-only测试及30秒Linux普通JUnit桥；两种模式、两种EXEC身份与有/无
+delivery都走相同EXEC→native exit→ENTRY→可选delivery→reap路径，不再注入私有模型
+ENTRY。覆盖未知ABI/模式、未完native序列、raw/copy/旧receipt、代次漂移、缺少完成
+观察、消费后期限/共享门失败、resume不确定、重复停点和伪造SIGSYS。原绑定回归改为
+继续拒绝相邻非授权x32号；预先篡改模型绑定在完成观察门提前失败。
+
+这是内部适配接线的模拟验证，不是原生能力、过滤器安装/来源链、无注入记录或整套
+人工验收。没有增加CLI/runner入口，也没有调用原KernelTest或执行探针。下一步仍须
+接通冻结source/filter/no-injection checker、host互斥writer/清理和整套fixture，最终整体
+Review/CI、兼容性/inputhash与唯一登记后才可执行。#170A/#174已明确接受；
+原预算、#140/GoalWindow、#95/#96及runtime/default停止门不变。
