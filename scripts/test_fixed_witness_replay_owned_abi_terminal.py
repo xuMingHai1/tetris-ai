@@ -1,8 +1,7 @@
 """Fake owned wait/model composition; no native ABI entry or probe execution.
 
-ENTRY consumption below is injected into the private model, deliberately NOT
-through the still-native-only dispatcher. These tests certify only the terminal
-join, never a usable ABI exception or the full capability sequence.
+ENTRY consumption below uses the original fake wait/dispatcher/resume path.
+These tests certify only synthetic composition, never kernel/filter capability.
 """
 from dataclasses import replace
 import errno
@@ -37,9 +36,11 @@ class OwnedAbiTerminalTest(unittest.TestCase):
     def consume_synthetic_entry(self):
         mode = self.f.record.mode
         arch, number = (0xc000003e, 0x40000029) if mode == 'x32' else (0x40000003, 102)
-        self.model.consume_entry(mode, self.model._identities[mode],
-                                 self.model.manifest_sha256,
-                                 decode_syscall_info(*entry(number, arch)))
+        self.f.f.wire.syscall_info.return_value = decode_syscall_info(*entry(number, arch))
+        self.f.wait.return_value = (11, 0x857f)
+        self.f.step()
+        self.f.f.wire.reset_mock()
+        self.f.wait.reset_mock()
 
     def reap(self, raw=31):
         self.f.wait.return_value = (11, raw)
@@ -84,7 +85,7 @@ class OwnedAbiTerminalTest(unittest.TestCase):
         self.assertEqual('TERMINAL_FACT_MATCHED', self.config.abi_state('x32'))
 
     def test_without_consumed_entry_terminal_latches_but_keeps_real_reap(self):
-        with self.assertRaises(AbiModelError):
+        with self.assertRaises(AbiObservationError):
             self.reap()
         self.assert_retained_failure('BOUND')
 

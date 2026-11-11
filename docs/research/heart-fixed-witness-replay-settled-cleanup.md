@@ -101,7 +101,8 @@ close负责最终释放；未知结果不重试。正常握手成功后直接关
 1. 唯一wait的EXEC→ENTRY/delivery→真实reap接线由#236单独交付；核对其最终合并，
    不把模型`TERMINAL_FACT_MATCHED`升级为filter能力证明。
 2. 冻结source/filter安装及no-injection checker，关联同birth/exec/manifest与原样resume；
-   现有EXEC观察和network chain分别提供输入，完整checker尚缺。
+   本次新增原wait receipt→精确ENTRY/delivery resume→真实reap的归属核验；
+   现有EXEC观察和network chain分别提供输入，source/filter及完整no-injection checker尚缺。
 3. cleanup还缺线程EXEC/leader提前退出与复杂事件、job-control处理；本次只解决已绑定
    coordinator的预握手pin路径，ledger binding失败或无法取得pin仍INCOMPLETE。
 4. 可信Java宿主与tracer/coordinator互斥writer传输、全套冻结fixture/task预留表及终末

@@ -3,10 +3,23 @@
 No CLI, probe launch or whole-capability authority. The
 trusted host must freeze the birth/record selection before wait dispatch starts.
 """
+from dataclasses import dataclass
+
 from fixed_witness_replay_abi_model import AbiModelError, AbiProbeModel, ExecIdentity, ProbeRecord
 from fixed_witness_replay_abi_observation import AbiExecObserver, AbiObservationError
 from fixed_witness_replay_ptrace import SyscallInfo
 from fixed_witness_replay_wait import decode_wait_status
+
+
+@dataclass(frozen=True)
+class _AbiResume:
+    """Internal original-stop attempt, not a filter/no-injection certificate."""
+
+    identity: ExecIdentity
+    manifest: str
+    receipt: object
+    facts: object
+    signal: int
 
 
 class OwnedExecObservations:
@@ -37,6 +50,10 @@ class OwnedExecObservations:
         self._files = files
         self._dispatcher = None
         self._attempted = set()
+        self._entry_resumes = {}
+        self._completed_entries = set()
+        # Keep constant space per frozen birth, even with many delivery stops.
+        self._last_signal_resumes = {}
         self.observations = ()
         self.stopped = None
 
@@ -165,6 +182,7 @@ class OwnedExecObservations:
                 raise AbiObservationError('completed owned EXEC observation required')
             observation = observed[0]
             owner.require_exec_reap(record, observation.identity)
+            self._require_entry_resume(observation.identity)
             self._abi_model.observe_terminal(
                 observation.record.mode, observation.identity,
                 self._abi_model.manifest_sha256, record.status)
@@ -178,6 +196,85 @@ class OwnedExecObservations:
                 self._abi_model.fail(self.stopped)
             except AbiModelError:
                 pass
+            raise
+
+    def _require_entry_resume(self, identity):
+        attempt = self._entry_resumes.get(identity.birth)
+        if (attempt is None or identity.birth not in self._completed_entries
+                or attempt.identity != identity or attempt.manifest != self._abi_model.manifest_sha256
+                or attempt.signal != 0 or attempt.receipt.facts is not attempt.facts
+                or attempt.receipt.adopted or attempt.receipt.tid != identity.tid
+                or attempt.facts.tid != identity.tid
+                or attempt.facts.status != decode_wait_status(attempt.receipt.raw)
+                or attempt.facts.status.kind != 'syscall-stop'):
+            raise AbiObservationError('original completed ABI ENTRY resume required')
+
+    def resume(self, dispatcher, birth, facts, wire, signal):
+        """Own the exact fixed ENTRY/delivery resume, recording uncertain attempts.
+
+        No injected signal, register write, second read or retry is performed.
+        Completion means only that this original wire call returned and shared
+        gates held. Source/filter installation and external no-injection proof
+        remain host/checker prerequisites; these records do not certify them.
+        """
+        if (self._abi_model is None or birth not in self._records
+                or self._abi_model.state(self._records[birth].mode) != 'AWAITING_SIGSYS'):
+            return False
+        try:
+            owner = getattr(dispatcher, '_wait_owner', None)
+            receipt = dispatcher._active_wait
+            record = self._records[birth]
+            observation, = (item for item in self.observations if item.identity.birth == birth)
+            identity = observation.identity
+
+            def check():
+                if owner is None:
+                    raise AbiObservationError('original resume wait owner required')
+                owner._reap_gates()
+                if (dispatcher is not self._dispatcher or self.stopped is not None
+                        or self._abi_model.stopped is not None
+                        or owner.last_wait is not receipt or dispatcher._active_wait is not receipt
+                        or receipt is None or receipt.adopted or receipt.facts is not facts
+                        or receipt.tid != identity.tid or facts.tid != identity.tid
+                        or facts.status != decode_wait_status(receipt.raw)
+                        or receipt.parent != dispatcher.launch.ledger.identity(birth)
+                        or not receipt.parent.alive or owner._exec_identity(receipt.parent) != identity
+                        or dispatcher.launch.dispatcher.stop_binding(identity.tid) != (birth, wire)
+                        or observation.record != record):
+                    raise AbiObservationError('exclusive ABI resume stop lost')
+
+            check()
+            if facts.status.kind == 'syscall-stop':
+                if type(signal) is not int or signal != 0 or birth in self._entry_resumes:
+                    raise AbiObservationError('one original signal-zero ENTRY resume required')
+                # Revalidate the exact already-consumed entry without consuming
+                # the slot again. The original immutable facts must still match.
+                info = facts.syscall
+                expected = (0xc000003e, 0x40000029) if record.mode == 'x32' else (0x40000003, 102)
+                if type(info) is not SyscallInfo or info.operation != 1 or (info.arch, info.number) != expected:
+                    raise AbiObservationError('original fixed ENTRY facts required')
+                attempt = _AbiResume(identity, self._abi_model.manifest_sha256, receipt, facts, signal)
+                self._entry_resumes[birth] = attempt
+            elif facts.status.kind == 'signal-stop':
+                self._require_entry_resume(identity)
+                if type(signal) is not int or signal != facts.status.signal:
+                    raise AbiObservationError('original delivery signal must be preserved')
+                if signal == 31:
+                    self._abi_model.observe_sigsys(record.mode, identity,
+                                                   self._abi_model.manifest_sha256, facts.signal_info)
+                self._last_signal_resumes[birth] = _AbiResume(
+                    identity, self._abi_model.manifest_sha256, receipt, facts, signal)
+            else:
+                raise AbiObservationError('unsupported ABI resume stop')
+            check()
+            wire.resume_syscall(identity.tid, signal)
+            if facts.status.kind == 'syscall-stop':
+                self._completed_entries.add(birth)
+            check()
+            return True
+        except BaseException:
+            self.fail('owned ABI resume failed; no retry')
+            dispatcher.stopped = dispatcher.launch.stopped = self.stopped
             raise
 
     def observe(self, dispatcher, matched, generation):
