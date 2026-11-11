@@ -9,6 +9,7 @@ import signal
 from fixed_witness_replay_cleanup_reap import CleanupReaper, CleanupReapError
 from fixed_witness_replay_launch import CoordinatorLaunch
 from fixed_witness_replay_handshake import CoordinatorHandshake
+from fixed_witness_replay_startup_pin import CoordinatorPin
 
 SIGKILL = 9  # Frozen Linux ABI; injectable synthetic transport also runs on Windows.
 
@@ -25,20 +26,32 @@ class SettledProcessCleanup:
 
     def __init__(self, launch, *, open_pidfd=None, send_signal=None,
                  close=os.close, **wait_options):
-        # A returned fork PID before authenticated TRACEME admission can have
-        # self-reaped under SIGCHLD=IGN/SA_NOCLDWAIT. Do not open that number.
-        if (type(launch) is not CoordinatorLaunch or not launch.admitted
-                or launch.dispatcher is None
-                or type(launch.handshake) is not CoordinatorHandshake
-                or not launch.handshake.completed
-                or launch.handshake.dispatcher is not launch.dispatcher):
-            raise CleanupReapError('authenticated traced launch required for pidfd binding')
+        authenticated = (type(launch) is CoordinatorLaunch and launch.admitted
+                and launch.dispatcher is not None
+                and type(launch.handshake) is CoordinatorHandshake
+                and launch.handshake.completed
+                and launch.handshake.dispatcher is launch.dispatcher)
+        pin = getattr(launch, 'startup_pin', None)
+        self.startup_pin = None
+        if not authenticated and type(launch) is CoordinatorLaunch and type(pin) is CoordinatorPin:
+            # Only the retained pre-wait descriptor can serve a failed startup.
+            # Never infer a pin from admitted (which means attempted) or PID.
+            identities = launch.ledger.cleanup_identities()
+            if (pin.fd is not None and not pin.released and len(identities) == 1
+                    and identities[0].birth == launch.ticket
+                    and identities[0].tid == pin.pid == launch.cleanup_tid
+                    and identities[0].tid == identities[0].tgid
+                    and not launch.ledger.cleanup_pending()
+                    and identities[0].tid not in launch.unsettled_terminal_waits):
+                self.startup_pin = pin
+        if not authenticated and self.startup_pin is None:
+            raise CleanupReapError('authenticated traced launch or retained startup pin required for pidfd binding')
         self.open_pidfd = open_pidfd if open_pidfd is not None else getattr(os, 'pidfd_open', None)
         self.send_signal = (send_signal if send_signal is not None
                             else getattr(signal, 'pidfd_send_signal', None))
         if not all(callable(item) for item in (self.open_pidfd, self.send_signal, close)):
             raise CleanupReapError('CAPABILITY_UNAVAILABLE: pidfd transport required')
-        self.close = close
+        self.close = self.startup_pin.close if self.startup_pin is not None else close
         self.reaper = CleanupReaper(launch, **wait_options)
         self.started = False
         self.stopped = None
@@ -65,7 +78,8 @@ class SettledProcessCleanup:
             self._same_inventory(identities)
             for item in identities:
                 self._same_inventory(identities)
-                fd = self.open_pidfd(item.tid, 0)
+                fd = (self.startup_pin.take(item.tid) if self.startup_pin is not None
+                      else self.open_pidfd(item.tid, 0))
                 if type(fd) is not int or not 0 <= fd < 2**31:
                     raise CleanupReapError('invalid pidfd transport result')
                 if any(previous == fd for _, previous in self.pinned):

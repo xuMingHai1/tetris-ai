@@ -14,6 +14,7 @@ from fixed_witness_replay_lifecycle import CreationLifecycle
 from fixed_witness_replay_ptrace import PtraceAccess
 from fixed_witness_replay_stops import StopReader
 from fixed_witness_replay_stub import CoordinatorStub
+from fixed_witness_replay_startup_pin import CoordinatorPin
 
 
 class CoordinatorLaunchError(ValueError):
@@ -33,7 +34,7 @@ class CoordinatorLaunch:
     """
 
     def __init__(self, ledger, stub, access, stdio, deadline, *, system=os,
-                 clock=time.monotonic, access_factory=PtraceAccess.for_host):
+                 clock=time.monotonic, access_factory=PtraceAccess.for_host, startup_pin=None):
         if (type(stdio) is not tuple or len(stdio) != 3
                 or any(type(fd) is not int or not 3 <= fd < 2**31 - 1 for fd in stdio)
                 or type(deadline) not in (int, float) or not math.isfinite(deadline)):
@@ -42,6 +43,14 @@ class CoordinatorLaunch:
         self.stdio, self.deadline = stdio, deadline
         self.system, self.clock = system, clock
         self.access_factory = access_factory
+        # Native launch always establishes non-autoreap before fork. Synthetic
+        # transport may omit it; such launches gain no pre-handshake kill path.
+        if startup_pin is None and system is os:
+            startup_pin = CoordinatorPin.for_host()
+        if startup_pin is not None and type(startup_pin) is not CoordinatorPin:
+            raise ValueError('fixed startup pin transport required')
+        self.startup_pin = startup_pin
+        self.startup_pin_close_error = None
         self._wire_claimed = False
         self.owner = stub.parent_pid
         self.reader = StopReader(ledger)
@@ -92,6 +101,8 @@ class CoordinatorLaunch:
             self._owner_and_deadline()
             for fd in self.stdio:
                 self.system.fstat(fd)
+            if self.startup_pin is not None:
+                self.startup_pin.prepare()
             self._owner_and_deadline()
             self.ticket = self.ledger.reserve(0, 'coordinator')
             try:
@@ -119,6 +130,10 @@ class CoordinatorLaunch:
         try:
             if type(pid) is not int or not 0 < pid < 2**31 or pid == self.owner:
                 raise CoordinatorLaunchError('invalid coordinator fork result')
+            if self.startup_pin is not None:
+                # No wait or fallible ledger/dispatcher setup before pinning.
+                # prepare + sole wait ownership keeps this child unreaped.
+                self.startup_pin.capture(pid)
             self.ledger.created(self.ticket, pid)
             self.ledger.finish(self.ticket, pid)
             self.dispatcher = CreationSyscallDispatcher(
@@ -158,8 +173,16 @@ class CoordinatorLaunch:
                 self.reader.read(tid, raw_status, _RejectAccess())
                 raise
             self.handshake.accept(tid, raw_status)
+            if self.startup_pin is not None:
+                self.startup_pin.release()
         except BaseException:
             self.stopped = 'coordinator initial admission failed; cleanup required'
+            if (self.startup_pin is not None
+                    and self.startup_pin.pid in self.unsettled_terminal_waits):
+                try:
+                    self.startup_pin.release()
+                except BaseException as error:
+                    self.startup_pin_close_error = error
             raise
 
 

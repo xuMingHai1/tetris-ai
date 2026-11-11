@@ -268,6 +268,9 @@ class CleanupReaper:
             self.launch.dispatcher.reaped(item.birth, item.tid)
         self.launch.unsettled_terminal_waits.discard(item.tid)
         self.reaped.append((item.birth, item.tid, status))
+        pin = self.launch.startup_pin
+        if pin is not None and pin.pid == item.tid:
+            pin.release()
         return True
 
     def run(self):
