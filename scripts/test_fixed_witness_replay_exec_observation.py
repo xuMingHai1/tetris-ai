@@ -213,6 +213,23 @@ class OwnedExecObservationTest(unittest.TestCase):
         with self.assertRaises(AbiObservationError):
             self.config.claim(self.dispatch)
 
+    def test_reused_config_does_not_consume_a_fresh_launch(self):
+        fixture = dispatch_fixture.launch_fixture.CoordinatorLaunchTest()
+        fixture.setUp()
+        launch = fixture.launcher
+        launch.launch()
+        launch.accept_initial_wait(11, 0x137f)
+        with self.assertRaises(AbiObservationError):
+            PostHandshakeDispatcher(launch, exec_observations=self.config)
+        self.assertFalse(getattr(launch, '_post_handshake_claimed', False))
+        self.assertFalse(hasattr(launch, '_normal_wait_dispatcher'))
+        fresh = OwnedExecObservations(((1, self.record),), files=self.files)
+        dispatcher = PostHandshakeDispatcher(launch, exec_observations=fresh)
+        waiter = BoundedWaitOwner(dispatcher, waitpid=Mock(return_value=(11, 0)), sleep=Mock())
+        self.assertEqual('event', waiter._round())
+        self.assertEqual('drained', waiter._round())
+        self.assertEqual(1, launch.ledger.totals.live)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -270,7 +270,7 @@ birth/group/TID、代次、独占wire和待成功exec-exit状态。原始accept�
 规则退休。观察失败保留cleanup身份及全部计费、不resume；普通resume失败仍锁存外层，
 已保存的观察不是可用能力票据。未选中birth不读文件。
 
-新增14项fake-only组合测试及Linux普通JUnit桥，覆盖迁移、一次性选择、共享失败、
+新增15项fake-only组合测试及Linux普通JUnit桥，覆盖迁移、一次性选择、共享失败、
 截止时间、owner/epoch/wire/receipt漂移、proc错配、I/O失败和不确定resume。
 这些测试不执行真实wait/ptrace/proc/probe。该配置目前没有接入network入口；尚不认证
 冻结映射的host来源、filter/no-injection、证据写入总门或SIGSYS真实终态，不绑定

@@ -51,7 +51,7 @@ Python父端[保存证据组件](heart-fixed-witness-replay-evidence.md#执行�
 READY 前仅看 metadata，绑定 ACK 后唯一回放，关闭 journal 后通过原 ReportRequest 写规范声明与报告，
 最后写出携带实际 journalState 的回执。四个合作 writer 先扣费、独占创建并 force；失败保留前缀，
 不补 END、不重试动作。双侧新增独立 execution 加载清单，旧两个模式清单不变。
-新增五项人工案例只占原矩阵第8/10/11/12/14项（argv拒绝、INVALID、MISMATCH、journal耗尽、报告写失败）。
+新增五项人工案例只占原矩阵第8/10/11/12/15项（argv拒绝、INVALID、MISMATCH、journal耗尽、报告写失败）。
 专用 `scripts/fixed_witness_replay_execution.py` 接线父端 build/request/proc/加载身份认证、
 保留原 READY 字节、主监督线程的唯一 ACK/EOF 与退出五文件核验；
 `REPLAY_REPORTED` 仅表示传输闭合，并保留实际 journal_state，不提升 INVALID/MISMATCH。
@@ -150,7 +150,7 @@ prepare现将构建HOME/TMP与证据目录分离并记录分类，证据仍共�
 [固定 ABI 探针身份设计](heart-fixed-witness-replay-abi-identity.md)细化两条已接受的
 非创建入口例外、出生/exec绑定和一次性消费；纯匹配/消费模型已实现，真实exec/proc与
 SIGSYS终态接线待完成；只读siginfo union、纯模型delivery/终态事实匹配与有界exec/proc观察已补齐，
-唯一wait owner的EXEC代次/停点观察门已接线（14项fake-only组合测试）；host来源、证据写入
+唯一wait owner的EXEC代次/停点观察门已接线（15项fake-only组合测试）；host来源、证据写入
 总门、ABI/checker与真实终态仍待组合。当前native拒绝不变，子集不授予原生执行权限。
 
 [#174累计任务政策](heart-fixed-witness-replay-task-budget-proposal.md)亦于2026-11-09

@@ -32,7 +32,6 @@ class PostHandshakeDispatcher:
                 or launch.reader.ledger is not launch.dispatcher.lifecycle.ledger
                 or getattr(launch, '_post_handshake_claimed', False)):
             raise StopDispatchError('completed trusted coordinator handshake required')
-        launch._post_handshake_claimed = True
         self.launch = launch
         self.stopped = None
         self._newborn = set()
@@ -41,6 +40,9 @@ class PostHandshakeDispatcher:
         self._exec_observations = exec_observations
         if exec_observations is not None:
             exec_observations.claim(self)
+        # A reused observation configuration must not strand a fresh launch.
+        # Publish the launch claim only after the fallible config claim.
+        launch._post_handshake_claimed = True
         launch._normal_wait_dispatcher = self
 
     def _accept_owned_wait(self, owner, receipt):
