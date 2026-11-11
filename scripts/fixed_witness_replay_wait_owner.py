@@ -10,7 +10,8 @@ import time
 from dataclasses import dataclass
 
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
-from fixed_witness_replay_tasks import LIVE_TASKS
+from fixed_witness_replay_tasks import LIVE_TASKS, TASK_ATTEMPTS
+from fixed_witness_replay_wait import decode_wait_status
 
 
 # Linux UAPI: nonblocking, all clone children, only this tracer thread's tasks.
@@ -19,6 +20,21 @@ WAIT_OPTIONS = 1 | 0x40000000 | 0x20000000
 
 class WaitOwnerError(ValueError):
     """Whole-tree cleanup required; never retry a failed wait session."""
+
+
+@dataclass(frozen=True)
+class SettledReap:
+    """Retained owner facts, NOT an ABI/filter/no-injection success receipt.
+
+    Only require_settled_reap on the original owner checks provenance. Constructing
+    equal values, or retaining a record after session failure, grants no authority.
+    No EXEC generation is inferred from a birth or a terminal status.
+    """
+
+    before: object
+    after: object
+    raw: int
+    status: object
 
 
 @dataclass
@@ -67,6 +83,7 @@ class BoundedWaitOwner:
         self.started = False
         self.stopped = None
         self.last_wait = None
+        self._settled_reaps = {}
         dispatcher._wait_owner = self
 
     def _check(self):
@@ -74,6 +91,61 @@ class BoundedWaitOwner:
                 or self.launch.reader.stopped is not None):
             raise WaitOwnerError('wait session stopped')
         self.launch._owner_and_deadline()
+
+    @property
+    def settled_reaps(self):
+        """Immutable diagnostic snapshot, retained even after later failure."""
+        return tuple(self._settled_reaps.values())
+
+    def _reap_gates(self):
+        creation = self.launch.dispatcher
+        if (self.stopped is not None
+                or getattr(self.dispatcher, '_wait_owner', None) is not self
+                or getattr(self.launch, '_normal_wait_dispatcher', None) is not self.dispatcher
+                or self.dispatcher.launch is not self.launch
+                or self.launch.reader.ledger is not self.launch.ledger
+                or creation.lifecycle.ledger is not self.launch.ledger
+                or creation.stopped is not None or creation.lifecycle.stopped is not None
+                or creation.lifecycle.policy.stopped is not None):
+            raise WaitOwnerError('settled reap owner or shared gate failed')
+        self._check()
+
+    def require_settled_reap(self, record):
+        """Validate retained membership and current gates; never consume/resume.
+
+        No raw tuple, copied dataclass, cleanup reap or another owner's record
+        can substitute. Later failures revoke usability but preserve diagnostics.
+        The eventual ABI adapter still needs independently authenticated EXEC,
+        consumed ENTRY, manifest, filter and no-injection facts.
+        """
+        try:
+            self._reap_gates()
+            if (type(record) is not SettledReap
+                    or self._settled_reaps.get(record.before.birth) is not record
+                    or self.launch.ledger.identity(record.before.birth) != record.after):
+                raise WaitOwnerError('original settled reap record required')
+        except BaseException:
+            self.stopped = 'settled reap validation failed; cleanup required'
+            self.dispatcher.stopped = self.launch.stopped = self.stopped
+            raise
+
+    def _retain_reap(self, parent, tid, raw, facts):
+        if facts.status.kind not in ('exited', 'signaled'):
+            return
+        self._reap_gates()
+        after = self.launch.ledger.identity(parent.birth)
+        if (not parent.alive or parent.tid != tid or parent.terminal is not None
+                or after.alive or after.terminal != 'reaped'
+                or (after.birth, after.tid, after.group_birth, after.tgid) != (
+                    parent.birth, parent.tid, parent.group_birth, parent.tgid)
+                or tid in self.launch.unsettled_terminal_waits
+                or any(ticket == parent.birth or bound_tid == tid
+                       for ticket, bound_tid in self.launch.dispatcher.waiting_births())
+                or facts.tid != tid or facts.status != decode_wait_status(raw)
+                or parent.birth in self._settled_reaps
+                or len(self._settled_reaps) >= TASK_ATTEMPTS - 1):
+            raise WaitOwnerError('terminal reap settlement mismatch')
+        self._settled_reaps[parent.birth] = SettledReap(parent, after, raw, facts.status)
 
     def _reject_wait(self, tid, status):
         # Account any observed stop BEFORE rejecting the impossible wait tuple;
@@ -124,7 +196,8 @@ class BoundedWaitOwner:
             # No owner/deadline recheck before accept: an observed stop must
             # debit even if the wait crossed the deadline or ownership changed.
             self.last_wait = _OwnedWait(parent, pending, waited, status)
-            self.dispatcher._accept_owned_wait(self, self.last_wait)
+            facts = self.dispatcher._accept_owned_wait(self, self.last_wait)
+            self._retain_reap(parent, waited, status, facts)
             self._last_birth = ticket
             return 'event'
         self._check()
