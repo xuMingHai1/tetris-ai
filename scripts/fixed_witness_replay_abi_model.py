@@ -11,6 +11,7 @@ from pathlib import PurePosixPath
 import re
 
 from fixed_witness_replay_ptrace import LINUX_SIGSYS, SYS_SECCOMP, SignalInfo, SyscallInfo
+from fixed_witness_replay_wait import WaitStatus
 
 
 _ENTRIES = {'x32': (0xc000003e, 0x40000029), 'compat': (0x40000003, 102)}
@@ -70,8 +71,8 @@ class ExecIdentity:
 class AbiProbeModel:
     """Two frozen slots, serial one-shot matching and fail-closed revocation.
 
-    This finite subset stops at AWAITING_SIGSYS, including delivery matching.
-    Terminal evidence, real identity authentication and outer owner/deadline/
+    This finite subset matches supplied entry, delivery and terminal facts.
+    Real wait/reap evidence, identity authentication and outer owner/deadline/
     shared ledger gates remain unimplemented, so no execution path imports it.
     """
 
@@ -178,6 +179,29 @@ class AbiProbeModel:
                 or (info.arch, info.syscall) != _ENTRIES[mode]
                 or info.sender_pid is not None or info.sender_uid is not None):
             self._fail('exact decoded fixed-probe SYS_SECCOMP delivery required')
+
+    def observe_terminal(self, mode, identity, manifest_sha256, status):
+        """Consume a supplied SIGSYS terminal fact once, without certifying reap.
+
+        TERMINAL_FACT_MATCHED is deliberately not KERNEL_TERMINAL_OBSERVED.
+        The future sole wait owner must authenticate the original birth and
+        settle the real reap before calling; this pure model cannot verify
+        that provenance, release ledger credit or certify filter/no-injection.
+        A delivery stop is not required and the core-dump bit is not proof.
+        """
+        self._running(mode)
+        if (self._states[mode] != 'AWAITING_SIGSYS'
+                or type(identity) is not ExecIdentity or not identity.valid()
+                or identity != self._identities[mode]
+                or type(manifest_sha256) is not str
+                or manifest_sha256 != self._manifest_sha256):
+            self._fail('unconsumed, stale or mismatched terminal observation')
+        if (type(status) is not WaitStatus or type(status.kind) is not str
+                or status.kind != 'signaled' or not _uint(status.signal, 8)
+                or status.signal != LINUX_SIGSYS or status.exit_code is not None
+                or status.event is not None or type(status.core_dumped) is not bool):
+            self._fail('exact decoded fixed-probe SIGSYS terminal required')
+        self._states[mode] = 'TERMINAL_FACT_MATCHED'
 
     def revoke_exec(self, mode, identity):
         """A bound task's next EXEC uses up its slot; never rebind a new exec."""

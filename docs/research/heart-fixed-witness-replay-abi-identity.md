@@ -1,7 +1,7 @@
 # 固定 ABI 反例的出生身份与一次性准入设计
 
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
-不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费、只读union解析、delivery匹配与
+不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费、只读union解析、delivery/终态事实匹配与
 有界exec/proc观察子集已实现，真实EXEC代次/停点认证与SIGSYS终态接线尚未实现；
 当前 dispatcher 继续拒绝所有 compat/x32 syscall。
 本次新增修改不改变生产架构，README/AGENTS无需同步。
@@ -232,3 +232,25 @@ hash前后metadata不一致、两轮证据不一致、消失、权限错误、de
 post-open超时、I/O/close失败及不可重试。Linux普通JUnit bridge要求30秒内20项全部
 通过且零skip；只mock native open flags，不打开真实proc、不执行fork/ptrace/探针。
 Windows只提供这些假I/O行为及Java编译/平台skip证据。README/AGENTS架构无需变更。
+
+## 本次新增修改：SIGSYS终态事实纯模型
+
+`AbiProbeModel.observe_terminal`只在已消费的`AWAITING_SIGSYS`阶段，精确核对mode、
+birth/group/TID/exec、冻结manifest和完整`WaitStatus(signaled, SIGSYS)`；拒绝正常退出、
+其他终止信号、stop/event、额外exit/event字段、bool信号和非bool core-dump标志。
+core-dump位可真可假，不作为来源证据；不要求先出现delivery stop。
+
+匹配一次返回None并进入`TERMINAL_FACT_MATCHED`，不能再次匹配、重绑、消费ENTRY、
+观察delivery或EXEC。错配锁存整个模型，原失败优先，另一个独立槽仍可正常匹配。
+这个纯状态刻意不同于设计第5步的`KERNEL_TERMINAL_OBSERVED`：传入的dataclass和
+decode后的bits不证明真实wait/reap，不调用ledger、不释放live、不产生成功或resume凭据。
+未来唯一wait owner必须先核对真实birth并完成真实reap结算，再提交此事实；结算失败、
+ECHILD、主动cleanup或原owner/deadline/shared-stop失败必须先锁存模型/session。
+模型无法从终态bits判断主动注入或过滤器来源，这些仍是可信适配器和最终checker的职责。
+
+新增12项有限fake-only行为测试（模型共42项），覆盖两模式、有/无delivery与core位、
+正常退出/错信号/stop、身份/清单/阶段/类型错配、一次性消费、跨槽与失败优先。
+Linux普通JUnit bridge强制30秒内42项全部通过且零skip。测试中的ECHILD/cleanup仅
+验证调用方锁存后的优先性，不声称已实现真实wait错误或清理接线。本轮没有新增系统
+调用、native probe或历史输入执行；真实wait/reap、身份认证、无注入/来源checker、
+共享门与全部整体验收仍未完成，native guard与原预算/停止条件保持。
