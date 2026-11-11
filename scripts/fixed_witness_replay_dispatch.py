@@ -364,6 +364,40 @@ class CreationSyscallDispatcher:
                 return True
         return False
 
+    def cleanup_stable_group(self, identities):
+        """Validate a known group before TGID pinning, without clearing failure.
+
+        An unmatched exec entry may already be running de_thread and silently
+        retire a sibling. Reject it before opening any numeric PID. With every
+        birth bound and no unbound reservation, other tasks cannot enter exec
+        without another syscall stop; cleanup never resumes them. This is
+        accounting under the original sole tracer, not kernel authentication.
+        """
+        if not identities or len({item.group_birth for item in identities}) != 1:
+            self._fail('one original cleanup thread group required')
+        ledger = self.lifecycle.ledger
+        if (not any(item.tid == item.tgid for item in identities)
+                or any(item.group_birth == identities[0].group_birth
+                       for pending in ledger.cleanup_pending()
+                       for item in (ledger.identity(pending.parent),))):
+            self._fail('thread cleanup requires live leader and settled creations')
+        for item in identities:
+            access = self._task(item.birth, item.tid)
+            entry = self._sequence.get(item.birth)
+            if (ledger.identity(item.birth) != item or not item.alive or access is None
+                    or item.birth not in self._sequence
+                    or item.birth in self._exec_events
+                    or (entry is not None and entry != 'newborn'
+                        and type(entry) is not SyscallInfo)):
+                self._fail('unmatched cleanup thread binding')
+            if type(entry) is SyscallInfo:
+                try:
+                    entry.require_native(entry.operation)
+                except PtraceBoundaryError as error:
+                    self._fail(str(error))
+                if entry.operation == 1 and entry.number in (59, 322):
+                    self._fail('thread/exec identity requires integrated tree cleanup')
+
     def reaped(self, ticket, tid):
         """Only after terminal wait; discard the birth's wire and pending token.
 

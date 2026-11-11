@@ -1,8 +1,8 @@
 """Terminal-only cleanup waits; no kill, resume, probe or COMPLETE receipt.
 
-This supports process births with no unknown children, including event-bound
-creations awaiting parent results. The trusted host must still handle unbound
-creations and thread exec transitions.
+This supports process births and pinned stable thread groups with no unknown
+children, including event-bound process creations awaiting parent results.
+The trusted host must still handle unbound threads and exec transitions.
 Stops are never resumed. Only known births successfully pidfd-SIGKILLed by
 the composing cleanup owner may drain queued signal/syscall stops.
 """
@@ -23,8 +23,8 @@ class CleanupReaper:
     """Take over the sole wait owner once, using the launch's original deadline.
 
     No lookup/signalling by cleanup_tid, no wait(-1), no inferred ECHILD reap.
-    A single live birth at each original group TGID cannot silently
-    retire via another thread's exec. Reject all other inventories before wait.
+    Groups require a live original TGID and no unmatched exec entry before pin;
+    multi-birth groups require composing pidfd SIGKILL before any cleanup wait.
     Successful return describes terminal accounting only, never suite success.
     """
 
@@ -82,10 +82,6 @@ class CleanupReaper:
                     or child.tid != child.tgid
                     or (not child.alive and child.terminal != 'reaped')):
                 raise CleanupReapError('ambiguous pending process birth')
-        groups = [item.group_birth for item in identities]
-        if (len(groups) != len(set(groups))
-                or any(item.tid != item.tgid for item in identities)):
-            raise CleanupReapError('thread/exec identity requires integrated tree cleanup')
         dispatcher = self.launch.dispatcher
         # Failure before the dispatcher was assigned is supported: the ledger
         # preserves the returned coordinator birth before fallible wire setup.
@@ -95,6 +91,33 @@ class CleanupReaper:
         elif identities and (len(identities) != 1
                               or identities[0].birth != self.launch.ticket):
             raise CleanupReapError('unbound cleanup inventory')
+        groups = {}
+        for item in identities:
+            groups.setdefault(item.group_birth, []).append(item)
+        if self._killed_births:
+            # A killed group may outlive its leader's real reap. Preserve the
+            # complete original set, including already reaped members; no new
+            # birth, EXEC retirement or numeric rekey is an eligible target.
+            if any(item not in self._killed_births for item in identities):
+                raise CleanupReapError('killed birth identity changed')
+            for original in self._killed_births:
+                current = self.ledger.identity(original.birth)
+                if current.alive:
+                    if current != original:
+                        raise CleanupReapError('killed birth identity changed')
+                elif (current.terminal != 'reaped'
+                      or (current.birth, current.tid, current.group_birth, current.tgid)
+                      != (original.birth, original.tid, original.group_birth, original.tgid)):
+                    raise CleanupReapError('killed birth lacks original terminal reap')
+        for members in groups.values():
+            if len(members) == 1 and members[0].tid == members[0].tgid:
+                continue
+            if self._killed_births:
+                continue
+            elif dispatcher is None:
+                raise CleanupReapError('thread cleanup dispatcher required')
+            else:
+                dispatcher.cleanup_stable_group(tuple(members))
         return identities
 
     def bind_creation_events(self):
@@ -282,6 +305,10 @@ class CleanupReaper:
             while True:
                 self._check()
                 identities = self._inventory()
+                if (not self._killed_births
+                        and (len({item.group_birth for item in identities}) != len(identities)
+                             or any(item.tid != item.tgid for item in identities))):
+                    raise CleanupReapError('thread/exec cleanup requires pinned group SIGKILL')
                 if not identities:
                     if self.ledger.totals.live != 1:
                         raise CleanupReapError('unsettled live reservations')
