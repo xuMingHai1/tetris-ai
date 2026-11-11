@@ -143,7 +143,7 @@ class SettledCleanupTest(unittest.TestCase):
                 self.transport.wait.assert_not_called()
                 self.transport.close.assert_called_once_with(70)
 
-    def test_unresolved_creation_or_threads_reject_before_acquisition(self):
+    def test_unresolved_creation_or_pending_threads_reject_before_acquisition(self):
         for kind in ('pending', 'thread'):
             with self.subTest(kind=kind):
                 self.setUp()
@@ -152,7 +152,6 @@ class SettledCleanupTest(unittest.TestCase):
                 else:
                     ticket = self.ledger.reserve(1, 'clone', thread=True)
                     self.ledger.created(ticket, 12)
-                    self.ledger.finish(ticket, 12)
                     self.launch.dispatcher._bind(ticket, 12, newborn=True)
                 self.fixture.stopped()
                 with self.assertRaises(CleanupReapError):

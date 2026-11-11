@@ -1,4 +1,4 @@
-# 已认证独立进程的 pidfd 终止与回收
+# 已认证进程与稳定线程组的 pidfd 终止与回收
 
 本组件实施已接受 #174 中的失败清理子路径；#170A 存储分类、累计512次创建尝试、
 同时128存活、2,000,000次wait-stop、原时限及证据10MiB均不变。
@@ -7,7 +7,8 @@
 
 `SettledProcessCleanup.run` 组合既有 `CleanupReaper`，先永久撤销正常监督，
 通常接受已通过真实初始握手、dispatcher仍保有birth绑定、无未绑定子birth的creation、
-每个group_birth只有一个存活birth且TID等于原TGID的库存。逐一取得pidfd后，
+每个group_birth只有一个存活birth且TID等于原TGID的库存；下述新增路径还接受严格
+核对的稳定线程组。逐组取得pidfd后，
 才向全部已固定描述符发送SIGKILL，最后进入原有正TID终态回收。
 不从 `cleanup_tid` 推断身份，不调用kill(pid)、wait(-1)、ptrace resume或信号注入。
 
@@ -16,7 +17,8 @@ Linux v6.17 [`kernel/signal.c` 2232–2253](https://github.com/torvalds/linux/bl
 已绑定、未被唯一tracer回收的单进程birth因此不能在pidfd取得前被该分支释放PID；
 没有预先保留startup pidfd的未握手launch仍拒绝：只有fork返回数字的子进程可能在
 TRACEME前死亡并自动回收。下述新增路径在fork前排除自动回收，立即保留同一child的pidfd。
-同时拒绝多存活线程和未绑定创建，避免非leader EXEC静默退休或未知子任务破坏该证明。
+多存活线程必须通过下述无未决EXEC核对；未绑定创建继续拒绝，避免非leader EXEC
+静默退休或未知子任务破坏该证明。
 可信单线程宿主仍须保证没有signal callback/外部reaper调用wait或detach；本组件不建立
 完整可信宿主，也不允许把合成Mock当作真实绑定证据。
 
@@ -109,8 +111,9 @@ close负责最终释放；未知结果不重试。正常握手成功后直接关
    EXEC开始封闭原typed wire，原wait receipt一次性恢复准入与干预失败锁存贯穿probe
    EXEC/ENTRY/delivery/真实reap；terminal保留实际wait前的wire对象并核对原对象身份。
    这仍不证明可信host之外没有其他ptrace/signal来源，也不认证实际filter字节。
-3. cleanup还缺线程EXEC/leader提前退出与复杂事件、job-control处理；本次只解决已绑定
-   coordinator的预握手pin路径，ledger binding失败或无法取得pin仍INCOMPLETE。
+3. cleanup已接通coordinator预握手pin、在途进程创建绑定和稳定线程组组pin/逐birth reap；
+   仍缺未决线程EXEC/leader提前退出与复杂事件、job-control处理，ledger binding失败或
+   无法取得pin仍INCOMPLETE。
 4. 可信Java宿主与tracer/coordinator互斥writer传输、全套冻结fixture/task预留表及终末
    EXITKILL负例。`reserve_writers`目前只是分区组件，尚非宿主入口。
 
@@ -224,3 +227,41 @@ unsupported整批拒绝；Linux普通JUnit bridge要求30秒内12项/零skip。�
 失败前允许的有界定向wait，但仍禁止pin/signal，而非继续断言入口完全不触及wait。
 这只是清理调用链的合成验证，不是整体原生验收、研究结果或用户可见功能。生产API、
 冻结协议、预算和运行方式不变，README/AGENTS无需同步。
+
+## 本次新增修改：稳定线程组一次 pin、组级终止、逐 birth 回收
+
+`SettledProcessCleanup.run()`现在按原group_birth选择TID等于TGID的leader，全部组
+先pin再发送一次SIGKILL；完整库存仍保留每一个线程birth。复用上文Linux v6.17
+`pidfd_open(flags=0)`的leader限制和`pidfd_send_signal(flags=0)`的TGID语义，
+不打开非leader TID、不使用PIDFD_THREAD、不向数字PID发送信号。
+
+多birth组在第一次pin前必须经过`CreationSyscallDispatcher.cleanup_stable_group()`：
+所有原birth/wire/sequence一致，leader仍存活，组内没有pending creation，任何成员均
+没有未匹配的native execve/execveat ENTRY或未安装EXEC事件。已完成的失败EXEC exit
+允许继续；未决EXEC可能已经进入de_thread，必须拒绝，不能用ECHILD或GETEVENTMSG猜测
+迁移。这里利用原SYSCALL监督与唯一owner：没有下一次syscall entry resume，组成员
+不能开始新的EXEC；cleanup不会resume。未知birth、未绑定创建和外部ptracer仍不在证明内。
+
+发送组SIGKILL本身不释放任何线程额度。只有所有组发送成功后，同一reaper才冻结完整
+killed库存并逐正TID执行真实wait。允许leader先被真实reap而其余线程终态尚未消费；
+此时只能继续等待原killed birth，不能重新pin。每次库存检查核对全部原成员：存活者
+身份必须完全一致，已消失者必须保留相同birth/TID/group/TGID且terminal为真实reaped。
+不接受exec-replaced、TID迁移或新birth。普通stop仍扣原共享预算，ptrace EXEC/creation
+事件、ECHILD或错误均INCOMPLETE；没有组SIGKILL来源的独立reaper仍拒绝线程组。
+
+13项新增fake-only测试覆盖原native clone/CLONE事件/父result/新生SIGSTOP到组pin/kill/
+逐birth reap，多组全部pin顺序、两种回收先后、每成员两种EXEC入口拒绝、失败EXEC exit、
+leader提前reap、terminal隔离、wire缺失、pin期间身份变化、ECHILD不推断及共享stop耗尽。
+Linux普通JUnit bridge要求30秒内13项通过且零skip。旧pending线程负例继续验证未结算
+线程创建不能取得pidfd。所有kernel、wait与signal transport均注入，没有原生验收。
+
+有限剩余集成清单：
+1. 本轮关闭稳定且已结算线程组的组pin到逐birth真实reap缺口。
+2. 未决thread EXEC/de_thread、leader提前退出、未绑定thread creation及复杂job-control/
+   ptrace-event清理仍缺；不把本轮路径推广到这些身份。
+3. trusted Java host/source freeze、filter/external no-injection checker、同根互斥writer
+   transport及完整frozen fixture/task reservation/EXITKILL负例仍须接通；并行PR另行验收。
+4. 原整体最终revision独立Review/CI、compatibility/inputhash和唯一有界登记仍必需。
+
+整体里程碑、整体原生验收尚未完成；研究结果与用户可见功能本轮无新增。生产API、
+冻结协议、guard、预算和运行方式不变，README/AGENTS无需同步。
