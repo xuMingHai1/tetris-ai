@@ -173,7 +173,7 @@ ECHILD或terminal均失败，不猜测不存在/已回收。消费terminal时先
 新增17项fake-only测试和Linux普通JUnit bridge（30秒上限、17项零skip），覆盖失败后
 FORK/VFORK/clone完整绑定到kill/reap、原预算/失败保持、idle/EINTR、错误事件/身份、
 stop耗尽、期限/owner变化、wire失败保留、ECHILD与terminal隔离、畸形结果和一次性。
-原已绑定pending测试保持独立。本组件不自动调用本阶段；正常owner已消费事件的接管
+原已绑定pending测试保持独立。该组件最初不自动调用本阶段；正常owner已消费事件的接管
 见下方新增记录。线程EXEC、未握手身份和复杂ptrace-event drain仍待实施。
 未执行原生fork/ptrace/pidfd/signal/probe、网络clean-build或历史22步。
 
@@ -198,3 +198,26 @@ raw tuple/StopFacts都不会产生该来源记录；此机制仍以唯一可信h
 不确定读取、直接调用拒绝、身份/预留变化、重复child和wire失败。仅合成验证；未运行
 原生任务、ptrace/pidfd/signal/probe、网络clean-build或历史输入。生产/冻结协议未变，
 完整host接线与复杂整树清理仍未完成，原整体验收和停止门继续保持。
+
+## 本次新增修改：单一清理入口串联在途创建与真实 reap
+
+`SettledProcessCleanup.run()`现在在第一次pidfd acquisition前检查原ledger的pending。
+若存在未绑定child且原reaper尚未尝试binding，直接调用同一reaper的
+`bind_creation_events()`：优先接管原正常wait owner已消费的事件，否则沿用原deadline、
+正parent TID和共享stop计费等待已预留的fork/vfork/legacy process clone事件。
+绑定完成才进入完整库存校验、全部pin、全部SIGKILL与原真实reap。
+调用方不再需要手动编排两个公共入口；无pending和全部已绑定库存不增加wait或事件读取。
+
+手工已完成binding的调用仍兼容；已失败或不确定的binding不会自动重试。任何binding失败、
+预算耗尽、期限/owner变化或unsupported reservation均在第一次pin前终止，保留原失败、
+已读事件、已绑定birth及terminal PID隔离。只有真实reap释放live credit，attempt从不退款。
+这一接线不扩大既有binding与库存的身份准入，线程EXEC/leader提前退出、复杂ptrace事件及
+job-control整树清理仍缺。原可信host、filter/no-injection checker、同根互斥writer和完整
+frozen fixture及最终整体门禁仍未完成；不能据此运行native/network clean-build/历史输入。
+
+12项新增fake-only组合测试覆盖单run的事件到kill/reap路径、vfork/clone映射、已消费事件
+接管、uncertain读取、binding wire失败、terminal隔离、原期限与stop预算、手动兼容和
+unsupported整批拒绝；Linux普通JUnit bridge要求30秒内12项/零skip。旧测试同步核验
+失败前允许的有界定向wait，但仍禁止pin/signal，而非继续断言入口完全不触及wait。
+这只是清理调用链的合成验证，不是整体原生验收、研究结果或用户可见功能。生产API、
+冻结协议、预算和运行方式不变，README/AGENTS无需同步。

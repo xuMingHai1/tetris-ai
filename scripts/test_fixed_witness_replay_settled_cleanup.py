@@ -157,7 +157,8 @@ class SettledCleanupTest(unittest.TestCase):
                 self.fixture.stopped()
                 with self.assertRaises(CleanupReapError):
                     self.owner().run()
-                self.assertEqual([], self.transport.mock_calls)
+                self.assertEqual([call.wait(11, WAIT_OPTIONS)] if kind == 'pending' else [],
+                                 self.transport.mock_calls)
 
     def test_pending_stops_after_kill_debit_shared_budget_without_resume(self):
         self.fixture.stopped()
