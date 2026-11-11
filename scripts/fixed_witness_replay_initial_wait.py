@@ -26,8 +26,11 @@ class InitialWaitOwner:
     """
 
     def __init__(self, launch, *, waitpid=os.waitpid, sleep=time.sleep, exec_observations=None):
-        if exec_observations is not None and type(exec_observations) is not OwnedExecObservations:
-            raise InitialWaitError('fixed exec observation configuration required')
+        if (exec_observations is not None
+                and (type(exec_observations) is not OwnedExecObservations
+                     or exec_observations._dispatcher is not None
+                     or exec_observations.stopped is not None)):
+            raise InitialWaitError('fresh original exec observations required')
         if (type(launch) is not CoordinatorLaunch or launch.stopped is not None
                 or launch.handshake is None or launch.admitted
                 or getattr(launch, '_initial_wait_owner_claimed', False)):
@@ -40,6 +43,11 @@ class InitialWaitOwner:
         self.stopped = None
 
     def _check(self):
+        # Reject drift before every wait as well as before the initial claim.
+        # No initial stop/resume may be consumed for an unusable configuration.
+        config = self.exec_observations
+        if config is not None and (config._dispatcher is not None or config.stopped is not None):
+            raise InitialWaitError('fresh original exec observations required')
         if self.launch.stopped is not None or self.launch.reader.stopped is not None:
             raise InitialWaitError('initial wait session stopped')
         self.launch._owner_and_deadline()

@@ -65,9 +65,9 @@ cleanup仍用原绝对deadline、累计task/stop额度、失败锁存与terminal
 无法清理的身份、已耗尽期限、未认证启动或close失败单独留在`cleanup_error`，原异常原样抛回。
 正常返回只表示原账本drained，**不表示套件COMPLETE、filter能力或两个ABI全部验收通过**。
 
-15项fake-only组合fixture覆盖完整launch/握手/两次EXEC/精确ENTRY/真实形状reap链，
+17项fake-only组合fixture覆盖完整launch/握手/两次EXEC/精确ENTRY/真实形状reap链，
 以及普通失败后的自动清理、在途event不确定读取不重试、期限/启动失败、close失败与一次性。
-Linux普通JUnit bridge要求15项/零skip、30秒；所有fork/wait/ptrace/pidfd/signal均注入。
+Linux普通JUnit bridge要求17项/零skip、30秒；所有fork/wait/ptrace/pidfd/signal均注入。
 
 有限剩余集成清单：
 
@@ -80,3 +80,5 @@ Linux普通JUnit bridge要求15项/零skip、30秒；所有fork/wait/ptrace/pidf
 这些完成前不执行native probe、network clean-build或历史22步。整体原生验收尚未完成；
 本次无研究结果或用户可见游戏功能。仅test-only调用关系变化，不改生产API/运行方式，
 README/AGENTS无需同步；原170A/174已接受，预算/guard和停止门不变。
+
+本次新增修改（PR review）：直接InitialWaitOwner也在claim前及每次wait前拒绝已占用/已停止的配置；无效配置不消费初始wait、共享stop或触发resume。覆盖构造前失效及构造后失效两组回归。

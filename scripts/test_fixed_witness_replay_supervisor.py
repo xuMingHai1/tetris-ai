@@ -186,6 +186,40 @@ class SupervisorTest(unittest.TestCase):
                                    self.ledger.totals.live, self.ledger.totals.pending))
         self.assertEqual(3, self.io.wait.call_count)
 
+    def test_direct_initial_owner_rejects_claimed_or_stopped_before_wait_claim(self):
+        f = chain_fixture.FilterExecChainTest()
+        f.setUp()
+        self.launch.launch()
+        for config in (f.config, OwnedExecObservations(((1, f.record),), files=f.files)):
+            if config._dispatcher is None:
+                config.fail('prior failure')
+            with self.subTest(config=config), self.assertRaisesRegex(InitialWaitError, 'fresh'):
+                InitialWaitOwner(self.launch, waitpid=self.io.wait, exec_observations=config)
+            self.assertFalse(getattr(self.launch, '_initial_wait_owner_claimed', False))
+        self.io.wait.assert_not_called()
+        self.f.access.resume_syscall.assert_not_called()
+        self.assertEqual(0, self.ledger.totals.wait_stops)
+
+    def test_config_claim_or_failure_after_initial_construction_prevents_first_wait(self):
+        for changed in ('claimed', 'stopped'):
+            with self.subTest(changed=changed):
+                self.setUp()
+                f = chain_fixture.FilterExecChainTest()
+                f.setUp()
+                config = OwnedExecObservations(((1, f.record),), files=f.files)
+                self.launch.launch()
+                initial = InitialWaitOwner(self.launch, waitpid=self.io.wait, exec_observations=config)
+                if changed == 'claimed':
+                    config.claim(object())
+                else:
+                    config.fail('prior failure')
+                with self.assertRaisesRegex(InitialWaitError, 'fresh'):
+                    initial.run()
+                self.io.wait.assert_not_called()
+                self.f.access.resume_syscall.assert_not_called()
+                self.assertEqual(0, self.ledger.totals.wait_stops)
+                self.assertIsNotNone(self.launch.stopped)
+
     def test_initial_config_is_installed_in_original_dispatcher(self):
         f = chain_fixture.FilterExecChainTest()
         f.setUp()

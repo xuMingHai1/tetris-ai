@@ -31,7 +31,7 @@ class FixedWitnessSupervisorTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "synthetic supervisor tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 15 tests"), output);
+            assertTrue(output.contains("Ran 17 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {
