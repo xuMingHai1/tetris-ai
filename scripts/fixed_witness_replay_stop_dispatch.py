@@ -5,6 +5,7 @@ options before first resume. EXEC migrates the exact executing birth; ordinary
 delivery stops preserve the kernel signal. Job-control stops still fail closed.
 """
 from fixed_witness_replay_ptrace import SignalInfo
+from fixed_witness_replay_exec_observation import OwnedExecObservations
 
 
 class StopDispatchError(ValueError):
@@ -23,17 +24,25 @@ class PostHandshakeDispatcher:
     the missing bounded wait/kill/reap owner and frozen ABI capability probe.
     """
 
-    def __init__(self, launch):
+    def __init__(self, launch, *, exec_observations=None):
+        if exec_observations is not None and type(exec_observations) is not OwnedExecObservations:
+            raise StopDispatchError('fixed exec observation configuration required')
         if (launch.stopped is not None or not launch.admitted
                 or launch.handshake is None or not launch.handshake.completed
                 or launch.reader.ledger is not launch.dispatcher.lifecycle.ledger
                 or getattr(launch, '_post_handshake_claimed', False)):
             raise StopDispatchError('completed trusted coordinator handshake required')
-        launch._post_handshake_claimed = True
         self.launch = launch
         self.stopped = None
         self._newborn = set()
         self._active_wait = None
+        self._exec_generations = {}
+        self._exec_observations = exec_observations
+        if exec_observations is not None:
+            exec_observations.claim(self)
+        # A reused observation configuration must not strand a fresh launch.
+        # Publish the launch claim only after the fallible config claim.
+        launch._post_handshake_claimed = True
         launch._normal_wait_dispatcher = self
 
     def _accept_owned_wait(self, owner, receipt):
@@ -88,6 +97,14 @@ class PostHandshakeDispatcher:
             elif kind == 'ptrace-event' and facts.status.event == 'EXEC':
                 matched = self.launch.dispatcher.exec_event(facts.event_tid, tid)
                 ticket, wire = self.launch.dispatcher.install_exec_identity(matched)
+                # Count only installed successful EXECs; preserve the migrated
+                # cleanup binding even if generation/observation later fails.
+                generation = self._exec_generations.get(ticket, 0) + 1
+                if generation >= 2**64:
+                    raise StopDispatchError('exec generation exhausted')
+                self._exec_generations[ticket] = generation
+                if self._exec_observations is not None:
+                    self._exec_observations.observe(self, matched, generation)
             elif kind == 'signal-stop':
                 # GETSIGINFO must have succeeded on this exact birth. Preserve
                 # the original signal AND kernel siginfo (no SETSIGINFO), in

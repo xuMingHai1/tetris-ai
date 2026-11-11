@@ -2,7 +2,7 @@
 
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
 不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费、只读union解析、delivery/终态事实匹配与
-有界exec/proc观察子集已实现，真实EXEC代次/停点认证与SIGSYS终态接线尚未实现；
+有界exec/proc观察与唯一wait owner的EXEC代次/停点门子集已实现，SIGSYS终态接线尚未实现；
 当前 dispatcher 继续拒绝所有 compat/x32 syscall。
 本次新增修改不改变生产架构，README/AGENTS无需同步。
 源码基线：`993f6ad4caf4439bfffd4694c68bc2bbf4c4105c`（已纳入 #218 独立清理组件）。
@@ -254,3 +254,25 @@ Linux普通JUnit bridge强制30秒内42项全部通过且零skip。测试中的E
 验证调用方锁存后的优先性，不声称已实现真实wait错误或清理接线。本轮没有新增系统
 调用、native probe或历史输入执行；真实wait/reap、身份认证、无注入/来源checker、
 共享门与全部整体验收仍未完成，native guard与原预算/停止条件保持。
+
+## 本次新增修改：唯一wait owner的EXEC观察门
+
+`OwnedExecObservations`接受至多两个执行前冻结的birth/ProbeRecord映射，只能由一个
+`PostHandshakeDispatcher`领取。普通EXEC路径先匹配native entry、读取一次GETEVENTMSG、
+完成ledger迁移，再递增该birth的成功EXEC代次；不会以proc starttime或外部整数冒充代次。
+选中birth仅允许一次观察，第二次EXEC失败且保留已迁移身份，不刷新槽或重试。
+
+观察在正常resume之前同步完成。每个I/O/chunk沿用原launch owner/deadline，核对reader、
+creation dispatcher/lifecycle/policy、ledger和wait owner的失败锁存，要求当前active wait
+就是sole owner刚保存的正TID EXEC结果，GETEVENTMSG已成功且old/new TID匹配；核对当前
+birth/group/TID、代次、独占wire和待成功exec-exit状态。原始accept调用没有该实际wait
+记录时不得观察。非leader EXEC使用迁移后executor birth/wire，旧leader仍只按既有迁移
+规则退休。观察失败保留cleanup身份及全部计费、不resume；普通resume失败仍锁存外层，
+已保存的观察不是可用能力票据。未选中birth不读文件。
+
+新增15项fake-only组合测试及Linux普通JUnit桥，覆盖迁移、一次性选择、共享失败、
+截止时间、owner/epoch/wire/receipt漂移、proc错配、I/O失败和不确定resume。
+这些测试不执行真实wait/ptrace/proc/probe。该配置目前没有接入network入口；尚不认证
+冻结映射的host来源、filter/no-injection、证据写入总门或SIGSYS真实终态，不绑定
+AbiProbeModel、不放开compat/x32，完整supervisor/host/fixture和原整体验收仍待完成。
+原合作式可信host及不可抢占文件I/O的限制保持；不授予历史22步或原生能力执行许可。
