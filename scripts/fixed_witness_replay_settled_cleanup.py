@@ -1,6 +1,6 @@
 """Pidfd SIGKILL plus terminal reap for authenticated process births.
 
-No native operation runs on import. This is not unbound/thread tree cleanup,
+No native operation runs on import. This is not arbitrary/thread tree cleanup,
 a capability probe, or permission to execute the historical fixture.
 """
 import os
@@ -18,9 +18,10 @@ class SettledProcessCleanup:
     """Pin every eligible unreaped child before signalling any of them.
 
     The exclusive original tracer must retain wait ownership throughout. With
-    no unbound creation and one live birth per original TGID, neither another
-    reaper nor a nonleader EXEC can free/reuse the PID before pidfd_open. After
-    acquisition only the pinned descriptor is signalled, never a numeric PID.
+    known process creations bound first and one live birth per original TGID,
+    neither another reaper nor a nonleader EXEC can free/reuse the PID before
+    pidfd_open. After acquisition only the pinned descriptor is signalled,
+    never a numeric PID.
     Existing failure latches and the original deadline/stop budget stay intact.
     """
 
@@ -74,6 +75,14 @@ class SettledProcessCleanup:
         failed = True
         try:
             self.reaper._check()
+            # Recover the original owner's consumed creation event, or wait
+            # for its already-reserved native event, before opening any PID.
+            # Never retry a previously attempted/failed binding phase. Fully
+            # bound inventories keep their existing no-extra-wait path.
+            if (not self.reaper.creation_binding_started
+                    and any(item.child is None
+                            for item in self.reaper.ledger.cleanup_pending())):
+                self.reaper.bind_creation_events()
             identities = self.reaper._inventory()
             self._same_inventory(identities)
             for item in identities:

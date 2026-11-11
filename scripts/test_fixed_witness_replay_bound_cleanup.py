@@ -145,19 +145,20 @@ class BoundCreationCleanupTest(unittest.TestCase):
         self.assertEqual((4, 1, 0), (self.ledger.totals.attempts,
                                    self.ledger.totals.live, self.ledger.totals.pending))
 
-    def test_missing_child_event_refuses_before_any_native_transport(self):
+    def test_missing_child_event_consumes_terminal_but_never_pins_or_signals(self):
         self.dispatch.syscall(entry(57))
         self.stop()
-        with self.assertRaisesRegex(CleanupReapError, 'unresolved creation'):
+        with self.assertRaisesRegex(CleanupReapError, 'matching in-flight creation'):
             self.fixture.owner().run()
-        self.assertEqual([], self.transport.mock_calls)
+        self.assertEqual([call.wait(11, WAIT_OPTIONS)], self.transport.mock_calls)
+        self.assertEqual({11}, self.launch.unsettled_terminal_waits)
         self.assertEqual((3, 1), (self.ledger.totals.live, self.ledger.totals.pending))
 
     def test_bound_child_with_own_unbound_creation_refuses_entire_inventory(self):
         self.child()
         self.ledger.reserve(2, 'fork')
         self.stop()
-        with self.assertRaisesRegex(CleanupReapError, 'unresolved creation'):
+        with self.assertRaisesRegex(ValueError, 'unsupported in-flight cleanup'):
             self.fixture.owner().run()
         self.assertEqual([], self.transport.mock_calls)
         self.assertEqual((4, 2), (self.ledger.totals.live, self.ledger.totals.pending))
@@ -170,7 +171,7 @@ class BoundCreationCleanupTest(unittest.TestCase):
                 self.ledger.created(reservation, 12)
                 self.launch.dispatcher._bind(reservation, 12, newborn=True)
             self.stop()
-            with self.assertRaisesRegex(CleanupReapError, 'unresolved creation'):
+            with self.assertRaisesRegex(ValueError, 'unresolved creation|unsupported in-flight cleanup'):
                 self.fixture.owner().run()
             self.assertEqual([], self.transport.mock_calls)
 
