@@ -2,7 +2,8 @@
 
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
 不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费、只读union解析、delivery/终态事实匹配与
-有界exec/proc观察与唯一wait owner的EXEC代次/停点门子集已实现，SIGSYS终态接线尚未实现；
+有界exec/proc观察、唯一wait owner的EXEC代次/停点门与结算后模型终态接线子集已实现；
+ENTRY/delivery准入及来源/filter/no-injection完整checker仍未接通，
 当前 dispatcher 继续拒绝所有 compat/x32 syscall。
 本次新增修改不改变生产架构，README/AGENTS无需同步。
 源码基线：`993f6ad4caf4439bfffd4694c68bc2bbf4c4105c`（已纳入 #218 独立清理组件）。
@@ -337,3 +338,28 @@ SIGSYS原因、filter或no-injection；正常退出和其他信号同样可保�
 terminal adapter/checker或network入口，native guard和原预算/停止条件保持。
 新增14项有限fake-only测试及Linux普通JUnit桥，要求30秒内全部通过、零skip；无真实
 wait/ptrace/proc/信号/探针或历史输入执行。README/AGENTS架构无需修改。
+
+## 本次新增修改：结算后EXEC reap到原绑定模型的终态接线
+
+`BoundedWaitOwner._retain_reap`完成原真实回收、保存不可变记录之后，调用其原
+`OwnedExecObservations.observe_reap`。只有显式`bind_abi=True`配置启用模型终态核验；
+默认仅观察配置保持原行为。先通过原owner的`require_settled_reap`核对同一记录对象、
+账本与共享门，再从冻结birth映射和本配置已完成的EXEC观察取得record/identity，
+经`require_exec_reap`复核真实回收的installed generation。终态输入不接收外部mode、
+manifest、identity或模型；清单使用本配置自建模型的冻结manifest。
+
+原模型必须已消费同一绑定的ENTRY，再精确匹配SIGSYS终态。成功仍只进入
+`TERMINAL_FACT_MATCHED`，不是`KERNEL_TERMINAL_OBSERVED`或filter/no-injection证明。
+之后再次核对原owner/deadline/共享门与EXEC代次。错配、重复调用或后置门失败锁存
+模型及session，实际reap、已释放的live credit和诊断记录均保留，不回滚、不重试，
+不新增wait、resume、task/stop预算或证据文件。非选中birth不消费模型槽；非leader
+EXEC核对迁移executor birth及原group，退休leader不能充当终态记录。
+
+新增16项有限fake-only组合测试和30秒Linux普通JUnit桥，要求全部通过且零skip。
+测试明确直接向私有模型注入合成ENTRY，再由fake定向wait走普通终态回收路径；
+这不是dispatcher的ABI准入或真实probe验证。覆盖两模式/core位、thread EXEC、
+无ENTRY/正常退出/错信号、身份错配、原记录/副本/跨owner重放、缺少完成观察、
+既有模型失败、raw accept/ECHILD不提升、共享门/后置deadline/代次漂移及默认边界。
+原native guard继续拒绝非native ENTRY；ENTRY/delivery准入、source/filter/no-injection
+checker、host证据writer及整套fixture仍待接线，不能执行network clean-build或历史
+22步。原预算与所有执行停止门保持；README/AGENTS生产架构无需修改。

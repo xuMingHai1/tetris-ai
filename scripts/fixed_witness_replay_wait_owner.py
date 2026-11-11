@@ -178,6 +178,9 @@ class BoundedWaitOwner:
             raise WaitOwnerError('terminal reap settlement mismatch')
         self._settled_reaps[parent.birth] = SettledReap(
             parent, after, raw, facts.status, exec_identity)
+        observations = self.dispatcher._exec_observations
+        if observations is not None:
+            observations.observe_reap(self.dispatcher, self._settled_reaps[parent.birth])
 
     def _reject_wait(self, tid, status):
         # Account any observed stop BEFORE rejecting the impossible wait tuple;
