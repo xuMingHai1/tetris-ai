@@ -276,3 +276,19 @@ birth/group/TID、代次、独占wire和待成功exec-exit状态。原始accept�
 冻结映射的host来源、filter/no-injection、证据写入总门或SIGSYS真实终态，不绑定
 AbiProbeModel、不放开compat/x32，完整supervisor/host/fixture和原整体验收仍待完成。
 原合作式可信host及不可抢占文件I/O的限制保持；不授予历史22步或原生能力执行许可。
+
+## 本次新增修改：EXEC观察到两槽模型的绑定
+
+`OwnedExecObservations(bind_abi=True)`从执行前冻结的两条birth/record映射新建自己的
+`AbiProbeModel`，要求完整x32/compat清单共用源码与解释器身份；不接收外部已使用的模型。
+默认观察配置不构造模型。真实观察完成后，仍在原sole-owner EXEC停点中，先核对原门，
+再将观察得到的record和birth/group/TID/exec代次绑定，随后再次核对门，最后保存观察。
+失败同时锁存模型与外层session；绑定后门失败保留已绑定槽和真实迁移身份，不回滚、
+不重试、不resume。诊断`abi_state`仅返回状态字符串，不提供可转交的准入票据。
+
+新增13项fake-only组合测试及30秒Linux普通JUnit桥，覆盖两种模式、nonleader迁移、
+冻结清单不一致、raw accept拒绝、argv错配、模型既有/I/O中失败、绑定后deadline失败、
+重复EXEC与普通native拒绝边界。没有接入ENTRY例外、delivery/terminal或checker；
+后续普通dispatch/resume失败仍由原外层session锁存，模型BOUND状态不能单独授权动作。
+host来源、共享证据writer、完整supervisor/fixture与原整体验收前置保持。没有运行
+probe、network clean-build或历史22步，不改变生产架构，README/AGENTS无需同步。
