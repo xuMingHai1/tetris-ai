@@ -1,8 +1,9 @@
 # 固定 ABI 反例的出生身份与一次性准入设计
 
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
-不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费子集已实现，真实身份与
-SIGSYS终态接线尚未实现；只读union解析及纯模型delivery匹配已补齐，当前 dispatcher 继续拒绝所有 compat/x32 syscall。
+不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费、只读union解析、delivery匹配与
+有界exec/proc观察子集已实现，真实EXEC代次/停点认证与SIGSYS终态接线尚未实现；
+当前 dispatcher 继续拒绝所有 compat/x32 syscall。
 本次新增修改不改变生产架构，README/AGENTS无需同步。
 源码基线：`993f6ad4caf4439bfffd4694c68bc2bbf4c4105c`（已纳入 #218 独立清理组件）。
 
@@ -142,10 +143,10 @@ token、ptrace/文件/账本/信号操作。BOUND再次EXEC只能撤销槽，不
 漂移均拒绝；truncated wire仍经原decoder拒绝，不补零。原native guard保持不变。
 
 未覆盖的真实能力：组7普通创建仲裁与槽的组合、组8真实owner/deadline/resume失败、
-组10的SIGSYS union与delivery、组11真实wait/reap和终态成功、组12真实共享stop/writer
-接线。模型没有终态成功接口，也不能证明传入hash/路径/身份是真实观察。下一步先补
-固定SIGSYS union只读wire字段和合成反例，再做真实exec/proc认证与dispatcher/checker
-接线；不得因为纯模型通过启用ABI例外或执行probe。所有原完整验收与停止门保持。
+组11真实wait/reap和终态成功、组12真实共享stop/writer接线。模型没有终态成功接口，
+也不能证明传入hash/路径/身份是真实观察。组10的union与delivery纯匹配见后续增量；
+有界exec/proc观察也不替代真实EXEC认证与dispatcher/checker接线；不得因为子集通过
+启用ABI例外或执行probe。所有原完整验收与停止门保持。
 
 ## 本次新增修改：SIGSYS只读wire字段
 
@@ -194,4 +195,40 @@ sender union必须为空，拒绝SI_USER/SI_TKILL、未知code、缺失union、�
 身份/清单/阶段/判别/union反例、失败优先与跨槽锁存、无delivery状态及截断wire边界。
 Linux普通JUnit bridge仍强制30秒内全部通过且零skip。本轮只补上组10的delivery事实
 匹配子集；真实wait/reap终态、来源与无注入链、exec/proc认证、共享预算及owner门仍未接线。
-下一步实现真实身份认证适配，再组合dispatcher/checker与终态；所有原人工验收门保持。
+后续有界观察子集见下节；真实EXEC身份认证、dispatcher/checker与终态仍待组合，
+所有原人工验收门保持。
+
+## 本次新增修改：有界exec/proc观察子集
+
+`scripts/fixed_witness_replay_abi_observation.py`新增`AbiExecObserver`、只读`ProcFiles`
+与不可变`ExecObservation`。预期`ProbeRecord`仍来自独立冻结清单；输入`ExecIdentity`
+必须来自唯一owner已认证并完成迁移的EXEC停点。调用方必须提供`check()`，在每个I/O
+及hash分块前后复核原deadline、共享账本/失败门和当前仍停止的exec代次，并返回该
+身份；本组件没有提供此可信生命周期适配，不能以任意callback或proc starttime替代。
+
+观察两次比较`stat`出生时间与稳定字段、`status`的Pid/Tgid/TracerPid/tracing-stop、
+精确NUL argv、源码/解释器canonical路径和完整字节SHA-256。已迁移EXEC的Pid须等于
+Tgid；真实`/proc/<tid>/exe`链接须精确匹配冻结解释器，打开magic link后对实际映像
+hash，并比较其dev/inode/mode/size/mtime/ctime与冻结解释器文件。源码和解释器最后
+路径分量用`O_NOFOLLOW`，全部只读open用`O_CLOEXEC|O_NONBLOCK`，fstat拒绝非普通文件。
+hash前后metadata不一致、两轮证据不一致、消失、权限错误、deleted exe和路径漂移均
+失败。没有读取environ、启动辅助进程/线程或进行任何ptrace/wait/resume。
+
+这些是保守I/O上限，不是新增研究预算：每个proc文件实际读取最多64KiB（不依赖其
+通常为0的st_size），源码最多1MiB，解释器与proc exe各最多64MiB；每次读取最多64KiB，
+多读1字节只用于拒绝超限。只在内存保留有限proc bytes或流式hash，不输出证据文件；
+未来保留记录仍须经原共享10MiB writer。原deadline不重置；检查能发现I/O后超时，
+但无法强制抢占阻塞的宿主文件系统操作，仍依赖原可信host前提。超限或失败停止，
+不自动提高上限或重试。fd在post-open检查失败和异常时也只close一次，close失败传播。
+
+返回观察值不绑定`AbiProbeModel`、不生成exec代次、不授予resume/ABI/终态权限；一次
+尝试后不可重试，错误锁存本组件，调用方还必须锁存原session。仍不证明Python执行了
+哪些内存指令，也不抵抗恶意host/tracee并发改写后恢复；冻结文件与独占停点必须由
+原可信host/owner保障。真实EXEC来源/代次/共享门适配、dispatcher/checker、真实wait/reap
+及整体验收尚未实现，native guard保持拒绝，未执行任何真实probe或历史输入。
+
+新增20项有限fake-I/O测试覆盖两模式、身份/代次与owner漂移、argv、proc状态与出生
+变化、路径/字节/映像inode错配、实际读取和fstat上限、分块检查、metadata漂移、
+post-open超时、I/O/close失败及不可重试。Linux普通JUnit bridge要求30秒内20项全部
+通过且零skip；只mock native open flags，不打开真实proc、不执行fork/ptrace/探针。
+Windows只提供这些假I/O行为及Java编译/平台skip证据。README/AGENTS架构无需变更。
