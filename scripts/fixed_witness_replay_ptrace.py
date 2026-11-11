@@ -33,6 +33,9 @@ REGISTER_NAMES = ('r15', 'r14', 'r13', 'r12', 'rbp', 'rbx', 'r11', 'r10',
                   'rip', 'cs', 'eflags', 'rsp', 'ss', 'fs_base', 'gs_base',
                   'ds', 'es', 'fs', 'gs')
 REG_SIZE = 8 * len(REGISTER_NAMES)
+SIGINFO_SIZE = 128
+LINUX_SIGSYS = 31
+SYS_SECCOMP = 1
 
 
 class PtraceBoundaryError(ValueError):
@@ -94,13 +97,44 @@ class _Iovec(ctypes.Structure):
 
 @dataclass(frozen=True)
 class SignalInfo:
-    """Header plus sender for SI_USER/SI_TKILL; never a resume decision."""
+    """Discriminated native tracer siginfo fields; never a resume decision.
+
+    SIGSYS/SYS_SECCOMP exposes its own union, not sender IDs. These decoded
+    facts do not authenticate a probe, match its entry or establish termination.
+    """
 
     signal: int
     error: int
     code: int
     sender_pid: int | None = None
     sender_uid: int | None = None
+    call_address: int | None = None
+    syscall: int | None = None
+    arch: int | None = None
+
+
+def decode_signal_info(raw, expected_signal):
+    """Decode the full Linux little-endian x86-64 *tracer* siginfo layout.
+
+    Three signed ints precede an eight-byte-aligned union at offset 16. The
+    SIGSYS union contains a 64-bit pointer, signed int syscall, unsigned arch.
+    A compat tracee does not change the native tracer's GETSIGINFO layout.
+    Unknown codes retain only the header; their union bytes are not guessed.
+    """
+    require(type(expected_signal) is int and 1 <= expected_signal <= 64,
+            'invalid expected signal')
+    require(type(raw) is bytes and len(raw) == SIGINFO_SIZE,
+            'complete native siginfo required')
+    signal, error, code = struct.unpack_from('<iii', raw)
+    require(signal == expected_signal, 'wait/siginfo signal mismatch')
+    if code in (0, -6):  # SI_USER / SI_TKILL, Linux ABI constants.
+        sender_pid, sender_uid = struct.unpack_from('<iI', raw, 16)
+        return SignalInfo(signal, error, code, sender_pid, sender_uid)
+    if signal == LINUX_SIGSYS and code == SYS_SECCOMP:
+        address, syscall, arch = struct.unpack_from('<QiI', raw, 16)
+        return SignalInfo(signal, error, code, call_address=address,
+                          syscall=syscall, arch=arch)
+    return SignalInfo(signal, error, code)
 
 
 @dataclass(frozen=True)
@@ -184,20 +218,16 @@ class PtraceAccess:
 
         EINVAL (including a group stop) fails closed; callers must not infer a
         delivery stop from it. si_code stays signed for dispatcher policy.
-        Only SI_USER/SI_TKILL expose the native sender union at offset 16.
-        Other codes have different unions and must not be read as sender IDs.
+        The kernel writes the full native tracer layout on success (there is
+        no returned byte count). Decode discriminated fields without changing
+        the original stopped signal, granting resume or matching a probe.
         """
         require(type(expected_signal) is int and 1 <= expected_signal <= 64,
                 'invalid expected signal')
-        buffer = ctypes.create_string_buffer(128)
+        buffer = ctypes.create_string_buffer(SIGINFO_SIZE)
         require(self._request(GETSIGINFO, tid, 0, ctypes.byref(buffer)) == 0,
                 'unexpected siginfo response')
-        signal, error, code = struct.unpack_from('<iii', buffer.raw)
-        require(signal == expected_signal, 'wait/siginfo signal mismatch')
-        if code in (0, -6):  # SI_USER / SI_TKILL, Linux ABI constants.
-            sender_pid, sender_uid = struct.unpack_from('<iI', buffer.raw, 16)
-            return SignalInfo(signal, error, code, sender_pid, sender_uid)
-        return SignalInfo(signal, error, code)
+        return decode_signal_info(buffer.raw, expected_signal)
 
     def resume_syscall(self, tid, signal=0):
         """Transport only: caller MUST authenticate/arbitrate before calling.
