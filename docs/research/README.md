@@ -149,7 +149,7 @@ prepare现将构建HOME/TMP与证据目录分离并记录分类，证据仍共�
 
 [固定 ABI 探针身份设计](heart-fixed-witness-replay-abi-identity.md)细化两条已接受的
 非创建入口例外、出生/exec绑定和一次性消费；纯匹配/消费模型已实现，真实exec/proc与
-SIGSYS终态接线待完成；只读siginfo union与纯模型delivery匹配已补齐，当前native拒绝不变，模型不授予resume或原生执行权限。
+SIGSYS终态接线待完成；只读siginfo union、纯模型delivery与终态事实匹配已补齐，当前native拒绝不变，模型不授予resume、真实reap或原生执行权限。
 
 [#174累计任务政策](heart-fixed-witness-replay-task-budget-proposal.md)亦于2026-11-09
 获用户明确接受；首个纯账本组件覆盖512尝试/128live/2M事件、pending与reap计费。

@@ -8,6 +8,7 @@ from fixed_witness_replay_abi_model import AbiModelError, AbiProbeModel, ExecIde
 from fixed_witness_replay_ptrace import (
     PtraceBoundaryError, SignalInfo, SyscallInfo, decode_signal_info, decode_syscall_info,
 )
+from fixed_witness_replay_wait import WaitStatus, decode_wait_status
 
 
 def records():
@@ -379,6 +380,147 @@ class AbiModelTest(unittest.TestCase):
         for size in (0, 12, 16, 27, 127, 129):
             with self.subTest(size=size), self.assertRaises(PtraceBoundaryError):
                 decode_signal_info(bytes(size), 31)
+
+
+class AbiTerminalModelTest(unittest.TestCase):
+    def consumed(self, mode='x32', delivered=False):
+        model = AbiProbeModel(records())
+        identity = ExecIdentity(2, 2, 100, 1)
+        model.bind(mode, identity, records()[0 if mode == 'x32' else 1])
+        model.consume_entry(mode, identity, model.manifest_sha256, entry(mode))
+        if delivered:
+            model.observe_sigsys(mode, identity, model.manifest_sha256, delivery(mode))
+        return model, identity
+
+    def terminal(self, model, identity, mode='x32', status=None):
+        return model.observe_terminal(mode, identity, model.manifest_sha256,
+                                      decode_wait_status(31) if status is None else status)
+
+    def test_both_modes_with_and_without_delivery_match_no_authority(self):
+        for mode in ('x32', 'compat'):
+            for delivered in (False, True):
+                with self.subTest(mode=mode, delivered=delivered):
+                    model, identity = self.consumed(mode, delivered)
+                    self.assertIsNone(self.terminal(model, identity, mode))
+                    self.assertEqual('TERMINAL_FACT_MATCHED', model.state(mode))
+                    self.assertIsNone(model.stopped)
+
+    def test_core_dump_bit_neither_required_nor_authority(self):
+        for raw in (31, 31 | 0x80):
+            model, identity = self.consumed()
+            self.assertIsNone(self.terminal(model, identity, status=decode_wait_status(raw)))
+            self.assertEqual('TERMINAL_FACT_MATCHED', model.state('x32'))
+
+    def test_normal_exit_wrong_signal_and_stops_never_match(self):
+        for raw in (0, 1 << 8, 9, 15, 11 | 0x80, (31 << 8) | 0x7f,
+                    (133 << 8) | 0x7f, (4 << 16) | (5 << 8) | 0x7f):
+            model, identity = self.consumed()
+            with self.subTest(raw=raw), self.assertRaises(AbiModelError):
+                self.terminal(model, identity, status=decode_wait_status(raw))
+            self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+
+    def test_terminal_requires_exact_typed_canonical_status(self):
+        good = decode_wait_status(31)
+        changes = [{'kind': ANY}, {'signal': True}, {'signal': 31.0},
+                   {'exit_code': 0}, {'exit_code': False}, {'event': 'EXEC'},
+                   {'core_dumped': 1}, {'core_dumped': None}]
+        for status in [replace(good, **c) for c in changes] + [True, {}, ANY]:
+            model, identity = self.consumed()
+            with self.subTest(status=status), self.assertRaises(AbiModelError):
+                self.terminal(model, identity, status=status)
+
+    def test_terminal_rejects_each_identity_field_and_untyped_receipts(self):
+        original = ExecIdentity(2, 2, 100, 1)
+        identities = [replace(original, **{key: value}) for key, value in
+                      (('birth', 3), ('group_birth', 3), ('tid', 101),
+                       ('generation', 2), ('birth', True))]
+        for identity in identities + [True, ANY, {'reaped': True}]:
+            model, _ = self.consumed()
+            with self.subTest(identity=identity), self.assertRaises(AbiModelError):
+                self.terminal(model, identity)
+
+    def test_terminal_requires_consumed_phase(self):
+        for phase in ('UNBOUND', 'BOUND', 'REVOKED'):
+            model = AbiProbeModel(records())
+            identity = ExecIdentity(2, 2, 100, 1)
+            if phase != 'UNBOUND':
+                model.bind('x32', identity, records()[0])
+            if phase == 'REVOKED':
+                model.revoke_exec('x32', identity)
+            with self.subTest(phase=phase), self.assertRaises(AbiModelError):
+                self.terminal(model, identity)
+            self.assertEqual(phase, model.state('x32'))
+
+    def test_terminal_rejects_mode_manifest_and_cross_slot_identity(self):
+        for mode, digest in (('other', None), (True, None), ('compat', None),
+                             ('x32', 'c' * 64), ('x32', ANY)):
+            model, identity = self.consumed()
+            with self.subTest(mode=mode, digest=digest), self.assertRaises(AbiModelError):
+                model.observe_terminal(mode, identity,
+                                       model.manifest_sha256 if digest is None else digest,
+                                       decode_wait_status(31))
+        model, identity = self.consumed()
+        other = ExecIdentity(3, 3, 101, 1)
+        model.bind('compat', other, records()[1])
+        model.consume_entry('compat', other, model.manifest_sha256, entry('compat'))
+        with self.assertRaises(AbiModelError):
+            self.terminal(model, identity, 'compat')
+
+    def test_terminal_fact_is_one_shot(self):
+        model, identity = self.consumed()
+        self.terminal(model, identity)
+        with self.assertRaises(AbiModelError):
+            self.terminal(model, identity)
+        self.assertEqual('TERMINAL_FACT_MATCHED', model.state('x32'))
+
+    def test_terminal_does_not_restore_entry_delivery_exec_or_binding(self):
+        for action in ('entry', 'delivery', 'exec', 'bind'):
+            model, identity = self.consumed()
+            self.terminal(model, identity)
+            with self.subTest(action=action), self.assertRaises(AbiModelError):
+                if action == 'entry':
+                    model.consume_entry('x32', identity, model.manifest_sha256, entry())
+                elif action == 'delivery':
+                    model.observe_sigsys('x32', identity, model.manifest_sha256, delivery())
+                elif action == 'exec':
+                    model.revoke_exec('x32', identity)
+                else:
+                    model.bind('x32', identity, records()[0])
+            self.assertEqual('TERMINAL_FACT_MATCHED', model.state('x32'))
+
+    def test_terminal_mismatch_latches_across_slots_and_later_exact_fact(self):
+        model, identity = self.consumed()
+        with self.assertRaises(AbiModelError):
+            self.terminal(model, identity, status=decode_wait_status(9))
+        first = model.stopped
+        with self.assertRaises(AbiModelError):
+            self.terminal(model, identity)
+        with self.assertRaises(AbiModelError):
+            model.bind('compat', ExecIdentity(3, 3, 101, 1), records()[1])
+        self.assertEqual(first, model.stopped)
+        self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+
+    def test_outer_failure_cleanup_or_echild_precedes_terminal(self):
+        for reason in ('shared stop budget exhausted', 'owner changed', 'deadline expired',
+                       'cleanup took ownership', 'ECHILD without authenticated reap',
+                       'terminal identity settlement failed'):
+            model, identity = self.consumed()
+            with self.assertRaises(AbiModelError):
+                model.fail(reason)
+            with self.subTest(reason=reason), self.assertRaisesRegex(AbiModelError, reason):
+                self.terminal(model, identity)
+            self.assertEqual('AWAITING_SIGSYS', model.state('x32'))
+
+    def test_each_slot_can_finish_without_relaxing_native_guard(self):
+        model = AbiProbeModel(records())
+        for i, record in enumerate(records(), 2):
+            identity = ExecIdentity(i, i, 100 + i, 1)
+            model.bind(record.mode, identity, record)
+            model.consume_entry(record.mode, identity, model.manifest_sha256, entry(record.mode))
+            self.assertIsNone(self.terminal(model, identity, record.mode))
+            with self.assertRaises(PtraceBoundaryError):
+                entry(record.mode).require_native(1)
+        self.assertIsNone(model.stopped)
 
 
 if __name__ == '__main__':
