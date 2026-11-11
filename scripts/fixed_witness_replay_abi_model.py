@@ -1,6 +1,6 @@
 """Pure fixed-probe matching/consumption, NOT exec authentication or permission.
 
-Inputs are observations supplied by a future trusted owner. Nothing here reads
+Inputs are observations supplied by the trusted EXEC binding adapter. Nothing here reads
 files/proc, debits stops, resumes, settles tasks or certifies SIGSYS. The normal
 dispatcher remains native-only. A matching result is not an admission receipt.
 """
@@ -72,8 +72,10 @@ class AbiProbeModel:
     """Two frozen slots, serial one-shot matching and fail-closed revocation.
 
     This finite subset matches supplied entry, delivery and terminal facts.
-    Real wait/reap evidence, identity authentication and outer owner/deadline/
-    shared ledger gates remain unimplemented, so no execution path imports it.
+    The owned EXEC adapter authenticates observations before binding. This model
+    itself performs no I/O or outer owner/deadline/shared ledger checks. ENTRY,
+    delivery and terminal matching still require future dispatcher integration;
+    model state alone grants no resume or real wait/reap authority.
     """
 
     def __init__(self, records):
