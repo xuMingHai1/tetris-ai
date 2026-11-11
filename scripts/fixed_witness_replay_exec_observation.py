@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 from fixed_witness_replay_abi_model import AbiModelError, AbiProbeModel, ExecIdentity, ProbeRecord
 from fixed_witness_replay_abi_observation import AbiExecObserver, AbiObservationError
-from fixed_witness_replay_ptrace import SyscallInfo
+from fixed_witness_replay_ptrace import PtraceAccess, SyscallInfo
 from fixed_witness_replay_wait import decode_wait_status
 from fixed_witness_replay_probe_launch import ProbeLaunch
 
@@ -58,6 +58,8 @@ class OwnedExecObservations:
         self._launch_observations = {}
         self._launch_resume_attempts = set()
         self._launch_resumed = set()
+        self._probe_wires = {}
+        self._wire_resume_scope = None
         # Construct our own pristine two-slot model from frozen expectations;
         # never accept a caller's mutable or already-consumed model.
         self._abi_model = AbiProbeModel(tuple(record for _, record in records)) if bind_abi else None
@@ -92,6 +94,52 @@ class OwnedExecObservations:
             except AbiModelError:
                 pass
 
+    def _check_wire(self, identity):
+        if self._abi_model is None or identity.birth not in self._network_launches:
+            return
+        wire = self._probe_wires.get(identity.birth)
+        if type(wire) is not PtraceAccess:
+            raise AbiObservationError('original typed network probe wire required')
+        wire.check_probe(self, identity, self._abi_model.manifest_sha256)
+
+    def _resume_wire(self, wire, identity, signal):
+        if self._abi_model is not None and identity.birth in self._network_launches:
+            self._check_wire(identity)
+            if self._probe_wires[identity.birth] is not wire:
+                raise AbiObservationError('original network probe wire changed')
+            if self._wire_resume_scope is not None:
+                raise AbiObservationError('nested original wire resume')
+            manifest = self._abi_model.manifest_sha256
+            self._wire_resume_scope = (wire, identity, manifest, signal,
+                                       self._dispatcher._active_wait)
+            try:
+                wire.resume_probe(self, identity, manifest, signal)
+            finally:
+                self._wire_resume_scope = None
+            self._check_wire(identity)
+        else:
+            wire.resume_syscall(identity.tid, signal)
+
+    def _authorize_wire_resume(self, wire, identity, manifest, signal):
+        """Consume only the currently held original stop, never an owner token."""
+        scope = self._wire_resume_scope
+        self._wire_resume_scope = None
+        dispatcher = self._dispatcher
+        owner = getattr(dispatcher, '_wait_owner', None)
+        receipt = dispatcher._active_wait
+        if (scope is None or scope != (wire, identity, manifest, signal, receipt)
+                or owner is None or receipt is None or owner.last_wait is not receipt
+                or receipt.adopted or receipt.facts is None
+                or receipt.tid != identity.tid or receipt.facts.tid != identity.tid
+                or receipt.facts.status != decode_wait_status(receipt.raw)
+                or type(signal) is not int
+                or signal != (receipt.facts.status.signal
+                              if receipt.facts.status.kind == 'signal-stop' else 0)
+                or owner._exec_identity(dispatcher.launch.ledger.identity(identity.birth)) != identity
+                or dispatcher.launch.dispatcher.stop_binding(identity.tid) != (identity.birth, wire)):
+            raise AbiObservationError('one original active wire resume required')
+        owner._reap_gates()
+
     def observe_stop(self, dispatcher, birth, facts):
         """Consume owned fixed ENTRY/delivery facts; never read or resume.
 
@@ -118,6 +166,7 @@ class OwnedExecObservations:
             if len(observed) != 1 or observed[0].record != record:
                 raise AbiObservationError('completed owned EXEC observation required')
             expected = observed[0].identity
+            self._check_wire(expected)
             launch = dispatcher.launch
             receipt = dispatcher._active_wait
             owner = getattr(dispatcher, '_wait_owner', None)
@@ -196,6 +245,10 @@ class OwnedExecObservations:
                 raise AbiObservationError('completed owned EXEC observation required')
             observation = observed[0]
             owner.require_exec_reap(record, observation.identity)
+            if (observation.identity.birth in self._probe_wires
+                    and record.wire is not self._probe_wires[observation.identity.birth]):
+                raise AbiObservationError('original settled probe wire required')
+            self._check_wire(observation.identity)
             self._require_entry_resume(observation.identity)
             self._abi_model.observe_terminal(
                 observation.record.mode, observation.identity,
@@ -203,6 +256,7 @@ class OwnedExecObservations:
             # A fallible post-match gate never restores a consumed model slot
             # or rolls back the real reap. Failure revokes the whole session.
             owner.require_exec_reap(record, observation.identity)
+            self._check_wire(observation.identity)
         except BaseException:
             self.stopped = 'owned terminal observation failed; no retry'
             dispatcher.stopped = dispatcher.launch.stopped = self.stopped
@@ -255,7 +309,7 @@ class OwnedExecObservations:
                 if birth in self._launch_resume_attempts:
                     raise AbiObservationError('launcher resume already attempted')
                 self._launch_resume_attempts.add(birth)
-                wire.resume_syscall(identity.tid, 0)
+                self._resume_wire(wire, identity, 0)
                 self._launch_resumed.add(birth)
                 check()
                 return True
@@ -263,6 +317,31 @@ class OwnedExecObservations:
                 self.fail('owned launcher resume failed; no retry')
                 dispatcher.stopped = dispatcher.launch.stopped = self.stopped
                 raise
+        if (self._abi_model is not None and birth in self._probe_wires
+                and self._abi_model.state(self._records[birth].mode) in ('UNBOUND', 'BOUND')):
+            # Native setup/clone3 stops retain the original creation policy;
+            # their resume still goes through the sealed original wire.
+            if self._abi_model.state(self._records[birth].mode) == 'UNBOUND':
+                observation = self._launch_observations[birth]
+            else:
+                observation, = (item for item in self.observations if item.identity.birth == birth)
+            owner = getattr(dispatcher, '_wait_owner', None)
+            receipt = dispatcher._active_wait
+            if (dispatcher is not self._dispatcher or self.stopped is not None
+                    or self._abi_model.stopped is not None
+                    or owner is None or owner.last_wait is not receipt or receipt is None
+                    or dispatcher._active_wait is not receipt
+                    or receipt.facts is not facts or receipt.adopted
+                    or receipt.tid != observation.identity.tid or facts.tid != receipt.tid
+                    or facts.status != decode_wait_status(receipt.raw)
+                    or owner._exec_identity(dispatcher.launch.ledger.identity(birth)) != observation.identity
+                    or dispatcher.launch.dispatcher.stop_binding(observation.identity.tid) != (birth, wire)
+                    or signal != (facts.status.signal if facts.status.kind == 'signal-stop' else 0)):
+                raise AbiObservationError('original bound probe resume required')
+            owner._reap_gates()
+            self._resume_wire(wire, observation.identity, signal)
+            owner._reap_gates()
+            return True
         if (self._abi_model is None or birth not in self._records
                 or self._abi_model.state(self._records[birth].mode) != 'AWAITING_SIGSYS'):
             return False
@@ -313,7 +392,7 @@ class OwnedExecObservations:
             else:
                 raise AbiObservationError('unsupported ABI resume stop')
             check()
-            wire.resume_syscall(identity.tid, signal)
+            self._resume_wire(wire, identity, signal)
             if facts.status.kind == 'syscall-stop':
                 self._completed_entries.add(birth)
             check()
@@ -384,6 +463,16 @@ class OwnedExecObservations:
                                                     previous.identity.tid,
                                                     previous.identity.generation + 1)):
                     raise AbiObservationError('original adjacent launcher EXEC required')
+            if network_launch is not None and self._abi_model is not None:
+                if type(wire) is not PtraceAccess:
+                    raise AbiObservationError('original typed network probe wire required')
+                if launcher:
+                    if expected.birth in self._probe_wires or wire in self._probe_wires.values():
+                        raise AbiObservationError('network probe wire already bound')
+                    self._probe_wires[expected.birth] = wire
+                elif self._probe_wires.get(expected.birth) is not wire:
+                    raise AbiObservationError('original network probe wire changed')
+                wire.bind_probe(self, expected, self._abi_model.manifest_sha256)
             observer = AbiExecObserver(launch.owner, check, files=self._files)
             if network_launch is None:
                 observation = observer.observe(self._records[expected.birth], expected)
@@ -391,6 +480,7 @@ class OwnedExecObservations:
                 observation = observer.observe(self._records[expected.birth], expected,
                                                network_launch=network_launch, launcher=launcher)
             check()
+            self._check_wire(expected)
             if launcher:
                 self._launch_observations[expected.birth] = observation
                 return

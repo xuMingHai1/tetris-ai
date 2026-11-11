@@ -155,6 +155,52 @@ class PtraceAccess:
     def __init__(self, call):
         self._call = call
         self._clone3 = {}
+        self._probe_owner = None
+        self._probe_identity = None
+        self._probe_manifest = None
+        self._write_scope = None
+        self._resume_scope = None
+        self._wire_failed = False
+        self._wire_attempts = 0
+        self._wire_completed = 0
+        self._unscoped_mutation = False
+
+    def bind_probe(self, owner, identity, manifest):
+        """Seal this original birth wire, then permit only its adjacent EXEC.
+
+        Internal cooperative-owner accounting, not a kernel capability proof.
+        Raw register/signal writes and unowned resumes are forbidden. The only
+        register intervention remains the validated native clone3 ENOSYS path.
+        """
+        require(not self._wire_failed and not self._unscoped_mutation and not self._clone3,
+                'uncertain, modified or pending probe wire')
+        if self._probe_owner is not None:
+            old = self._probe_identity
+            require(self._probe_owner is owner and self._probe_manifest == manifest
+                    and (identity.birth, identity.group_birth, identity.tid, identity.generation)
+                    == (old.birth, old.group_birth, old.tid, old.generation + 1),
+                    'original adjacent probe wire identity required')
+        self._probe_owner, self._probe_identity, self._probe_manifest = owner, identity, manifest
+
+    def check_probe(self, owner, identity, manifest):
+        require(not self._wire_failed and self._probe_owner is owner
+                and self._wire_attempts == self._wire_completed
+                and self._probe_identity == identity and self._probe_manifest == manifest,
+                'original clean probe wire required')
+
+    def resume_probe(self, owner, identity, manifest, signal):
+        """One original-owner resume; uncertain calls permanently poison the wire."""
+        try:
+            self.check_probe(owner, identity, manifest)
+            require(self._resume_scope is None, 'nested probe resume')
+            owner._authorize_wire_resume(self, identity, manifest, signal)
+            self._resume_scope = (identity.tid, signal)
+            self.resume_syscall(identity.tid, signal)
+        except BaseException:
+            self._wire_failed = True
+            raise
+        finally:
+            self._resume_scope = None
 
     @classmethod
     def for_host(cls):
@@ -168,14 +214,39 @@ class PtraceAccess:
 
     def _request(self, request, tid, address, data):
         require(type(tid) is int and 0 < tid <= 0x7fffffff, 'invalid ptrace TID')
-        ctypes.set_errno(0)
-        result = self._call(request, tid, address, data)
-        if result == -1:
-            # No exception object, trace data or environment enters this message.
-            raise PtraceBoundaryError('CAPABILITY_UNAVAILABLE: ptrace errno '
-                                      + str(ctypes.get_errno()))
-        require(type(result) is int and result >= 0, 'invalid ptrace response')
-        return result
+        self._wire_attempts += 1
+        try:
+            if (request not in (0, SETOPTIONS, SYSCALL, GET_SYSCALL_INFO,
+                                GETREGSET, GETEVENTMSG, GETSIGINFO)
+                    and not (request == SETREGSET and self._write_scope is not None)):
+                self._unscoped_mutation = True
+            if self._probe_owner is not None:
+                require(not self._wire_failed, 'probe wire already failed')
+                require(tid == self._probe_identity.tid, 'probe wire TID changed')
+                allowed = request in (GET_SYSCALL_INFO, GETREGSET, GETEVENTMSG, GETSIGINFO)
+                if request == SETREGSET:
+                    allowed = self._write_scope is not None and address == NT_PRSTATUS
+                    if allowed:
+                        vector = ctypes.cast(data, ctypes.POINTER(_Iovec)).contents
+                        allowed = (vector.length == REG_SIZE and self._write_scope
+                                   == (tid, ctypes.string_at(vector.base, REG_SIZE)))
+                    self._write_scope = None
+                elif request == SYSCALL:
+                    allowed = self._resume_scope == (tid, data) and address == 0
+                    self._resume_scope = None
+                require(allowed, 'unowned probe wire intervention')
+            ctypes.set_errno(0)
+            result = self._call(request, tid, address, data)
+            if result == -1:
+                # No exception object, trace data or environment enters this message.
+                raise PtraceBoundaryError('CAPABILITY_UNAVAILABLE: ptrace errno '
+                                          + str(ctypes.get_errno()))
+            require(type(result) is int and result >= 0, 'invalid ptrace response')
+            self._wire_completed += 1
+            return result
+        except BaseException:
+            self._wire_failed = True
+            raise
 
     def syscall_info(self, tid):
         buffer = ctypes.create_string_buffer(INFO_SIZE)
@@ -280,8 +351,13 @@ class PtraceAccess:
                 and registers['rip'] == info.instruction_pointer
                 and registers['rsp'] == info.stack_pointer,
                 'syscall-info/register mismatch')
-        registers['orig_rax'] = U64_MASK
-        self._write_registers(tid, registers)
+        changed = dict(registers, orig_rax=U64_MASK)
+        require(self._write_scope is None, 'nested register intervention')
+        self._write_scope = (tid, struct.pack('<27Q', *(changed[name] for name in REGISTER_NAMES)))
+        try:
+            self._write_registers(tid, changed)
+        finally:
+            self._write_scope = None
         token = _Clone3Stop(tid, info.instruction_pointer, info.stack_pointer)
         self._clone3[tid] = token
         return token
@@ -315,6 +391,12 @@ class PtraceAccess:
                 and registers['rip'] == token.ip and registers['rsp'] == token.sp
                 and registers['rax'] == ((-LINUX_ENOSYS) & U64_MASK),
                 'suppressed clone3 register mismatch')
-        registers['rax'] = (-LINUX_ENOSYS) & U64_MASK
-        self._write_registers(token.tid, registers)
+        value = (-LINUX_ENOSYS) & U64_MASK
+        changed = dict(registers, rax=value)
+        require(self._write_scope is None, 'nested register intervention')
+        self._write_scope = (token.tid, struct.pack('<27Q', *(changed[name] for name in REGISTER_NAMES)))
+        try:
+            self._write_registers(token.tid, changed)
+        finally:
+            self._write_scope = None
         del self._clone3[token.tid]

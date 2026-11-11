@@ -105,7 +105,10 @@ close负责最终释放；未知结果不重试。正常握手成功后直接关
    本次将冻结network chain的launcher/probe两次EXEC观察接入同birth相邻代次，
    核对原始argv、源码/解释器/libseccomp字节、filter基数与安装后状态，再进入已有
    ENTRY/delivery/reap链。可信host原始冻结来源、安装过程的完整checker及全部
-   no-injection约束仍缺；两次proc观察不提供filter字节证明。
+   no-injection约束仍缺；两次proc观察不提供filter字节证明。本次新增从原launcher
+   EXEC开始封闭原typed wire，原wait receipt一次性恢复准入与干预失败锁存贯穿probe
+   EXEC/ENTRY/delivery/真实reap；terminal保留实际wait前的wire对象并核对原对象身份。
+   这仍不证明可信host之外没有其他ptrace/signal来源，也不认证实际filter字节。
 3. cleanup还缺线程EXEC/leader提前退出与复杂事件、job-control处理；本次只解决已绑定
    coordinator的预握手pin路径，ledger binding失败或无法取得pin仍INCOMPLETE。
 4. 可信Java宿主与tracer/coordinator互斥writer传输、全套冻结fixture/task预留表及终末
