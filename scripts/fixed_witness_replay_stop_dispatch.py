@@ -129,7 +129,10 @@ class PostHandshakeDispatcher:
                 raise StopDispatchError('unsupported stop kind')
             # Recheck original owner/deadline after fallible kernel/policy work.
             self.launch._owner_and_deadline()
-            wire.resume_syscall(tid, resume_signal)
+            resumed = (self._exec_observations is not None
+                       and self._exec_observations.resume(self, ticket, facts, wire, resume_signal))
+            if not resumed:
+                wire.resume_syscall(tid, resume_signal)
             return facts
         except BaseException:
             if self._exec_observations is not None:

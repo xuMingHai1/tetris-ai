@@ -128,6 +128,33 @@ writer分区均保持。全套固定fixture/task预留表、可信host/writer、
 
 本设计已通过 #219 接受；不表示内核能力或完整人工验收完成。
 
+## 本次新增修改：原ENTRY/delivery resume归属接线
+
+`PostHandshakeDispatcher.accept`在原策略完成后调用同一
+`OwnedExecObservations.resume`，仅当其自己持有的模型已消费精确ENTRY时接管恢复。
+该调用复核原owner、active wait receipt及其原始不可变facts、当前birth/group/TID/EXEC
+代次、同一wire和共享失败/期限门。ENTRY只允许signal=0，delivery只允许原信号；
+SIGSYS仍必须匹配SYS_SECCOMP union。未选birth、普通native和只观察配置保留原路径。
+
+ENTRY在调用wire之前保留内部attempt；只在wire正常返回后标记完成，随后再次检查共享门。
+失败不重试、不退槽、不恢复预算。后置检查失败仍保留返回事实，但撤销session。
+每个冻结birth最多保留一个ENTRY及最后一次delivery attempt，空间不随stop数增长。
+这些内部记录不允许调用方提交副本替代；没有新增证据writer或输出。
+
+真实reap结算后，`observe_reap`新增核验同identity/manifest的原ENTRY resume已返回，
+并核对保留receipt/facts没有漂移，再调用原模型终态匹配。仅向私有模型注入ENTRY已
+不能完成该路径；原终态suite已使用假wait/dispatcher/resume完整接线。失败仍保留真实
+reap和live释放，不能把失败回滚成活任务。
+
+新增12个fake-only测试与Linux 30秒/零skip bridge覆盖原receipt、两种ABI和线程EXEC、
+不确定wire、后置超时、外来wire/复制facts、信号注入或抑制、重复恢复、receipt漂移和
+共享失败。所有调用均为假transport，未运行native/network/历史输入。
+
+这只是原样resume的内部归属链，**不是完整no-injection证明**：可信宿主冻结的
+source/interpreter/filter安装链、对全部写register/其他signal来源的约束与完整checker、
+同根互斥writer、复杂cleanup及冻结fixture仍缺。模型终态不升级为
+`KERNEL_TERMINAL_OBSERVED`，原执行门与预算不变，生产API/默认玩法无变化。
+
 ## 本次新增修改：纯匹配/消费子集
 
 `scripts/fixed_witness_replay_abi_model.py`提供冻结`ProbeRecord`、`ExecIdentity`和
