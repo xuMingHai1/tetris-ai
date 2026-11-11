@@ -133,7 +133,7 @@ class OwnedExecBindingTest(unittest.TestCase):
         # A consumed slot cannot be restored by another authenticated EXEC.
         identity = fixture.file_fixture.ExecIdentity(90, 90, 90, 1)
         self.model.bind('x32', identity, self.record)
-        with self.assertRaises(AbiModelError):
+        with self.assertRaises(AbiObservationError):
             self.step()
         self.assertEqual(identity, self.model._identities['x32'])
         self.assertIsNotNone(self.f.launch.stopped)
@@ -157,12 +157,12 @@ class OwnedExecBindingTest(unittest.TestCase):
         self.assertIsNotNone(self.model.stopped)
         self.f.wire.resume_syscall.assert_not_called()
 
-    def test_binding_does_not_enable_non_native_entry(self):
+    def test_binding_does_not_enable_other_non_native_entry(self):
         self.step()
         self.f.wire.syscall_info.return_value = decode_syscall_info(*exit_info(0, 0))
         self.wait.return_value = (11, 0x857f)
         self.step()
-        self.f.wire.syscall_info.return_value = decode_syscall_info(*entry(0x40000029))
+        self.f.wire.syscall_info.return_value = decode_syscall_info(*entry(0x4000002a))
         self.wait.return_value = (11, 0x857f)
         self.f.wire.reset_mock()
         with self.assertRaises(ValueError):

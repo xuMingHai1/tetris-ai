@@ -1,19 +1,21 @@
-"""Observe selected frozen births only inside their sole-owned EXEC stop.
+"""Bind selected frozen births and consume their sole-owned fixed ABI stops.
 
-No CLI, probe launch, ABI exception or terminal authority. The
+No CLI, probe launch or whole-capability authority. The
 trusted host must freeze the birth/record selection before wait dispatch starts.
 """
 from fixed_witness_replay_abi_model import AbiModelError, AbiProbeModel, ExecIdentity, ProbeRecord
 from fixed_witness_replay_abi_observation import AbiExecObserver, AbiObservationError
+from fixed_witness_replay_ptrace import SyscallInfo
+from fixed_witness_replay_wait import decode_wait_status
 
 
 class OwnedExecObservations:
     """At most two fixed probe births; one observation attempt per birth.
 
-    Optional model binding happens inside the same held EXEC gate. It grants no
-    syscall exception: the ordinary native dispatcher
-    still owns resume and all ABI rejection. Failed observations latch both this
-    configuration and the outer wait session, retaining migrated cleanup state.
+    Optional model binding happens inside the same held EXEC gate. Only its two
+    exact one-shot entries bypass the ordinary native policy, under the original
+    wait owner. PostHandshakeDispatcher alone owns resume. Failed observations
+    latch this configuration and the outer wait session, retaining cleanup state.
     """
 
     def __init__(self, records, *, files=None, bind_abi=False):
@@ -48,6 +50,94 @@ class OwnedExecObservations:
         if self._dispatcher is not None:
             raise AbiObservationError('exec observation configuration already claimed')
         self._dispatcher = dispatcher
+
+    def fail(self, reason):
+        """Revoke on outer dispatch/resume failure without restoring a slot."""
+        if self.stopped is None:
+            self.stopped = reason
+        if self._abi_model is not None:
+            try:
+                self._abi_model.fail(self.stopped)
+            except AbiModelError:
+                pass
+
+    def observe_stop(self, dispatcher, birth, facts):
+        """Consume owned fixed ENTRY/delivery facts; never read or resume.
+
+        True only selects the exact ABI entry instead of native syscall policy.
+        This internal selection is not a transferable admission receipt or a
+        filter/source/no-injection capability certificate. The host integration
+        and whole-fixture gates remain required before any native execution.
+        """
+        if self._abi_model is None:
+            return False
+        try:
+            if (self.stopped is not None or dispatcher is not self._dispatcher
+                    or self._abi_model.stopped is not None):
+                raise AbiObservationError('ABI stop session stopped or foreign')
+            if birth not in self._records:
+                return False
+            record = self._records[birth]
+            state = self._abi_model.state(record.mode)
+            if state == 'UNBOUND':
+                return False
+            if state not in ('BOUND', 'AWAITING_SIGSYS'):
+                raise AbiObservationError('ABI slot no longer usable')
+            observed = tuple(item for item in self.observations if item.identity.birth == birth)
+            if len(observed) != 1 or observed[0].record != record:
+                raise AbiObservationError('completed owned EXEC observation required')
+            expected = observed[0].identity
+            launch = dispatcher.launch
+            receipt = dispatcher._active_wait
+            owner = getattr(dispatcher, '_wait_owner', None)
+            wire = launch.dispatcher.stop_binding(expected.tid)[1]
+
+            def check():
+                if owner is None:
+                    raise AbiObservationError('original active wait owner required')
+                owner._reap_gates()
+                if (owner.dispatcher is not dispatcher or owner.last_wait is not receipt
+                        or receipt is None or dispatcher._active_wait is not receipt
+                        or receipt.adopted or receipt.facts is not facts
+                        or facts.tid != expected.tid or receipt.tid != expected.tid
+                        or facts.status != decode_wait_status(receipt.raw)
+                        or receipt.parent != launch.ledger.identity(birth)
+                        or not receipt.parent.alive or receipt.parent.birth != birth
+                        or receipt.parent.tid != receipt.parent.tgid
+                        or owner._exec_identity(receipt.parent) != expected
+                        or launch.dispatcher.stop_binding(expected.tid) != (birth, wire)
+                        or self.stopped is not None or self._abi_model.stopped is not None):
+                    raise AbiObservationError('exclusive charged ABI stop lost')
+
+            check()
+            kind = facts.status.kind
+            if state == 'AWAITING_SIGSYS' and kind != 'signal-stop':
+                raise AbiObservationError('ABI entry already consumed; only signal or terminal allowed')
+            handled = False
+            if kind == 'syscall-stop':
+                info = facts.syscall
+                if type(info) is not SyscallInfo:
+                    raise AbiObservationError('decoded syscall-info required')
+                # Native facts retain the complete existing sequence/creation
+                # path. Non-native facts must match the model without masking.
+                if info.arch != 0xc000003e or (info.operation == 1 and info.number >= 0x40000000):
+                    creation = launch.dispatcher
+                    if (creation._sequence.get(birth) is not None
+                            or birth in creation._pending or birth in creation._exec_events
+                            or birth in creation._exec_exits or birth in dispatcher._newborn):
+                        raise AbiObservationError('ABI entry requires settled native sequence')
+                    self._abi_model.consume_entry(record.mode, expected,
+                                                  self._abi_model.manifest_sha256, info)
+                    handled = True
+            elif kind == 'signal-stop' and facts.status.signal == 31:
+                self._abi_model.observe_sigsys(record.mode, expected,
+                                               self._abi_model.manifest_sha256, facts.signal_info)
+            check()
+            return handled
+        except BaseException:
+            self.fail('owned ABI stop failed; no retry')
+            dispatcher.stopped = dispatcher.launch.stopped = self.stopped
+            raise
 
     def observe_reap(self, dispatcher, record):
         """Join an original settled EXEC reap to this configuration's model.
