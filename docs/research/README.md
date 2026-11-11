@@ -219,3 +219,7 @@ loaded-class/hash 观察绑定后返回 ACK 字节；尚未发送到 JVM，也�
 ## GoalWindow 原型已测量，候选停止
 
 #116 已接受设计；[#94 实施记录](heart-goal-window-prototype.md) 与 [session driver](goal-window-driver.md) 保留测试原型及完整接线说明。#137 后唯一登记的80配对实测已完成，双臂均0 clean，candidate全部68,706次决策为BASELINE_CHOICE；前500块clean与配对clean净收益两个门失败，候选停止，不重跑或调参。详见[实际结果与证据索引](heart-goal-window-result.md)。实现/预检成功不等于候选收益通过；#95/#96、reserved、provider与runtime/default adoption继续停止。
+
+[固定ABI身份边界](heart-fixed-witness-replay-abi-identity.md)补齐真实reap的EXEC代次
+快照与原owner核验：代次在wait前冻结，结算后漂移拒绝，非leader保留executor身份。
+仅fake-only组合验证，不是SIGSYS来源/无注入证明，也未接通ABI放行或历史执行。

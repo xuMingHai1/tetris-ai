@@ -9,6 +9,7 @@ import os
 import time
 from dataclasses import dataclass
 
+from fixed_witness_replay_abi_model import ExecIdentity
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
 from fixed_witness_replay_tasks import LIVE_TASKS, TASK_ATTEMPTS
 from fixed_witness_replay_wait import decode_wait_status
@@ -28,13 +29,15 @@ class SettledReap:
 
     Only require_settled_reap on the original owner checks provenance. Constructing
     equal values, or retaining a record after session failure, grants no authority.
-    No EXEC generation is inferred from a birth or a terminal status.
+    An optional EXEC identity comes only from the dispatcher's installed epoch
+    sampled before this wait, never inferred from terminal bits or proc data.
     """
 
     before: object
     after: object
     raw: int
     status: object
+    exec_identity: object = None
 
 
 @dataclass
@@ -129,7 +132,34 @@ class BoundedWaitOwner:
             self.dispatcher.stopped = self.launch.stopped = self.stopped
             raise
 
-    def _retain_reap(self, parent, tid, raw, facts):
+    def require_exec_reap(self, record, identity):
+        """Match the original settled record's installed EXEC epoch, read-only.
+
+        This does not authenticate a probe binding, consumed ENTRY, SIGSYS,
+        filter or no-injection evidence. A future adapter must establish those
+        independently. Pre-EXEC reaps have no epoch and cannot pass this gate.
+        """
+        try:
+            self.require_settled_reap(record)
+            if (type(identity) is not ExecIdentity or not identity.valid()
+                    or record.exec_identity != identity
+                    or self._exec_identity(record.before) != identity):
+                raise WaitOwnerError('settled reap EXEC identity mismatch')
+        except BaseException:
+            self.stopped = 'settled EXEC reap validation failed; cleanup required'
+            self.dispatcher.stopped = self.launch.stopped = self.stopped
+            raise
+
+    def _exec_identity(self, parent):
+        generation = self.dispatcher._exec_generations.get(parent.birth)
+        if generation is None:
+            return None
+        identity = ExecIdentity(parent.birth, parent.group_birth, parent.tid, generation)
+        if not identity.valid():
+            raise WaitOwnerError('invalid installed EXEC epoch')
+        return identity
+
+    def _retain_reap(self, parent, tid, raw, facts, exec_identity):
         if facts.status.kind not in ('exited', 'signaled'):
             return
         self._reap_gates()
@@ -142,10 +172,12 @@ class BoundedWaitOwner:
                 or any(ticket == parent.birth or bound_tid == tid
                        for ticket, bound_tid in self.launch.dispatcher.waiting_births())
                 or facts.tid != tid or facts.status != decode_wait_status(raw)
+                or self._exec_identity(parent) != exec_identity
                 or parent.birth in self._settled_reaps
                 or len(self._settled_reaps) >= TASK_ATTEMPTS - 1):
             raise WaitOwnerError('terminal reap settlement mismatch')
-        self._settled_reaps[parent.birth] = SettledReap(parent, after, raw, facts.status)
+        self._settled_reaps[parent.birth] = SettledReap(
+            parent, after, raw, facts.status, exec_identity)
 
     def _reject_wait(self, tid, status):
         # Account any observed stop BEFORE rejecting the impossible wait tuple;
@@ -165,6 +197,9 @@ class BoundedWaitOwner:
         for ticket, tid in births:
             self._check()
             parent = self.launch.ledger.identity(ticket)
+            # Freeze the installed epoch before the fallible wait. A terminal
+            # dispatch must not change it; EXEC stops themselves retain no reap.
+            exec_identity = self._exec_identity(parent)
             pending = tuple(item for item in self.launch.ledger.cleanup_pending()
                             if item.parent == ticket and item.child is None)
             try:
@@ -197,7 +232,7 @@ class BoundedWaitOwner:
             # debit even if the wait crossed the deadline or ownership changed.
             self.last_wait = _OwnedWait(parent, pending, waited, status)
             facts = self.dispatcher._accept_owned_wait(self, self.last_wait)
-            self._retain_reap(parent, waited, status, facts)
+            self._retain_reap(parent, waited, status, facts, exec_identity)
             self._last_birth = ticket
             return 'event'
         self._check()
