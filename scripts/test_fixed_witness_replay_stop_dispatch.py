@@ -62,9 +62,11 @@ class PostHandshakeDispatchTest(unittest.TestCase):
                 self.assertEqual(3, self.ledger.totals.attempts)
             return original(request, *args)
         wire._call = checked
-        self.owner.accept(11, 0x857f)
+        from fixed_witness_replay_wait_owner import BoundedWaitOwner
+        owner = BoundedWaitOwner(self.owner, waitpid=Mock(return_value=(11, 0x857f)), sleep=Mock())
+        owner._round()
         kernel.suppressed_exit()
-        self.owner.accept(11, 0x857f)
+        owner._round()
         self.assertEqual(2, sum(r[0] == 0x420e for r in kernel.requests))
         self.assertEqual(2, resume.call_count)
         self.assertEqual((3, 2, 3), (self.ledger.totals.attempts,
@@ -139,7 +141,10 @@ class PostHandshakeDispatchTest(unittest.TestCase):
                 ctypes.memmove(data, raw, 128)
             return 0
         self.launch.dispatcher._tasks[2] = (12, PtraceAccess(kernel))
-        self.owner.accept(12, 0x137f)
+        from fixed_witness_replay_wait_owner import BoundedWaitOwner
+        owner = BoundedWaitOwner(self.owner, waitpid=Mock(side_effect=lambda tid, flags:
+                                 (12, 0x137f) if tid == 12 else (0, 0)), sleep=Mock())
+        owner._round()
         self.assertEqual([(0x4202, None), (0x4200, 0x0010001f), (24, 0)], requests)
 
     def test_newborn_wait_cap_blocks_siginfo_options_and_resume(self):
@@ -286,7 +291,9 @@ class PostHandshakeDispatchTest(unittest.TestCase):
                 ctypes.memmove(data, raw.ljust(128, b'\0'), 128)
             return 0
         self.launch.dispatcher._tasks[1] = (11, PtraceAccess(kernel))
-        self.owner.accept(11, 0x1f7f)
+        from fixed_witness_replay_wait_owner import BoundedWaitOwner
+        owner = BoundedWaitOwner(self.owner, waitpid=Mock(return_value=(11, 0x1f7f)), sleep=Mock())
+        owner._round()
         self.assertEqual([(0x4202, None), (24, 31)], requests)
 
     def test_delivery_then_signal_handler_creation_still_uses_entry_arbitration(self):

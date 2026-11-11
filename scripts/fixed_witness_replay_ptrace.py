@@ -202,6 +202,60 @@ class PtraceAccess:
         finally:
             self._resume_scope = None
 
+    def resume_owned(self, dispatcher, birth, facts, signal):
+        """Pre-seal resume from the sole wait owner's current original receipt."""
+        from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
+        from fixed_witness_replay_wait import decode_wait_status
+        require(type(dispatcher) is PostHandshakeDispatcher, 'original stop dispatcher required')
+        owner = getattr(dispatcher, '_wait_owner', None)
+        receipt = dispatcher._active_wait
+        try:
+            expected_signal = (facts.status.signal if facts.status.kind == 'signal-stop' else 0)
+            if facts.signal_info == SignalInfo(19, 0, 0, 0, 0):
+                expected_signal = 0  # Original birth-bound newborn handshake.
+            require(not self._wire_failed and self._probe_owner is None and self._resume_scope is None
+                    and owner is not None and receipt is not None
+                    and owner.last_wait is receipt and receipt.facts is facts and not receipt.adopted
+                    and not receipt.resume_attempted
+                    and facts.tid == receipt.tid and facts.status == decode_wait_status(receipt.raw)
+                    and dispatcher.launch.dispatcher.stop_binding(receipt.tid) == (birth, self)
+                    and type(signal) is int
+                    and signal == expected_signal,
+                    'one original pre-seal wait resume required')
+            owner._reap_gates()
+            receipt.resume_attempted = True
+            self._resume_scope = (receipt.tid, signal)
+            self.resume_syscall(receipt.tid, signal)
+            require(not self._wire_failed, 'pre-seal wire failed during resume')
+            owner._reap_gates()
+        except BaseException:
+            self._wire_failed = True
+            raise
+        finally:
+            self._resume_scope = None
+
+    def resume_handshake(self, handshake, facts):
+        """Consume the initial coordinator's held, validated self-SIGSTOP once."""
+        from fixed_witness_replay_handshake import CoordinatorHandshake
+        try:
+            require(not self._wire_failed and type(handshake) is CoordinatorHandshake and self._probe_owner is None
+                    and self._resume_scope is None and handshake.access is self
+                    and handshake._resume_facts is facts and facts is not None
+                    and handshake.attempted and not handshake.completed and handshake.stopped is None
+                    and handshake.dispatcher.stop_binding(handshake.tid) == (handshake.ticket, self)
+                    and facts.tid == handshake.tid and facts.status.kind == 'signal-stop'
+                    and facts.status.signal == 19, 'original initial handshake resume required')
+            handshake._resume_facts = None
+            if handshake.check is not None:
+                handshake.check()
+            self._resume_scope = (handshake.tid, 0)
+            self.resume_syscall(handshake.tid, 0)
+        except BaseException:
+            self._wire_failed = True
+            raise
+        finally:
+            self._resume_scope = None
+
     @classmethod
     def for_host(cls):
         require(sys.platform == 'linux' and platform.machine() == 'x86_64'
@@ -220,6 +274,10 @@ class PtraceAccess:
                                 GETREGSET, GETEVENTMSG, GETSIGINFO)
                     and not (request == SETREGSET and self._write_scope is not None)):
                 self._unscoped_mutation = True
+            if request == SYSCALL and self._resume_scope != (tid, data):
+                self._unscoped_mutation = True
+            if request == SETOPTIONS and (address != 0 or data != TRACE_OPTIONS):
+                self._unscoped_mutation = True
             if self._probe_owner is not None:
                 require(not self._wire_failed, 'probe wire already failed')
                 require(tid == self._probe_identity.tid, 'probe wire TID changed')
@@ -235,6 +293,8 @@ class PtraceAccess:
                     allowed = self._resume_scope == (tid, data) and address == 0
                     self._resume_scope = None
                 require(allowed, 'unowned probe wire intervention')
+            elif request == SYSCALL:
+                self._resume_scope = None
             ctypes.set_errno(0)
             result = self._call(request, tid, address, data)
             if result == -1:

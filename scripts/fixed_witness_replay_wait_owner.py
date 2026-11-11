@@ -60,6 +60,7 @@ class _OwnedWait:
     event_tid: object = None
     adopted: bool = False
     facts: object = None
+    resume_attempted: bool = False
 
 
 class BoundedWaitOwner:

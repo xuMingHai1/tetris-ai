@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import fixed_witness_replay_ptrace as p
 from fixed_witness_replay_abi_model import ExecIdentity
 import test_fixed_witness_replay_filter_exec_chain as chain_fixture
+import test_fixed_witness_replay_handshake as handshake_fixture
 from test_fixed_witness_replay_ptrace import KernelFixture, entry, exit_info
 
 
@@ -53,6 +54,57 @@ class ProbeWireTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'modified'):
             self.f.step()
         self.f.wire.resume_syscall.assert_not_called()
+
+    def test_successful_preseal_raw_resume_blocks_later_binding(self):
+        for signal in (0, 9, 31):
+            self.setUp()
+            self.f.typed_wire.resume_syscall(11, signal)
+            self.f.wire.resume_syscall.reset_mock()
+            with self.assertRaisesRegex(ValueError, 'modified'):
+                self.f.step()
+            self.f.wire.resume_syscall.assert_not_called()
+            self.assertEqual('UNBOUND', self.f.config.abi_state('x32'))
+
+    def test_actual_initial_handshake_resume_has_single_original_scope(self):
+        f = handshake_fixture.CoordinatorHandshakeTest()
+        f.setUp()
+        wire = p.PtraceAccess(chain_fixture.wire_kernel(f.access))
+        f.dispatch._tasks[f.ticket] = (11, wire)
+        handshake = f.make(access=wire)
+        handshake.accept(11, 0x137f)
+        self.assertTrue(handshake.completed)
+        self.assertFalse(wire._unscoped_mutation)
+        self.assertIsNone(handshake._resume_facts)
+        f.access.resume_syscall.assert_called_once_with(11, 0)
+        with self.assertRaises(ValueError):
+            wire.resume_handshake(handshake, None)
+
+    def test_actual_preseal_wait_resume_is_clean_before_launcher(self):
+        # An ordinary delivery stop before the launcher EXEC is still owned.
+        f = self.f
+        f.wire.signal_info.return_value = p.SignalInfo(10, 0, 0, 10, 1000)
+        f.wait.return_value = (11, 0xa7f)
+        f.step()
+        f.wire.resume_syscall.assert_called_once_with(11, 10)
+        self.assertFalse(f.typed_wire._unscoped_mutation)
+        f.wait.return_value = (11, 0x4057f)
+        f.step()
+        self.assertIn(f.birth, f.config._launch_resumed)
+
+    def test_preseal_original_receipt_cannot_resume_twice_even_reentrantly(self):
+        f = self.f
+        f.wire.signal_info.return_value = p.SignalInfo(10, 0, 0, 10, 1000)
+        f.wait.return_value = (11, 0xa7f)
+        def repeat(*args):
+            receipt = f.dispatch._active_wait
+            self.assertTrue(receipt.resume_attempted)
+            with self.assertRaises(ValueError):
+                f.typed_wire.resume_owned(f.dispatch, f.birth, receipt.facts, 10)
+        f.wire.resume_syscall.side_effect = repeat
+        with self.assertRaises(ValueError):
+            f.step()
+        f.wire.resume_syscall.assert_called_once_with(11, 10)
+        self.assertIsNotNone(f.config.stopped)
 
     def test_raw_writes_and_unknown_requests_block_before_kernel(self):
         for request in (4, 5, 6, 7, 12, 13, 17, 0x4203, p.SETREGSET, p.SETOPTIONS):

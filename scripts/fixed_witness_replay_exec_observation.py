@@ -118,7 +118,11 @@ class OwnedExecObservations:
                 self._wire_resume_scope = None
             self._check_wire(identity)
         else:
-            wire.resume_syscall(identity.tid, signal)
+            if type(wire) is PtraceAccess:
+                wire.resume_owned(self._dispatcher, identity.birth,
+                                  self._dispatcher._active_wait.facts, signal)
+            else:
+                wire.resume_syscall(identity.tid, signal)
 
     def _authorize_wire_resume(self, wire, identity, manifest, signal):
         """Consume only the currently held original stop, never an owner token."""
@@ -129,7 +133,7 @@ class OwnedExecObservations:
         receipt = dispatcher._active_wait
         if (scope is None or scope != (wire, identity, manifest, signal, receipt)
                 or owner is None or receipt is None or owner.last_wait is not receipt
-                or receipt.adopted or receipt.facts is None
+                or receipt.adopted or receipt.facts is None or receipt.resume_attempted
                 or receipt.tid != identity.tid or receipt.facts.tid != identity.tid
                 or receipt.facts.status != decode_wait_status(receipt.raw)
                 or type(signal) is not int
@@ -139,6 +143,7 @@ class OwnedExecObservations:
                 or dispatcher.launch.dispatcher.stop_binding(identity.tid) != (identity.birth, wire)):
             raise AbiObservationError('one original active wire resume required')
         owner._reap_gates()
+        receipt.resume_attempted = True
 
     def observe_stop(self, dispatcher, birth, facts):
         """Consume owned fixed ENTRY/delivery facts; never read or resume.

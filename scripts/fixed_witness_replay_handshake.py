@@ -6,7 +6,7 @@ and kept the child in the trusted TRACEME/self-SIGSTOP pre-exec stub. This
 component does not establish that trusted provenance or inspect /proc.
 """
 from fixed_witness_replay_dispatch import CreationDispatchError
-from fixed_witness_replay_ptrace import PtraceBoundaryError
+from fixed_witness_replay_ptrace import PtraceAccess, PtraceBoundaryError
 from fixed_witness_replay_stops import StopReadError
 
 
@@ -38,6 +38,7 @@ class CoordinatorHandshake:
         self.attempted = False
         self.completed = False
         self.stopped = None
+        self._resume_facts = None
 
     def _fail(self, reason):
         if self.stopped is None:
@@ -74,7 +75,14 @@ class CoordinatorHandshake:
             self.access.set_options(self.tid)
             if self.check is not None:
                 self.check()
-            self.access.resume_syscall(self.tid, 0)
+            self._resume_facts = facts
+            try:
+                if type(self.access) is PtraceAccess:
+                    self.access.resume_handshake(self, facts)
+                else:
+                    self.access.resume_syscall(self.tid, 0)
+            finally:
+                self._resume_facts = None
             self.completed = True
         except (StopReadError, CreationDispatchError, PtraceBoundaryError, OSError) as error:
             self._fail(str(error))

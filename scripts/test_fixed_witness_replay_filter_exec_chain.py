@@ -31,7 +31,7 @@ def wire_kernel(mock):
             ctypes.memmove(data, raw, len(raw))
             return size
         elif request == 0x4202:
-            info = mock.signal_info(tid, 31)
+            info = mock.signal_info(tid, mock.signal_info.return_value.signal)
             raw = bytearray(128)
             struct.pack_into('<iii', raw, 0, info.signal, info.error, info.code)
             if info.code == 1:
@@ -41,6 +41,8 @@ def wire_kernel(mock):
             ctypes.memmove(data, bytes(raw), len(raw))
         elif request == 24:
             mock.resume_syscall(tid, data)
+        elif request == 0x4200:
+            mock.set_options(tid)
         else:
             raise AssertionError('unexpected fake wire request')
         return 0

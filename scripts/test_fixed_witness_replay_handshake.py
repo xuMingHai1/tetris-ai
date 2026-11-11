@@ -155,6 +155,7 @@ class CoordinatorHandshakeTest(unittest.TestCase):
                 ctypes.memmove(data, bytes(raw), 128)
             return 0
         access = PtraceAccess(kernel)
+        self.dispatch._tasks[self.ticket] = (11, access)
         self.handshake = self.make(access=access, uid=0xffffffff)
         self.accept()
         self.assertEqual([(0x4202, 11, 0, None), (0x4200, 11, 0, 0x10001f),

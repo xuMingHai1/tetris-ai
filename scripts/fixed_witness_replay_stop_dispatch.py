@@ -4,7 +4,7 @@ Birth-bound newborns require their one initial kernel SIGSTOP and complete
 options before first resume. EXEC migrates the exact executing birth; ordinary
 delivery stops preserve the kernel signal. Job-control stops still fail closed.
 """
-from fixed_witness_replay_ptrace import SignalInfo
+from fixed_witness_replay_ptrace import PtraceAccess, SignalInfo
 from fixed_witness_replay_exec_observation import OwnedExecObservations
 
 
@@ -132,7 +132,10 @@ class PostHandshakeDispatcher:
             resumed = (self._exec_observations is not None
                        and self._exec_observations.resume(self, ticket, facts, wire, resume_signal))
             if not resumed:
-                wire.resume_syscall(tid, resume_signal)
+                if type(wire) is PtraceAccess:
+                    wire.resume_owned(self, ticket, facts, resume_signal)
+                else:
+                    wire.resume_syscall(tid, resume_signal)
             return facts
         except BaseException:
             if self._exec_observations is not None:

@@ -471,7 +471,7 @@ identity和manifest不能再次resume。普通launcher/probe native stop复用�
 `observe_reap`再核对该对象与原network wire相同且wire无失败/未完成请求。事后发现
 注入尝试或换wire会撤销成功，但不回滚真实reap/live credit。
 
-新增15项fake-only测试与30秒Linux零skip bridge；既有14项两阶段EXEC fixture改为
+新增19项fake-only测试与30秒Linux零skip bridge；既有14项两阶段EXEC fixture改为
 经过实际typed ptrace编解码的假kernel。覆盖旁路请求、外来/重复resume、原owner token
 复用、source观察中干预、不确定调用、clone3边界及terminal前换wire。
 
@@ -480,3 +480,10 @@ identity和manifest不能再次resume。普通launcher/probe native stop复用�
 来源冻结/互斥同根writer、完整filter checker、复杂cleanup与整套fixture及原整体最终
 Review/CI/compatibility/inputhash/唯一登记仍必需。整体原生验收、研究结果与用户可见
 功能仍未完成；未执行任何native probe/network clean-build/历史输入，停止门不变。
+
+本次新增修改（GitHub P2复审）：封闭前的raw SYSCALL同样保留未授权标记，即使调用
+正常返回也不能进入后续probe绑定。初始CoordinatorHandshake仅在其原self-SIGSTOP
+验证和完整options后临时持有一次性facts；普通stop仅由原BoundedWaitOwner的active
+receipt恢复，receipt在调用前即登记一次性attempt，失败或重入也不恢复。两者都走
+typed wire的受限入口，不能用fabricated raw accept替代；
+不确定调用仍不重试。已有wire fixture因此改为原birth绑定与实际fake wait入口。
