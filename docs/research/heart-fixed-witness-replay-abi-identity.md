@@ -2,7 +2,7 @@
 
 本设计细化已明确接受的 [#174 第6条](heart-fixed-witness-replay-task-budget-proposal.md)，
 不增加 ABI 例外、探针、原生执行次数或预算。纯匹配/消费子集已实现，真实身份与
-SIGSYS身份/终态接线尚未实现；只读union解析已补齐，当前 dispatcher 继续拒绝所有 compat/x32 syscall。
+SIGSYS终态接线尚未实现；只读union解析及纯模型delivery匹配已补齐，当前 dispatcher 继续拒绝所有 compat/x32 syscall。
 本次新增修改不改变生产架构，README/AGENTS无需同步。
 源码基线：`993f6ad4caf4439bfffd4694c68bc2bbf4c4105c`（已纳入 #218 独立清理组件）。
 
@@ -172,6 +172,26 @@ compat/x32入口arch切换为32位布局。静态源码依据不表示目标宿�
 新增12项有限fake-only测试覆盖两固定ABI、union判别、signed/unsigned宽度、全部短
 buffer、错误类型/信号、不可变性及传输失败；Linux JUnit bridge强制30秒内零skip。
 既有普通signal dispatcher继续保留原SIGSYS；本轮未连接ABI模型、身份匹配或终态。
-下一步实现delivery事实与纯模型已消费身份/ENTRY的失败锁存匹配，再做真实exec/proc
-认证、dispatcher/checker及真实wait/reap集成。完整fixture/host/writer/清理及全部原门
+下一步的delivery纯模型匹配见下节，真实exec/proc认证、dispatcher/checker及真实wait/reap
+仍待集成。完整fixture/host/writer/清理及全部原门
 仍未满足，没有执行真实probe、network clean-build或历史22步。
+
+## 本次新增修改：SIGSYS delivery纯模型匹配
+
+`AbiProbeModel.observe_sigsys`仅在`AWAITING_SIGSYS`核对完整已消费身份、共享清单hash，
+以及精确`SignalInfo`的`SIGSYS/SYS_SECCOMP`判别和固定ENTRY的arch/syscall。整数宽度与
+类型必须正确（不接受bool或自定义相等对象）；call address要求unsigned-64，syscall要求
+非负signed-32，arch要求unsigned-32，header errno保留signed-32，不额外猜测值。
+sender union必须为空，拒绝SI_USER/SI_TKILL、未知code、缺失union、错误arch/number、
+复用TID/不同birth/group/exec和错误阶段。任一错配锁存全模型，后续正确观察不能恢复。
+
+方法返回None；匹配和重复匹配均保持已消费状态，不产生resume token、终态成功或额度
+释放。不要求存在delivery stop，也不比较call address与ENTRY instruction pointer，后者
+不是本设计的身份依据。普通信号策略仍由外层负责，本方法不接受普通信号充当SIGSYS事实。
+模型没有调用ptrace、wait、reap、文件认证或dispatch；native guard不变。
+
+新增12项有限fake-only行为测试（模型共30项），覆盖两模式的真实wire解码到模型匹配、
+身份/清单/阶段/判别/union反例、失败优先与跨槽锁存、无delivery状态及截断wire边界。
+Linux普通JUnit bridge仍强制30秒内全部通过且零skip。本轮只补上组10的delivery事实
+匹配子集；真实wait/reap终态、来源与无注入链、exec/proc认证、共享预算及owner门仍未接线。
+下一步实现真实身份认证适配，再组合dispatcher/checker与终态；所有原人工验收门保持。

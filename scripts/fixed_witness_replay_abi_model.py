@@ -10,7 +10,7 @@ import json
 from pathlib import PurePosixPath
 import re
 
-from fixed_witness_replay_ptrace import SyscallInfo
+from fixed_witness_replay_ptrace import LINUX_SIGSYS, SYS_SECCOMP, SignalInfo, SyscallInfo
 
 
 _ENTRIES = {'x32': (0xc000003e, 0x40000029), 'compat': (0x40000003, 102)}
@@ -70,8 +70,8 @@ class ExecIdentity:
 class AbiProbeModel:
     """Two frozen slots, serial one-shot matching and fail-closed revocation.
 
-    This finite subset stops at AWAITING_SIGSYS. Terminal evidence, delivery
-    union validation, real identity authentication and outer owner/deadline/
+    This finite subset stops at AWAITING_SIGSYS, including delivery matching.
+    Terminal evidence, real identity authentication and outer owner/deadline/
     shared ledger gates remain unimplemented, so no execution path imports it.
     """
 
@@ -154,6 +154,30 @@ class AbiProbeModel:
                 or info.result is not None or info.is_error is not None):
             self._fail('exact decoded fixed-probe ENTRY required')
         self._states[mode] = 'AWAITING_SIGSYS'
+
+    def observe_sigsys(self, mode, identity, manifest_sha256, info):
+        """Match a supplied delivery fact without resume or terminal authority.
+
+        No delivery is required by this model. Matching observations leave the
+        consumed slot awaiting a separately authenticated terminal wait/reap;
+        repeated facts cannot release credit or turn into a success receipt.
+        """
+        self._running(mode)
+        if (self._states[mode] != 'AWAITING_SIGSYS'
+                or type(identity) is not ExecIdentity or not identity.valid()
+                or identity != self._identities[mode]
+                or type(manifest_sha256) is not str
+                or manifest_sha256 != self._manifest_sha256):
+            self._fail('unconsumed, stale or mismatched SIGSYS observation')
+        if (type(info) is not SignalInfo
+                or not _uint(info.signal, 8) or info.signal != LINUX_SIGSYS
+                or type(info.code) is not int or info.code != SYS_SECCOMP
+                or type(info.error) is not int or not -(1 << 31) <= info.error < (1 << 31)
+                or not _uint(info.call_address, 64)
+                or not _uint(info.syscall, 31) or not _uint(info.arch, 32)
+                or (info.arch, info.syscall) != _ENTRIES[mode]
+                or info.sender_pid is not None or info.sender_uid is not None):
+            self._fail('exact decoded fixed-probe SYS_SECCOMP delivery required')
 
     def revoke_exec(self, mode, identity):
         """A bound task's next EXEC uses up its slot; never rebind a new exec."""

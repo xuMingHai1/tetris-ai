@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Pure ABI identity matching; no exec authentication or native probe. */
+/** Pure ABI entry/delivery matching; no exec authentication or native probe. */
 @EnabledOnOs(OS.LINUX)
 class FixedWitnessAbiModelTest {
     @TempDir Path directory;
@@ -31,7 +31,7 @@ class FixedWitnessAbiModelTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "synthetic ABI model tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 18 tests"), output);
+            assertTrue(output.contains("Ran 30 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {
