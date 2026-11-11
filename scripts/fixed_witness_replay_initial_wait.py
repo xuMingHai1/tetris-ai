@@ -66,5 +66,8 @@ class InitialWaitOwner:
                 self.sleep(min(0.01, remaining))
         except BaseException:
             self.stopped = 'initial bounded wait failed; cleanup required'
-            self.launch.stopped = self.stopped
+            # Keep the first session failure; the wait owner records its own
+            # context separately, without erasing cancellation/admission cause.
+            if self.launch.stopped is None:
+                self.launch.stopped = self.stopped
             raise
