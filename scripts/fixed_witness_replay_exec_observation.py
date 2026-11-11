@@ -27,7 +27,8 @@ class OwnedExecObservations:
 
     Optional model binding happens inside the same held EXEC gate. Only its two
     exact one-shot entries bypass the ordinary native policy, under the original
-    wait owner. PostHandshakeDispatcher alone owns resume. Failed observations
+    wait owner. PostHandshakeDispatcher is the single resume entry point and
+    delegates fixed ABI resumes to this configuration. Failed observations
     latch this configuration and the outer wait session, retaining cleanup state.
     """
 
