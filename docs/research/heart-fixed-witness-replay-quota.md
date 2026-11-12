@@ -1,5 +1,37 @@
 # 固定动作回放：写入前累计配额组件
 
+## 本次新增修改：宿主启动、剩余时钟与直接 tracer 终态接线
+
+`FixedWitnessWriterHost.createSession -> launchAndObserve(ProcessBuilder)` 现在从创建
+独占目录前开始同一900秒时钟，在启动前永久消费唯一 tracer attempt/live 预留。
+启动和原 grant 写入在可信 host 的 virtual thread 上执行；原调用线程同时保留更早的
+截止，启动延迟/阻塞写入不能重新计时。host 在总截止前保留原3秒清理时间，失败只使用
+原剩余时间 kill/有界 wait 直接 child；迟到返回的 Process 也先保留再杀死，尽可能在
+原总时限内 wait。未知/未返回的启动与未观察到的 terminal 均不能声称已清理。
+host 不用 shell/观察辅助进程，tracer stdout/stderr 丢弃，固定后缀按原32KiB写前计费。
+
+监督路径使用 `FIXED_WRITERS_V2`，保持原三个互斥 writer 数值，并传递发送时剩余
+纳秒和已扣1 attempt/1 live。`HostWriterHandoff.receive` 只缩短原 caller deadline；
+Java 仍保留包含传输延迟的更早截止。`prepare` 要求实际 `TaskLedger` 恰好只有原
+tracer 槽且没有 stop/pending/失败，不能复制槽或先启动 coordinator 后再领取。
+既有 V1 独立交接兼容性保留，不提供受监督启动证明。grant EOF/独占 claim、原
+prepare receipt/source recheck、stdout/evidence writer、实际 supervisor/cleanup/reap继续复用。
+
+Java fake Process 回归覆盖计时含准备/启动延迟、启动失败不重试、grant失败、active
+超时的原3秒收尾、迟到 child、原异常与cleanup异常、非零退出和独占session；Python
+新增剩余时间/原账本反例。普通 Linux Java→Python 真管道测试现在调用实际启动入口，
+内核 fork/wait/ptrace/pidfd/signal及来源读取仍注入，生命周期仅为 DRAINED_OBSERVATION。
+host 后缀明确 `DIRECT_TRACER_EXIT_0 / SUITE_UNVERIFIED`，原 INCOMPLETE 前缀保留。
+
+有限剩余清单：完整受认证 Java host command/source/toolchain/manifest冻结与固定
+task/fixture调度；coordinator ALL artifact/JVM suballowance实际传输；完整filter/external
+no-injection checker；尚缺的复杂cleanup/jobcontrol；全fixture和EXITKILL负例；整体最终
+Review/CI/compatibility/inputhash及唯一登记。文件系统和平台start/destroy原语本身不能由
+Java强制抢占，迟到启动只能在返回Process后清理，沿用cooperative host限制；本组件不
+证明整树终态或完整硬时限能力。整体原生验收、研究结果、用户可见功能均尚未完成。
+没有原生probe、network clean-build或历史输入执行；生产架构/README/AGENTS、原guard、
+冻结协议/预算及执行停止门保持。
+
 ## 本次新增修改：已接受的人工套件writer分区
 
 用户2026-11-09在会话 `01a1bdd5-5d02-7580-95b4-42302a6fa60a` 明确接受

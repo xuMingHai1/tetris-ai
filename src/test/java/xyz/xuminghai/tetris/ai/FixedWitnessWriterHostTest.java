@@ -90,32 +90,21 @@ class FixedWitnessWriterHostTest {
     @Test
     @EnabledOnOs(OS.LINUX)
     void javaPipeGrantReachesActualSupervisorWithFakeKernel() throws Exception {
-        var session = Files.createDirectory(directory.resolve("session")).toRealPath();
-        var host = new FixedWitnessWriterHost(session);
+        var session = directory.toRealPath().resolve("session");
+        var host = FixedWitnessWriterHost.createSession(session);
         var code = "import sys; sys.path.insert(0, 'scripts'); "
                 + "from test_fixed_witness_replay_writer_handoff import java_fixture; java_fixture(sys.argv[1])";
         // No child output escapes either allowance. Retained test assertions
         // use the actual tracer report; OS errors still produce a nonzero exit.
-        var process = new ProcessBuilder("python3", "-B", "-c", code, session.toString())
-                .directory(Path.of("").toAbsolutePath().toFile())
-                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                .redirectError(ProcessBuilder.Redirect.DISCARD).start();
-        try {
-            host.handoff(process);
-            assertTrue(process.waitFor(30, TimeUnit.SECONDS), "fake supervisor child timed out");
-            assertEquals(0, process.exitValue());
-            var report = Files.readString(session.resolve("tracer-lifecycle.json"));
-            assertTrue(report.contains("DRAINED_OBSERVATION"), report);
-            assertTrue(report.contains("\"suite_verified\":false"), report);
-            assertEquals("charged", Files.readString(session.resolve("coordinator-stdout.log")));
-            assertThrows(IllegalStateException.class, () -> host.handoff(process));
-        } finally {
-            process.descendants().forEach(ProcessHandle::destroyForcibly);
-            if (process.isAlive()) {
-                process.destroyForcibly();
-                assertTrue(process.waitFor(5, TimeUnit.SECONDS), "test child did not stop");
-            }
-        }
+        var command = new ProcessBuilder("python3", "-B", "-c", code, session.toString())
+                .directory(Path.of("").toAbsolutePath().toFile());
+        assertEquals(0, host.launchAndObserve(command));
+        var report = Files.readString(session.resolve("tracer-lifecycle.json"));
+        assertTrue(report.contains("DRAINED_OBSERVATION"), report);
+        assertTrue(report.contains("\"suite_verified\":false"), report);
+        assertEquals("charged", Files.readString(session.resolve("coordinator-stdout.log")));
+        assertTrue(Files.readString(session.resolve("host-tracer.txt")).contains("SUITE_UNVERIFIED"));
+        assertThrows(IllegalStateException.class, () -> host.launchAndObserve(command));
     }
 
     @Test
@@ -130,7 +119,7 @@ class FixedWitnessWriterHostTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "handoff cases timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 13 tests"), output);
+            assertTrue(output.contains("Ran 18 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {

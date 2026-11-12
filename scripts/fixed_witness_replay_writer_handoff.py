@@ -57,17 +57,34 @@ class HostWriterHandoff:
         expected = ('FIXED_WRITERS_V1 %d %d %d %d %d %d\n' % (
             os.getppid(), os.getpid(), OUTPUT_BYTES, REPORT_BYTES, REPORT_BYTES,
             COORDINATOR_BYTES)).encode('ascii')
-        if raw != expected:
+        supervised = raw.startswith(b'FIXED_WRITERS_V2 ')
+        if supervised:
+            fields = bytes(raw).split(b' ')
+            if (len(fields) != 10 or fields[-2:] != [b'1', b'1\n']
+                    or not fields[7].isdigit() or fields[7].startswith(b'0')):
+                raise ValueError('original host time and tracer reservation required')
+            remaining = int(fields[7])
+            if not 0 < remaining <= 897_000_000_000:
+                raise ValueError('original host remaining ceiling required')
+            bound = b' '.join(fields[:7]) + b'\n'
+            if bound != expected.replace(b'FIXED_WRITERS_V1', b'FIXED_WRITERS_V2'):
+                raise ValueError('original parent/receiver and frozen writer grant required')
+            # The Java host retains its earlier absolute ceiling, including
+            # startup/pipe delay. A received duration can only shorten this
+            # caller's bound; it never establishes a later replacement clock.
+            deadline = min(deadline, clock() + remaining / 1_000_000_000)
+        elif raw != expected:
             raise ValueError('original parent/receiver and frozen writer grant required')
         # No host ByteQuota is reconstructed. Cross-process exclusivity relies
         # on the original trusted host and direct inherited pipe, not this text.
         writers = WriterReservations(ByteQuota(REPORT_BYTES), None, ByteQuota(COORDINATOR_BYTES))
-        write_exclusive(path / 'tracer-writer-claim.txt', expected, writers.tracer)
+        write_exclusive(path / 'tracer-writer-claim.txt', bytes(raw), writers.tracer)
         result = object.__new__(cls)
         result._writers = writers
         result.directory, result.deadline = path, deadline
         result.pid, result.parent = os.getpid(), os.getppid()
         result.clock = clock
+        result.supervised = supervised
         result.claimed = False
         return result
 
@@ -86,6 +103,11 @@ class HostWriterHandoff:
         if self.clock() >= self.deadline:
             raise ValueError('original host handoff deadline exhausted')
         ledger.require_tracer(self.pid)
+        if self.supervised:
+            from fixed_witness_replay_tasks import TaskLedger, TaskTotals
+            if (type(ledger) is not TaskLedger
+                    or ledger.totals != TaskTotals(1, 1, 0, 0, 0, None)):
+                raise ValueError('original once-reserved tracer ledger required')
         if prepared_probes is None:
             raise ValueError('original prepared probe sources required')
         return TracerSupervisor.for_host(

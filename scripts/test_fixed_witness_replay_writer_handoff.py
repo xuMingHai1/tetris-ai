@@ -20,6 +20,11 @@ def grant():
         COORDINATOR_BYTES)).encode('ascii')
 
 
+def supervised_grant(remaining=b'1000000000', attempts=b'1', live=b'1'):
+    return (grant().replace(b'FIXED_WRITERS_V1', b'FIXED_WRITERS_V2').rstrip(b'\n')
+            + b' ' + remaining + b' ' + attempts + b' ' + live + b'\n')
+
+
 def composed(handoff, *, failure=None):
     """Call the actual factory/lifecycle; replace only source/native transports."""
     f = supervisor_fixture.SupervisorTest()
@@ -186,6 +191,43 @@ class WriterHandoffTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'direct tracer'):
                 h.prepare(Mock(), [], '', {}, 999, prepared_probes=(1, 2, 3, 4))
             factory.assert_not_called()
+
+    def test_host_remaining_time_shortens_original_bound_and_retains_actual_claim(self):
+        h = HostWriterHandoff.receive(self.pipe(supervised_grant()), self.directory, 20., clock=lambda: 1.)
+        self.assertEqual(2., h.deadline)
+        self.assertTrue(h.supervised)
+        self.assertEqual(supervised_grant(), (self.directory / 'tracer-writer-claim.txt').read_bytes())
+        self.assertEqual(len(supervised_grant()), h._writers.tracer.charged)
+
+    def test_host_remaining_time_never_extends_earlier_caller_deadline(self):
+        h = HostWriterHandoff.receive(self.pipe(supervised_grant()), self.directory, 1.5, clock=lambda: 1.)
+        self.assertEqual(1.5, h.deadline)
+
+    def test_supervised_grant_rejects_reset_ceiling_and_wrong_reservation(self):
+        for remaining, attempts, live in ((b'0', b'1', b'1'), (b'01', b'1', b'1'),
+                                         (b'897000000001', b'1', b'1'), (b'-1', b'1', b'1'),
+                                         (b'1', b'0', b'1'), (b'1', b'1', b'2')):
+            with self.subTest(remaining=remaining, attempts=attempts, live=live), self.assertRaises(ValueError):
+                self.receive(supervised_grant(remaining, attempts, live))
+        self.assertEqual([], list(self.directory.iterdir()))
+
+    def test_supervised_grant_requires_actual_fresh_once_debited_ledger(self):
+        from fixed_witness_replay_tasks import TaskLedger
+        h = self.receive(supervised_grant())
+        ledger = TaskLedger(h.pid)
+        ledger.reserve(0, 'coordinator')
+        with patch('fixed_witness_replay_supervisor.TracerSupervisor.for_host') as factory:
+            with self.assertRaisesRegex(ValueError, 'once-reserved'):
+                h.prepare(ledger, [], '', {}, 999, prepared_probes=(1, 2, 3, 4))
+            factory.assert_not_called()
+        self.assertTrue(h.claimed)
+
+    def test_supervised_grant_reaches_actual_source_output_reap(self):
+        h = self.receive(supervised_grant(b'20000000000'))
+        owner, _ = composed(h)
+        owner.run()
+        self.assertTrue(owner.drained)
+        self.assertEqual(h.deadline, owner.launch.deadline)
 
 
 if __name__ == '__main__':
