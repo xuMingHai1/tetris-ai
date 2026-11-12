@@ -31,7 +31,7 @@ class FixedWitnessChargedStdioTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "charged stdio tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 20 tests"), output);
+            assertTrue(output.contains("Ran 21 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {

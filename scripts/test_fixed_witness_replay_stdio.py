@@ -1,4 +1,5 @@
 """Real temporary byte pipes/files, fake-only fork/wait/ptrace/pidfd transports."""
+import io
 import os
 from pathlib import Path
 import tempfile
@@ -143,6 +144,23 @@ class ChargedStdioTest(unittest.TestCase):
             self.owner().run()
         self.assertEqual(4, self.writers.coordinator.charged)
         sink.write.assert_called_once_with(b'1234')
+
+    def test_failed_raw_write_is_not_retried_by_close(self):
+        # Exercise the actual sink type: BufferedWriter would retain this data
+        # and try the raw write again during close after its flush failed.
+        sink = self.output.sinks[0]
+        self.assertIsInstance(sink, io.FileIO)
+        os.write(self.output.writers[0], b'once-only')
+        attempted = []
+        def fail_target(data):
+            attempted.append(bytes(data))
+            raise OSError('raw write failure')
+        with patch.object(sink, 'write', fail_target):
+            with self.assertRaises(CoordinatorOutputError):
+                self.owner().run()
+        self.assertEqual([b'once-only'], attempted)
+        self.assertTrue(sink.closed)
+        self.assertEqual(9, self.writers.coordinator.charged)
 
     def test_output_claim_rejects_wrong_launch_before_fork(self):
         self.launch.stdio = (999, 888, 777)

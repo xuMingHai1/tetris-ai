@@ -33,13 +33,13 @@
 输出失败发生在消费wait之前，不会丢失EXEC/terminal receipt；溢出只保留可计费前缀，
 锁存后走原`SettledProcessCleanup`的pin/kill/实际reap。cleanup仍有界读取并丢弃后续
 字节，不重试失败sink、不跨writer借额度。全部birth真实reap后仍须在原deadline内
-排空EOF，再关闭FD/sink；EOF本身不结算task，close失败不能返回drained成功。
+排空EOF，再关闭FD/sink；sink采用无缓冲二进制文件，避免失败后close隐式重写；EOF本身不结算task，close失败不能返回drained成功。
 未配置output的既有直接构造路径保持原调用方负责stdio的契约。
 
-20项集成测试使用真实临时pipe/文件，但全部fork/wait/ptrace/pidfd/signal均为fake。
+21项集成测试使用真实临时pipe/文件，但全部fork/wait/ptrace/pidfd/signal均为fake。
 覆盖原双EXEC/精确ENTRY/typed wire/reap链、两个输出流、artifact争用、超额后清理、
 不丢wait、末尾排空、ECHILD、期限、I/O/close失败及一次性factory；Linux普通JUnit
-桥强制20项/零skip/30秒。它们不是原生能力或完整network clean-build验收。
+桥强制21项/零skip/30秒。它们不是原生能力或完整network clean-build验收。
 
 有限剩余清单：可信Java宿主的启动/终态观察与三个writer的跨进程互斥交接；协调器
 全部artifact/JVM保留额度与原来源/manifest冻结、完整filter/external no-injection checker；

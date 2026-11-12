@@ -55,7 +55,10 @@ class CoordinatorOutput:
         self.closed = False
         try:
             for name in ('stdout', 'stderr'):
-                self.sinks.append((Path(directory) / ('coordinator-' + name + '.log')).open('xb'))
+                # No buffered bytes may survive a failed write/flush and be
+                # retried implicitly when failure cleanup closes the sink.
+                self.sinks.append((Path(directory) / ('coordinator-' + name + '.log')).open(
+                    'xb', buffering=0))
                 read, write = os.pipe()
                 self.readers.append(read)
                 self.writers.append(write)
