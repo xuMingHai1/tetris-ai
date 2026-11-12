@@ -274,7 +274,7 @@ class CreationSyscallDispatcher:
             self._fail(str(error))
 
     def cleanup_creation_binding(self, pending):
-        """Validate an existing process reservation after failure, no new work.
+        """Validate an existing unbound creation after failure, no new work.
 
         Only the exclusive cleanup wait owner may use the returned wire to
         read GETEVENTMSG at an actual matching creation stop. Neither this
@@ -287,7 +287,7 @@ class CreationSyscallDispatcher:
         access = self._task(parent.birth, parent.tid)
         entry = self._sequence.get(parent.birth)
         number = {'fork': SYS_FORK, 'vfork': SYS_VFORK, 'clone': SYS_CLONE}.get(pending.kind)
-        if (pending.thread or number is None or not parent.alive
+        if (number is None or not parent.alive
                 or parent.tid != parent.tgid or access is None
                 or parent.birth not in self._pending or self._pending[parent.birth] is not None
                 or parent.birth in self._exec_events or parent.birth in self._exec_exits
@@ -298,7 +298,9 @@ class CreationSyscallDispatcher:
             entry.require_native(1)
             obligation = self.lifecycle._obligation(parent.birth)
             if (obligation.reservation != pending.reservation
-                    or obligation.suppress_enosys):
+                    or obligation.suppress_enosys
+                    or (pending.thread and (pending.kind != 'clone'
+                                            or obligation.expected_event != 'clone'))):
                 self._fail('cleanup creation obligation mismatch')
         except (PtraceBoundaryError, CreationLifecycleError) as error:
             self._fail(str(error))
@@ -403,15 +405,40 @@ class CreationSyscallDispatcher:
         birth bound and no unbound reservation, other tasks cannot enter exec
         without another syscall stop; cleanup never resumes them. This is
         accounting under the original sole tracer, not kernel authentication.
+        A bound legacy thread creation may await its parent's result: original
+        native obligation and child/group birth must still match, and only the
+        actual parent reap may close that pending obligation.
         """
         if not identities or len({item.group_birth for item in identities}) != 1:
             self._fail('one original cleanup thread group required')
         ledger = self.lifecycle.ledger
-        if (not any(item.tid == item.tgid for item in identities)
-                or any(item.group_birth == identities[0].group_birth
-                       for pending in ledger.cleanup_pending()
-                       for item in (ledger.identity(pending.parent),))):
+        if not any(item.tid == item.tgid for item in identities):
             self._fail('thread cleanup requires live leader and settled creations')
+        for pending in ledger.cleanup_pending():
+            parent = ledger.identity(pending.parent)
+            if parent.group_birth != identities[0].group_birth:
+                continue
+            # A bound thread has its own original birth, even while the parent
+            # is stopped before clone's result. Kill closes neither obligation;
+            # only actual parent reap settles it. Never admit an unknown child.
+            if (not pending.thread or pending.kind != 'clone'
+                    or pending.child != pending.reservation
+                    or parent not in identities):
+                self._fail('thread cleanup requires bound original thread creation')
+            child = ledger.identity(pending.child)
+            if (child.group_birth != parent.group_birth
+                    or (child.alive and child not in identities)
+                    or (not child.alive and child.terminal != 'reaped')):
+                self._fail('thread cleanup child birth mismatch')
+            entry = self._sequence.get(parent.birth)
+            obligation = self.lifecycle._obligation(parent.birth)
+            if (type(entry) is not SyscallInfo or entry.operation != 1
+                    or entry.number != SYS_CLONE
+                    or parent.birth not in self._pending
+                    or self._pending[parent.birth] is not None
+                    or obligation.reservation != pending.reservation
+                    or obligation.expected_event != 'clone' or obligation.suppress_enosys):
+                self._fail('thread cleanup requires original native clone obligation')
         for item in identities:
             access = self._task(item.birth, item.tid)
             entry = self._sequence.get(item.birth)

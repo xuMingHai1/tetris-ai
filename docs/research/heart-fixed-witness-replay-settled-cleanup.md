@@ -287,7 +287,7 @@ terminal隔离和pin失败。Linux普通JUnit bridge要求30秒内20项/零skip�
 
 有限剩余清单：
 1. 已消费且来源完整的EXEC记录可在失败后接通迁移到kill/reap；不重做稳定线程组路径。
-2. 尚未消费的in-flight EXEC、leader先退出、未绑定thread creation、复杂job-control/
+2. 尚未消费的in-flight EXEC、leader先退出、已有线程组内未绑定thread creation、复杂job-control/
    ptrace-event及pin/binding失败的完整整树清理仍缺；不推断ECHILD、不扩大准入。
 3. trusted Java host/source freeze、filter/external no-injection checker、同根互斥writer
    transport及完整frozen fixture/task reservation/EXITKILL负例仍须接通。
@@ -295,3 +295,31 @@ terminal隔离和pin失败。Linux普通JUnit bridge要求30秒内20项/零skip�
 
 整体里程碑仍未完成，未执行native/network clean-build/历史输入，生产API、冻结协议、
 guard、预算和运行方式均未变；README/AGENTS无需同步。
+
+
+## 本次新增修改：原leader在途线程创建到整组清理
+
+`TracerSupervisor.run`失败后的既有`SettledProcessCleanup.run`，现在可从原leader的
+合法native legacy `CLONE_THREAD`预留，消费准确的`CLONE`事件（或接管原
+`BoundedWaitOwner`已消费的同一停点），调用既有`cleanup_child_event`绑定原child birth。
+原成功GETEVENTMSG只读一次；不确定读取、缺原native obligation或错误事件都停止。
+`CleanupReaper._inventory`和`CreationSyscallDispatcher.cleanup_stable_group`接纳已绑定
+但尚未返回clone result的线程，核对原reservation、entry、wire及group birth。
+之后仍由原leader一次pidfd pin/SIGKILL，逐birth真实reap；child先reap不关闭parent
+pending，parent实际reap才关闭它。失败、deadline、累计task/stop额度均保留，无resume、
+新task、新预算或ECHILD推断。pin/wire失败保留已有身份与义务。
+
+范围限定为绑定前库存中没有现有多birth线程组、由原leader发起的legacy线程创建；
+已有多线程组内另一次未绑定创建、非leader创建、unconsumed EXEC/de_thread、leader提前
+退出及复杂job-control/ptrace事件仍拒绝，不因本修改放宽旧身份guard。
+
+新增8项inflight fake-only回归，加1项实际supervisor组合回归，复用现有文件和Linux
+JUnit bridge；全部fork/wait/ptrace/pidfd/signal均注入，未执行native探针、network
+clean-build或历史22步。修复前存在的手工账本thread反例仍拒绝，不能只凭ledger绑定
+通过。组件合成验证不等于原生整体验收或研究结果，本次无用户可见游戏功能。
+
+有限剩余集成清单继续是：可信Java host原来源/manifest freeze与完整filter/external
+no-injection checker；三个互斥writer的同根10MiB实际写前计费；上述未支持复杂清理；
+完整冻结fixtures/task预留表及EXITKILL负例；整体最终revision独立Review、适用CI、
+compatibility/inputhash与唯一登记。原170A/174明确接受、预算及执行停止门不变。
+本次仅test-only调用路径变化，无生产API、依赖或运行方式变化，README/AGENTS无需同步。
