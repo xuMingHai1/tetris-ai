@@ -418,3 +418,24 @@ source/toolchain/manifest 与 task/deadline 监督；所有 artifact/JVM 互斥�
 本次不改变原 guard、冻结协议、预算或生产代码；170A/174 接受及执行停止门保持。
 整体里程碑、native/network clean-build/历史验收尚未完成，无新增研究结果或用户可见
 功能；无架构或正常运行方式变化，README/AGENTS 无需同步。
+
+## 本次新增修改：后续组 pidfd 获取失败后的已绑定组清理
+
+本次新增修改接通 `SettledProcessCleanup.run` 的后续 `pidfd_open` 抛出
+`OSError` 路径：前面已成功保留的 descriptor 不再直接丢弃。先重新校验完整原
+birth/wire inventory，再只对这些已绑定组各发一次 pidfd SIGKILL，并由原
+`CleanupReaper` 对所选完整组的每个 birth 做实际 targeted terminal wait。
+未选组的原 birth 一并冻结并逐轮复核；不等待、猜测或释放其 live credit。
+不能拆分线程组、重开失败 PID、重试不确定 signal 或重置原 deadline/stop budget。
+
+原获取异常始终重新抛出；部分实际 reap 单独保留，恢复过程错误与 descriptor
+close 错误分别保留，不替换原异常。supervisor 继续同时保留原执行失败及 pin
+失败，`drained` 为 false。已绑定组得到清理不代表整树清理完成。
+invalid/duplicate descriptor、post-pin inventory 漂移与完整 signal 阶段失败仍走
+原保守路径，未在本次扩展恢复范围。13项新 fake-only 回归包含 supervisor 自动
+清理组合、完整线程组、deadline、共享stop计数、ECHILD及错误目标 terminal
+quarantine；Linux独立JUnit bridge要求13项全部运行且零skip。
+
+有限剩余清单仍为上述实际可信宿主、all-artifact/JVM writer、filter/external
+no-injection checker、未覆盖复杂清理及完整冻结fixtures/task表/EXITKILL负例，
+再经整体最终Review/CI和原执行前门。无原生/network clean-build/历史输入执行。
