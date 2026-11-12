@@ -149,6 +149,8 @@ class CleanupReaper:
             receipt = owner.last_wait
             if type(receipt) is not _OwnedWait:
                 raise CleanupReapError('original retained exec wait required')
+            if receipt.completed:
+                return
             status = decode_wait_status(receipt.raw)
             if status.kind != 'ptrace-event' or status.event != 'EXEC':
                 return
@@ -301,6 +303,8 @@ class CleanupReaper:
         receipt = owner.last_wait
         if type(receipt) is not _OwnedWait:
             raise CleanupReapError('unmatched retained wait owner or birth')
+        if receipt.completed:
+            return None
         if receipt.parent.birth != parent.birth:
             return None
         if (owner.dispatcher is not post or post.launch is not self.launch

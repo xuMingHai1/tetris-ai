@@ -62,6 +62,7 @@ class _OwnedWait:
     facts: object = None
     resume_attempted: bool = False
     exec_installed: bool = False
+    completed: bool = False
 
 
 class BoundedWaitOwner:
@@ -245,6 +246,10 @@ class BoundedWaitOwner:
             self.last_wait = _OwnedWait(parent, pending, waited, status)
             facts = self.dispatcher._accept_owned_wait(self, self.last_wait)
             self._retain_reap(parent, waited, status, facts, exec_identity, wire)
+            # Only a fully successful dispatch/resume and reap observation retires
+            # this receipt. A later pre-wait failure must poll a new event; an
+            # uncertain resume or partial observation retains the original stop.
+            self.last_wait.completed = True
             self._last_birth = ticket
             return 'event'
         self._check()
