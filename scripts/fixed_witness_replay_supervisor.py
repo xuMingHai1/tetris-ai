@@ -1,4 +1,4 @@
-"""Compose the existing tracer lifecycle; no CLI, source freeze or acceptance run.
+"""Compose the existing tracer lifecycle; no CLI or acceptance run.
 
 The trusted host supplies the original deadline and reserved tracer slot. The
 for_host factory enforces coordinator pipe retention and tracer lifecycle
@@ -14,6 +14,7 @@ from fixed_witness_replay_initial_wait import InitialWaitOwner
 from fixed_witness_replay_launch import CoordinatorLaunch
 from fixed_witness_replay_settled_cleanup import SettledProcessCleanup
 from fixed_witness_replay_stdio import CoordinatorOutput, CoordinatorOutputError
+from fixed_witness_replay_probe_sources import PreparedProbeSources
 from fixed_witness_replay_tracer_evidence import TracerEvidence
 from fixed_witness_replay_wait_owner import BoundedWaitOwner
 
@@ -33,7 +34,7 @@ class TracerSupervisor:
     original exception. Unsupported thread/event inventories remain incomplete.
     """
 
-    def __init__(self, launch, *, exec_observations=None, output=None, evidence=None, waitpid=os.waitpid,
+    def __init__(self, launch, *, exec_observations=None, output=None, evidence=None, sources=None, waitpid=os.waitpid,
                  sleep=time.sleep, open_pidfd=None, send_signal=None, close=os.close):
         if (type(launch) is not CoordinatorLaunch or launch.attempted
                 or launch.stopped is not None
@@ -48,6 +49,10 @@ class TracerSupervisor:
             raise SupervisorError('fixed wait and descriptor transports required')
         if any(fn is not None and not callable(fn) for fn in (open_pidfd, send_signal)):
             raise SupervisorError('fixed pidfd transports required')
+        if sources is not None:
+            if (type(sources) is not PreparedProbeSources or sources.owner is not None
+                    or sources.failure is not None or exec_observations is not sources.observations):
+                raise SupervisorError('original unclaimed prepared source selection required')
         if evidence is not None:
             if type(evidence) is not TracerEvidence or evidence.owner is not None:
                 raise SupervisorError('original unclaimed tracer evidence required')
@@ -58,7 +63,10 @@ class TracerSupervisor:
         launch._supervisor_claimed = True
         if evidence is not None:
             evidence.claim(self)
+        if sources is not None:
+            sources.claim(self)
         self.launch, self.exec_observations = launch, exec_observations
+        self.sources, self.source_error = sources, None
         self.output = output
         self.evidence, self.evidence_error = evidence, None
         self.waitpid, self.sleep = waitpid, sleep
@@ -70,7 +78,7 @@ class TracerSupervisor:
 
     @classmethod
     def for_host(cls, ledger, command, cwd, environment, stdin, directory, deadline,
-                 writers, *, exec_observations=None):
+                 writers, *, exec_observations=None, prepared_probes=None):
         """Prepare prefix, native launch and enforced coordinator output pipes.
 
         This does not run the launch or satisfy the original acceptance guard.
@@ -84,7 +92,15 @@ class TracerSupervisor:
         try:
             launch = CoordinatorLaunch.for_host(
                 ledger, command, cwd, environment, (stdin, *output.writers), deadline)
-            return cls(launch, exec_observations=exec_observations, output=output, evidence=evidence)
+            sources = None
+            if prepared_probes is not None:
+                if exec_observations is not None or type(prepared_probes) is not tuple or len(prepared_probes) != 4:
+                    raise SupervisorError('one original prepared probe configuration required')
+                root, receipt, births, networks = prepared_probes
+                sources = PreparedProbeSources(root, receipt, births, networks, launch._owner_and_deadline)
+                exec_observations = sources.observations
+            return cls(launch, exec_observations=exec_observations, output=output, evidence=evidence,
+                       sources=sources)
         except BaseException:
             output.close()
             raise
@@ -122,19 +138,40 @@ class TracerSupervisor:
         try:
             return self._run()
         finally:
-            if self.evidence is not None:
-                try:
-                    self.evidence.finish(self)
-                except BaseException as error:
-                    self.evidence_error = error
-                    self.drained = False
-                    if self.failure is None:
-                        self.failure = SupervisorError('tracer evidence failed')
-                        if self.launch.stopped is None:
-                            self.launch.stopped = str(self.failure)
-                        if self.exec_observations is not None:
-                            self.exec_observations.fail(self.launch.stopped)
-                        raise self.failure from error
+            # Revoke a failed source selection BEFORE writing the lifecycle
+            # observation. Evidence still runs when this check raises.
+            try:
+                self._finish_sources()
+            finally:
+                self._finish_evidence()
+
+    def _finish_sources(self):
+        if self.sources is not None:
+            try:
+                self.sources.revalidate()
+            except BaseException as error:
+                self.source_error = error
+                self.drained = False
+                if self.failure is None:
+                    self.failure = SupervisorError('prepared source continuity failed')
+                    if self.launch.stopped is None:
+                        self.launch.stopped = str(self.failure)
+                    raise self.failure from error
+
+    def _finish_evidence(self):
+        if self.evidence is not None:
+            try:
+                self.evidence.finish(self)
+            except BaseException as error:
+                self.evidence_error = error
+                self.drained = False
+                if self.failure is None:
+                    self.failure = SupervisorError('tracer evidence failed')
+                    if self.launch.stopped is None:
+                        self.launch.stopped = str(self.failure)
+                    if self.exec_observations is not None:
+                        self.exec_observations.fail(self.launch.stopped)
+                    raise self.failure from error
 
     def _run(self):
         """Attempt once; retain every intermediate owner for failure evidence.
@@ -146,6 +183,8 @@ class TracerSupervisor:
         """
         try:
             try:
+                if self.sources is not None:
+                    self.sources.revalidate()
                 if self.output is not None:
                     self.output.require_launchable()
                 self.launch.launch()
