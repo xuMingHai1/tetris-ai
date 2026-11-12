@@ -422,10 +422,11 @@ class CoordinatorModesTest(unittest.TestCase):
 
 
 def ordinary_jvm_fixture(spec):
-    """Actual inherited grant -> actual verify-only JVM; build receipt mocked.
+    """Actual inherited grant -> one selected ordinary JVM; build receipt mocked.
 
     Ordinary CI subprocesses only. No native tracer/ptrace/fork probe, clean
     network build, historical fixture, or whole-source provenance is claimed.
+    Verify/report do not execute actions; execution uses one artificial placement.
     """
     import subprocess
     root = Path(spec['root']).resolve()

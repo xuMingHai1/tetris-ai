@@ -107,7 +107,11 @@ class ExecutionTest(unittest.TestCase):
 
 
 def artificial_execution_jvm(spec, coordinator=None):
-    """Cases 7 and 9, two direct JVMs, one actual placement in the second only."""
+    """Standalone cases 7/9 use two JVMs, one placement in the second only.
+
+    A received coordinator instead runs only case 9 through its sole selected
+    execution stage, with all request copies and artifacts on that allowance.
+    """
     from fixed_witness_replay_identity import classpath_identity, sha256
     from fixed_witness_replay_environment import controlled_environment
     root, java, out = (Path(spec[key]).resolve() for key in ('root', 'java', 'out'))
