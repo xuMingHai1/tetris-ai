@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/** Injected partial pin failure through the original supervisor; no native probes. */
+/** Injected partial pin/signal failures through the original supervisor; no native probes. */
 @EnabledOnOs(OS.LINUX)
 class FixedWitnessPartialPinTest {
     @TempDir Path directory;
@@ -31,7 +31,7 @@ class FixedWitnessPartialPinTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "synthetic cleanup tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 13 tests"), output);
+            assertTrue(output.contains("Ran 25 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {

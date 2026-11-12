@@ -19,6 +19,8 @@ class SettledProcessCleanup:
 
     If a later open raises OSError, only earlier verified complete groups may
     be killed/reaped; the operation still fails with the original open error.
+    If signalling fails, only groups whose earlier SIGKILL returned success
+    may be reaped. The uncertain signal is never retried or counted as sent.
 
     The exclusive original tracer must retain wait ownership throughout. With
     known creations bound first, each live original TGID and every thread's
@@ -64,6 +66,7 @@ class SettledProcessCleanup:
         self.close_errors = []
         self.partial_error = None
         self.partial_reaped = ()
+        self.signal_error = None
 
     def _drain_acquired_groups(self, identities):
         """After a later open failed, use only already verified retained pins.
@@ -76,16 +79,39 @@ class SettledProcessCleanup:
         if not self.pinned:
             return
         self._same_inventory(identities)
-        selected = tuple(item for item in identities
-                         if item.group_birth in {leader.group_birth for leader, _ in self.pinned})
-        for item, fd in self.pinned:
-            self._same_inventory(identities)
-            if self.send_signal(fd, SIGKILL, None, 0) is not None:
-                raise CleanupReapError('invalid pidfd signal transport result')
-            self.signalled.append(item.birth)
-            self._same_inventory(identities)
+        self._signal_groups(identities)
+        self._drain_signalled_groups(identities)
+
+    def _drain_signalled_groups(self, identities):
+        """Wait only complete groups with a confirmed send; never send again."""
+        if not self.signalled:
+            return
+        self._same_inventory(identities)
+        selected = tuple(item for item in identities if item.group_birth in self.signalled)
         self.reaper._after_pidfd_kill(selected, partial=True)
         self.partial_reaped = self.reaper.run()
+
+    def _signal_groups(self, identities):
+        """A failed send preserves its exception and drains the confirmed prefix.
+
+        Even EINTR/ESRCH or an invalid return leaves that group's delivery
+        uncertain. Later descriptors are not signalled; every unselected birth
+        retains its live credit and is excluded from targeted terminal waits.
+        """
+        try:
+            for item, fd in self.pinned:
+                self._same_inventory(identities)
+                if self.send_signal(fd, SIGKILL, None, 0) is not None:
+                    raise CleanupReapError('invalid pidfd signal transport result')
+                self.signalled.append(item.birth)
+                self._same_inventory(identities)
+        except BaseException as failure:
+            self.signal_error = failure
+            try:
+                self._drain_signalled_groups(identities)
+            except BaseException as error:
+                self.partial_error = error
+            raise
 
     def _same_inventory(self, identities):
         self.reaper._check()
@@ -138,7 +164,8 @@ class SettledProcessCleanup:
                     try:
                         self._drain_acquired_groups(identities)
                     except BaseException as error:
-                        self.partial_error = error
+                        if self.partial_error is None:
+                            self.partial_error = error
                     raise
                 if type(fd) is not int or not 0 <= fd < 2**31:
                     raise CleanupReapError('invalid pidfd transport result')
@@ -147,13 +174,7 @@ class SettledProcessCleanup:
                 # Retain ownership before any fallible post-acquisition check.
                 self.pinned.append((item, fd))
                 self._same_inventory(identities)
-            for item, fd in self.pinned:
-                self._same_inventory(identities)
-                result = self.send_signal(fd, SIGKILL, None, 0)
-                if result is not None:
-                    raise CleanupReapError('invalid pidfd signal transport result')
-                self.signalled.append(item.birth)
-                self._same_inventory(identities)
+            self._signal_groups(identities)
             self.reaper._after_pidfd_kill(identities)
             result = self.reaper.run()
             failed = False

@@ -173,5 +173,191 @@ class PartialPinTest(unittest.TestCase):
         self.f.transport.wait.assert_not_called()
 
 
+class PartialSignalTest(unittest.TestCase):
+    def setUp(self):
+        self.f = settled.SettledCleanupTest()
+        self.f.setUp()
+        self.f.tree()
+        self.f.fixture.stopped()
+        self.original = InterruptedError('second signal delivery uncertain')
+        self.f.transport.send.side_effect = [None, self.original]
+
+    def attempt(self, failure=None):
+        owner = self.f.owner()
+        with self.assertRaises(BaseException) as raised:
+            owner.run()
+        self.assertIs(raised.exception, failure or self.original)
+        self.assertIsNotNone(owner.stopped)
+        self.assertEqual([1], owner.signalled)
+        self.assertEqual(2, self.f.transport.send.call_count)
+        self.assertTrue(self.f.ledger.identity(2).alive)
+        self.assertEqual([call(71), call(70)], self.f.transport.close.call_args_list)
+        with self.assertRaises(CleanupReapError):
+            owner.run()
+        return owner
+
+    def test_confirmed_group_reaped_without_retrying_uncertain_send(self):
+        before = self.f.ledger.totals
+        owner = self.attempt()
+        self.assertIs(owner.signal_error, self.original)
+        self.assertIsNone(owner.partial_error)
+        self.assertEqual([(1, 11)], [(b, tid) for b, tid, _ in owner.partial_reaped])
+        self.f.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
+        after = self.f.ledger.totals
+        self.assertEqual((before.attempts, before.wait_stops, before.stopped),
+                         (after.attempts, after.wait_stops, after.stopped))
+        self.assertEqual(before.live - 1, after.live)
+        self.assertEqual([], self.f.fixture.fixture.wire.mock_calls)
+
+    def test_invalid_send_return_does_not_mark_group_confirmed(self):
+        self.f.transport.send.side_effect = [None, 0]
+        owner = self.f.owner()
+        with self.assertRaisesRegex(CleanupReapError, 'invalid pidfd signal') as raised:
+            owner.run()
+        self.assertIs(owner.signal_error, raised.exception)
+        self.assertEqual([1], owner.signalled)
+        self.f.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
+        self.assertTrue(self.f.ledger.identity(2).alive)
+
+    def three_groups(self):
+        # Build the complete inventory before latching the original failure.
+        self.f = settled.SettledCleanupTest()
+        self.f.setUp()
+        self.f.tree()
+        self.f.launch.dispatcher._factory = Mock(return_value=Mock())
+        self.f.fixture.fixture.wire.syscall_info.return_value = decode_syscall_info(*entry(57))
+        self.f.fixture.fixture.owner.accept(11, 0x857f)
+        self.f.fixture.fixture.wire.event_tid.return_value = 13
+        self.f.fixture.fixture.owner.accept(11, 0x1057f)
+        self.f.fixture.fixture.wire.syscall_info.return_value = decode_syscall_info(*exit_info(13, 0))
+        self.f.fixture.fixture.owner.accept(11, 0x857f)
+        self.f.fixture.stopped()
+        self.f.transport.open.side_effect = [70, 71, 72]
+        self.f.transport.send.side_effect = [None, self.original]
+
+    def test_later_groups_not_signalled_or_waited_after_uncertain_send(self):
+        self.three_groups()
+        owner = self.f.owner()
+        with self.assertRaises(InterruptedError):
+            owner.run()
+        self.assertEqual([call(70, 9, None, 0), call(71, 9, None, 0)],
+                         self.f.transport.send.call_args_list)
+        self.f.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
+        self.assertTrue(self.f.ledger.identity(3).alive)
+        self.assertEqual(3, self.f.ledger.totals.live)
+        self.assertEqual([call(72), call(71), call(70)], self.f.transport.close.call_args_list)
+
+    def test_reap_failure_retained_separately_from_signal_failure(self):
+        error = ChildProcessError('no authenticated terminal wait')
+        self.f.transport.wait.side_effect = error
+        owner = self.attempt()
+        self.assertIs(owner.partial_error, error)
+        self.assertIs(owner.signal_error, self.original)
+        self.assertEqual((), owner.partial_reaped)
+        self.assertTrue(self.f.ledger.identity(1).alive)
+
+    def test_deadline_at_failed_signal_prevents_all_reap(self):
+        def send(fd, *_):
+            if fd == 71:
+                self.f.fixture.fixture.clock.return_value = 100.0
+                raise self.original
+        self.f.transport.send.side_effect = send
+        owner = self.attempt()
+        self.assertIsInstance(owner.partial_error, CleanupReapError)
+        self.f.transport.wait.assert_not_called()
+        self.assertEqual(3, self.f.ledger.totals.live)
+
+    def test_inventory_drift_at_failed_signal_prevents_reap(self):
+        def send(fd, *_):
+            if fd == 71:
+                self.f.ledger._tasks[2].tid = 99
+                raise self.original
+        self.f.transport.send.side_effect = send
+        owner = self.attempt()
+        self.assertIsNotNone(owner.partial_error)
+        self.f.transport.wait.assert_not_called()
+
+    def test_uncertain_group_terminal_is_quarantined_not_reaped(self):
+        self.f.transport.wait.return_value = (12, 9)
+        owner = self.attempt()
+        self.assertIsInstance(owner.partial_error, CleanupReapError)
+        self.assertIn(12, self.f.launch.unsettled_terminal_waits)
+        self.assertEqual(3, self.f.ledger.totals.live)
+
+    def test_shared_stop_budget_exhaustion_preserves_signal_failure(self):
+        self.f.ledger._event_limit = self.f.ledger.totals.wait_stops + 1
+        self.f.transport.wait.return_value = (11, 0x137f)
+        before = self.f.ledger.totals.wait_stops
+        owner = self.attempt()
+        self.assertIsNotNone(owner.partial_error)
+        self.assertEqual(before + 1, self.f.ledger.totals.wait_stops)
+        self.assertEqual(3, self.f.ledger.totals.live)
+
+    def test_full_confirmed_thread_group_reaps_each_member(self):
+        f = threaded.ThreadCleanupTest()
+        f.setUp()
+        f.launch.dispatcher._factory = Mock(return_value=Mock())
+        f.f.syscall(entry(57))
+        f.f.wire.event_tid.return_value = 13
+        f.f.owner.accept(11, 0x1057f)
+        f.f.syscall(exit_info(13, 0))
+        f.stop()
+        f.transport.send.side_effect = [None, self.original]
+        owner = f.owner()
+        with self.assertRaises(InterruptedError):
+            owner.run()
+        self.assertEqual([(1, 11), (2, 12)], [(b, tid) for b, tid, _ in owner.partial_reaped])
+        self.assertTrue(f.ledger.identity(3).alive)
+        self.assertEqual(2, f.ledger.totals.live)
+
+    def test_pin_and_signal_and_reap_failures_all_retained(self):
+        # Three independent groups: later open fails, first send succeeds,
+        # second send is uncertain, and the confirmed group's reap fails.
+        self.three_groups()
+        pin_error = OSError('third pin failure')
+        reap_error = ChildProcessError('confirmed group reap failure')
+        self.f.transport.open.side_effect = [70, 71, pin_error]
+        self.f.transport.wait.side_effect = reap_error
+        owner = self.f.owner()
+        with self.assertRaises(OSError) as raised:
+            owner.run()
+        self.assertIs(raised.exception, pin_error)
+        self.assertIs(owner.partial_error, reap_error)
+        self.assertIs(owner.signal_error, self.original)
+        self.f.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
+        self.assertEqual([1], owner.signalled)
+        self.assertEqual(4, self.f.ledger.totals.live)
+
+    def test_close_failure_does_not_replace_signal_failure_or_reaps(self):
+        error = OSError('close failed')
+        self.f.transport.close.side_effect = error
+        owner = self.attempt()
+        self.assertEqual(2, len(owner.close_errors))
+        self.assertIs(owner.close_errors[0][2], error)
+        self.assertEqual(1, len(owner.partial_reaped))
+
+    def test_supervisor_retains_normal_signal_and_partial_reap_state(self):
+        f = supervisor.SupervisorTest()
+        f.setUp()
+        normal = OSError('normal wait failed')
+        f.f.access.syscall_info.side_effect = [decode_syscall_info(*entry(57)),
+                                              decode_syscall_info(*exit_info(12, 0))]
+        f.f.access.event_tid.return_value = 12
+        f.f.factory.return_value.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
+        f.io.wait.side_effect = [(11, 0x137f), (11, 0x857f), (11, 0x1057f),
+                                 (12, 0x137f), (11, 0x857f), normal, (11, 9)]
+        f.io.send.side_effect = [None, self.original]
+        f.io.open.side_effect = [70, 71]
+        owner = f.owner()
+        with self.assertRaises(OSError) as raised:
+            owner.run()
+        self.assertIs(raised.exception, normal)
+        self.assertIs(owner.failure, normal)
+        self.assertIs(owner.cleanup_error, self.original)
+        self.assertFalse(owner.drained)
+        self.assertEqual([(1, 11)], [(b, tid) for b, tid, _ in owner.cleanup.partial_reaped])
+        self.assertEqual(2, f.ledger.totals.live)
+
+
 if __name__ == '__main__':
     unittest.main()
