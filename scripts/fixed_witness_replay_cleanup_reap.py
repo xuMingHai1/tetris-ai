@@ -4,13 +4,15 @@ This supports process births and pinned stable thread groups with no unknown
 children, including event-bound process creations awaiting parent results.
 Unbound legacy thread events may join existing bound non-EXEC sibling groups
 through their original leader and native obligation before pinning. A completed original
-nonleader exec ENTRY may bind its pending TGID EXEC before any pin; an original
+nonleader exec ENTRY may bind its pending TGID EXEC or failed native EXIT
+before any pin; an original
 failed wait owner's consumed EXEC can also be adopted.
 A retained native failed nonleader exec EXIT may settle its original ENTRY
 without resume before the unchanged group is pinned and killed.
 Stops are never resumed. Only known births successfully pidfd-SIGKILLed by
 the composing cleanup owner may drain queued signal/syscall stops.
 """
+import errno
 import math
 import os
 import time
@@ -58,6 +60,7 @@ class CleanupReaper:
         self.bound_exec = None
         self.inflight_exec_started = False
         self.last_exec_event = None
+        self.last_inflight_exit = None
         self.failed_exec_exit_started = False
         self.adopted_failed_exec_exit = None
         self._check()
@@ -251,9 +254,10 @@ class CleanupReaper:
     def bind_inflight_exec(self):
         """Finish the original owner's last fully resumed nonleader exec ENTRY.
 
-        Poll only its still-bound TGID for the exact EXEC(old TID) event. Never
-        wait on the disappearing old TID, infer ECHILD, resume, retry an event
-        read, reset a failure/deadline or mint an EXEC observation/generation.
+        Poll the original TGID first for EXEC(old TID), then the executor for
+        a failed native EXIT. ECHILD on the old executor proves nothing; keep
+        polling the TGID within the original deadline. Never resume, retry a
+        read, reset failure/deadline or mint an EXEC observation/generation.
         Other unmatched entries remain unsupported by the existing inventory.
         """
         if self.inflight_exec_started or self.started or self._killed_births:
@@ -287,6 +291,7 @@ class CleanupReaper:
             dispatcher = self.launch.dispatcher
             leader, access = dispatcher.cleanup_inflight_exec_binding(executor, entry)
             receipt.adopted = True
+            target = leader
             while True:
                 self._check()
                 if dispatcher.cleanup_inflight_exec_binding(executor, entry) != (leader, access):
@@ -295,10 +300,18 @@ class CleanupReaper:
                        for item in (leader, executor)):
                     raise CleanupReapError('in-flight exec terminal identity quarantined')
                 try:
-                    result = self.waitpid(leader.tid, WAIT_OPTIONS)
+                    result = self.waitpid(target.tid, WAIT_OPTIONS)
                 except InterruptedError:
                     continue
-                self.last_wait = (leader.birth, result)
+                except ChildProcessError as error:
+                    if target != executor or error.errno != errno.ECHILD:
+                        raise
+                    # The old executor may disappear during de_thread. This
+                    # is not migration or reap; idle before retrying the TGID.
+                    target = leader
+                    self._inflight_idle()
+                    continue
+                self.last_wait = (target.birth, result)
                 if type(result) is not tuple or len(result) != 2:
                     raise CleanupReapError('malformed in-flight exec wait')
                 tid, raw = result
@@ -309,15 +322,30 @@ class CleanupReaper:
                 if type(tid) is not int or type(raw) is not int:
                     raise CleanupReapError('invalid in-flight exec wait tuple')
                 if tid == 0 and raw == 0:
-                    remaining = self.launch.deadline - self.launch.clock()
-                    if not math.isfinite(remaining) or remaining <= 0:
-                        raise CleanupReapError('original cleanup deadline exhausted')
-                    self.sleep(min(0.01, remaining))
+                    if target == leader:
+                        target = executor
+                    else:
+                        target = leader
+                        self._inflight_idle()
                     continue
-                if (tid != leader.tid or self.ledger.identity(leader.birth) != leader
+                if (tid != target.tid or self.ledger.identity(leader.birth) != leader
                         or self.ledger.identity(executor.birth) != executor):
                     raise CleanupReapError('in-flight exec wait birth mismatch')
                 status = decode_wait_status(raw)
+                if target == executor:
+                    if status.kind != 'syscall-stop':
+                        raise CleanupReapError('matching in-flight failed exec EXIT required')
+                    # Retain before the sole fallible read; no normal reader,
+                    # extra debit or resume, even if validation later fails.
+                    self.last_inflight_exit = (executor, raw, None)
+                    executor_access = dispatcher._task(executor.birth, executor.tid)
+                    info = executor_access.syscall_info(tid)
+                    self.last_inflight_exit = (executor, raw, info)
+                    self._check()
+                    dispatcher.cleanup_inflight_exec_binding(executor, entry)
+                    dispatcher.cleanup_failed_exec_exit(executor, info)
+                    self._check()
+                    return
                 if status.kind != 'ptrace-event' or status.event != 'EXEC':
                     raise CleanupReapError('matching in-flight EXEC event required')
                 # Keep consumed raw/event facts even if read or subsequent
@@ -335,6 +363,14 @@ class CleanupReaper:
         except BaseException:
             self.stopped = 'in-flight cleanup exec incomplete; preserve identities'
             raise
+
+    def _inflight_idle(self):
+        """Bound an idle original leader/executor round by the same deadline."""
+        self._check()
+        remaining = self.launch.deadline - self.launch.clock()
+        if not math.isfinite(remaining) or remaining <= 0:
+            raise CleanupReapError('original cleanup deadline exhausted')
+        self.sleep(min(0.01, remaining))
 
     def bind_creation_events(self):
         """Consume in-flight creation events before pidfd inventory acquisition.

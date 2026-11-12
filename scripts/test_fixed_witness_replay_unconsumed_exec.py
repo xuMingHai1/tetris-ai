@@ -1,5 +1,7 @@
 """Unconsumed TGID EXEC to original kill/reap; all kernel transports injected."""
 import ctypes
+import errno
+from dataclasses import replace
 import struct
 import unittest
 from unittest.mock import Mock, call
@@ -61,13 +63,14 @@ class UnconsumedExecTest(unittest.TestCase):
         self.f.owner().run()
         self.assertEqual('reaped', self.ledger.identity(2).terminal)
 
-    def test_idle_and_interrupted_wait_only_poll_original_tgid(self):
-        self.f.transport.wait.side_effect = [InterruptedError(), (0, 0),
+    def test_idle_and_interrupted_wait_poll_only_original_pair(self):
+        self.f.transport.wait.side_effect = [InterruptedError(), (0, 0), (0, 0),
                                              (11, 0x4057f), (11, 9)]
         owner = self.f.owner()
         owner.run()
-        self.assertEqual([call(11, WAIT_OPTIONS)] * 4,
-                         self.f.transport.wait.call_args_list)
+        self.assertEqual([call(11, WAIT_OPTIONS), call(11, WAIT_OPTIONS),
+                          call(12, WAIT_OPTIONS), call(11, WAIT_OPTIONS),
+                          call(11, WAIT_OPTIONS)], self.f.transport.wait.call_args_list)
         owner.reaper.sleep.assert_called_once_with(0.01)
 
     def test_wrong_old_tid_never_installs_or_pins(self):
@@ -161,12 +164,13 @@ class UnconsumedExecTest(unittest.TestCase):
         self.assert_no_pin()
 
     def test_idle_wait_keeps_original_deadline(self):
-        self.f.transport.wait.side_effect = [(0, 0)]
+        self.f.transport.wait.side_effect = [(0, 0), (0, 0)]
         owner = self.f.owner()
         owner.reaper.sleep.side_effect = lambda _: setattr(self.f.f.clock, 'return_value', 100.0)
         with self.assertRaisesRegex(CleanupReapError, 'deadline'):
             owner.run()
-        self.f.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
+        self.assertEqual([call(11, WAIT_OPTIONS), call(12, WAIT_OPTIONS)],
+                         self.f.transport.wait.call_args_list)
         self.assert_no_pin()
 
     def test_echild_is_not_migration_or_reap(self):
@@ -260,7 +264,172 @@ class UnconsumedExecTest(unittest.TestCase):
         self.f.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
 
 
+    def pending_failed_exit(self, result=-2, is_error=1):
+        self.f.child.syscall_info.return_value = decode_syscall_info(*exit_info(result, is_error))
+        self.f.transport.wait.side_effect = [(0, 0), (12, 0x857f), (11, 9), (12, 9)]
+
+    def test_unconsumed_failed_exit_then_original_group_kill_and_both_reaps(self):
+        self.pending_failed_exit()
+        before, reason = self.ledger.totals, self.launch.stopped
+        owner = self.f.owner()
+        result = owner.run()
+        self.assertEqual([(1, 11), (2, 12)], [(b, tid) for b, tid, _ in result])
+        self.assertEqual([call.wait(11, WAIT_OPTIONS), call.wait(12, WAIT_OPTIONS),
+                          call.open(11, 0), call.send(70, 9, None, 0),
+                          call.wait(11, WAIT_OPTIONS), call.wait(12, WAIT_OPTIONS),
+                          call.close(70)], self.f.transport.mock_calls)
+        self.assertEqual([call.syscall_info(12)], self.f.child.mock_calls)
+        self.assertEqual([], self.f.f.wire.mock_calls)
+        self.assertEqual((before.attempts, before.wait_stops + 1, 1),
+                         (self.ledger.totals.attempts, self.ledger.totals.wait_stops,
+                          self.ledger.totals.live))
+        self.assertEqual(reason, self.launch.stopped)
+        self.assertEqual({}, self.post._exec_generations)
+        self.assertIsNone(self.post._exec_observations)
+        self.assertNotIn(2, self.launch.dispatcher._sequence)
+        self.assertEqual('reaped', self.ledger.identity(1).terminal)
+        self.assertEqual('reaped', self.ledger.identity(2).terminal)
+        self.assertEqual(12, self.ledger.identity(2).tid)
+        self.assertIsNotNone(owner.reaper.last_inflight_exit[-1])
+
+    def test_unconsumed_execveat_failed_exit(self):
+        self.setUp(322)
+        self.pending_failed_exit(-38)
+        self.f.owner().run()
+        self.assertEqual('reaped', self.ledger.identity(2).terminal)
+
+    def test_successful_or_invalid_errno_exit_never_pins(self):
+        for result, flag in ((0, 0), (2, 1), (-4096, 1), (-2, 0)):
+            with self.subTest(result=result, flag=flag):
+                self.setUp()
+                self.pending_failed_exit()
+                self.f.child.syscall_info.return_value = replace(
+                    decode_syscall_info(*exit_info(-2, 1)), result=result, is_error=bool(flag))
+                with self.assertRaisesRegex(ValueError, 'failed native exec EXIT'):
+                    self.f.owner().run()
+                self.assert_no_pin()
+                self.assertIsNotNone(self.launch.dispatcher._sequence[2])
+                self.f.child.resume_syscall.assert_not_called()
+
+    def test_wrong_phase_or_compat_exit_never_pins(self):
+        for info in (decode_syscall_info(*entry(59)),
+                     replace(decode_syscall_info(*exit_info(-2, 1)), arch=0x40000003)):
+            with self.subTest(info=info):
+                self.setUp()
+                self.pending_failed_exit()
+                self.f.child.syscall_info.return_value = info
+                with self.assertRaises(ValueError):
+                    self.f.owner().run()
+                self.assert_no_pin()
+                self.assertIsNotNone(self.launch.dispatcher._sequence[2])
+
+    def test_uncertain_exit_read_retained_once_without_retry(self):
+        self.pending_failed_exit()
+        self.f.child.syscall_info.side_effect = OSError('uncertain EXIT read')
+        owner = self.f.owner()
+        with self.assertRaises(OSError):
+            owner.run()
+        with self.assertRaises(CleanupReapError):
+            owner.reaper.bind_inflight_exec()
+        self.f.child.syscall_info.assert_called_once_with(12)
+        self.assertEqual((self.ledger.identity(2), 0x857f, None),
+                         owner.reaper.last_inflight_exit)
+        self.assert_no_pin()
+
+    def test_executor_echild_only_returns_to_original_tgid(self):
+        self.f.transport.wait.side_effect = [(0, 0), ChildProcessError(errno.ECHILD, 'gone'),
+                                             (11, 0x4057f), (11, 9)]
+        owner = self.f.owner()
+        owner.run()
+        self.assertEqual([11, 12, 11, 11],
+                         [c.args[0] for c in self.f.transport.wait.call_args_list])
+        owner.reaper.sleep.assert_called_once_with(0.01)
+        self.f.child.syscall_info.assert_not_called()
+        self.assertEqual('exec-replaced', self.ledger.identity(1).terminal)
+
+    def test_other_executor_wait_error_is_not_retried(self):
+        self.f.transport.wait.side_effect = [(0, 0), ChildProcessError(errno.EINVAL, 'bad')]
+        with self.assertRaises(ChildProcessError):
+            self.f.owner().run()
+        self.assert_no_pin()
+        self.f.child.syscall_info.assert_not_called()
+        self.assertEqual(3, self.ledger.totals.live)
+
+    def test_executor_terminal_quarantines_before_failure(self):
+        self.f.transport.wait.side_effect = [(0, 0), (12, 9)]
+        with self.assertRaisesRegex(CleanupReapError, 'failed exec EXIT'):
+            self.f.owner().run()
+        self.assertIn(12, self.launch.unsettled_terminal_waits)
+        self.assert_no_pin()
+        self.f.child.syscall_info.assert_not_called()
+        self.assertEqual(3, self.ledger.totals.live)
+
+    def test_wrong_executor_wait_birth_debits_without_read(self):
+        before = self.ledger.totals.wait_stops
+        self.f.transport.wait.side_effect = [(0, 0), (11, 0x857f)]
+        with self.assertRaisesRegex(CleanupReapError, 'birth mismatch'):
+            self.f.owner().run()
+        self.assertEqual(before + 1, self.ledger.totals.wait_stops)
+        self.f.child.syscall_info.assert_not_called()
+        self.assert_no_pin()
+
+    def test_exit_read_crossing_deadline_retains_facts_without_settlement(self):
+        self.pending_failed_exit()
+        def read(tid):
+            self.f.f.clock.return_value = 100.0
+            return decode_syscall_info(*exit_info(-2, 1))
+        self.f.child.syscall_info.side_effect = read
+        owner = self.f.owner()
+        with self.assertRaisesRegex(CleanupReapError, 'deadline'):
+            owner.run()
+        self.assertIsNotNone(owner.reaper.last_inflight_exit[-1])
+        self.assertIsNotNone(self.launch.dispatcher._sequence[2])
+        self.assert_no_pin()
+
+    def test_exit_stop_ceiling_charged_before_read(self):
+        self.pending_failed_exit()
+        before = self.ledger.totals.wait_stops
+        self.ledger._event_limit = before + 1
+        with self.assertRaisesRegex(ValueError, 'wait-stop limit'):
+            self.f.owner().run()
+        self.assertEqual(before + 1, self.ledger.totals.wait_stops)
+        self.f.child.syscall_info.assert_not_called()
+        self.assert_no_pin()
+
+    def test_owner_or_binding_change_after_exit_read_never_settles(self):
+        for change in ('owner', 'binding'):
+            with self.subTest(change=change):
+                self.setUp()
+                self.pending_failed_exit()
+                def read(tid):
+                    if change == 'owner':
+                        self.f.f.system.getpid.return_value = 99
+                    else:
+                        self.launch.dispatcher._tasks[2] = (12, None)
+                    return decode_syscall_info(*exit_info(-2, 1))
+                self.f.child.syscall_info.side_effect = read
+                with self.assertRaises(ValueError):
+                    self.f.owner().run()
+                self.assertIsNotNone(self.launch.dispatcher._sequence[2])
+                self.assert_no_pin()
+
+    def test_executor_echild_idle_keeps_original_deadline(self):
+        self.f.transport.wait.side_effect = [(0, 0), ChildProcessError(errno.ECHILD, 'gone')]
+        owner = self.f.owner()
+        owner.reaper.sleep.side_effect = lambda _: setattr(self.f.f.clock, 'return_value', 100.0)
+        with self.assertRaisesRegex(CleanupReapError, 'deadline'):
+            owner.run()
+        self.assertEqual(2, self.f.transport.wait.call_count)
+        self.assertEqual(3, self.ledger.totals.live)
+        self.assert_no_pin()
+
+    def test_actual_supervisor_failed_exit_preserves_original_failure_and_cleanup(self):
+        self.supervisor_composition(failed=True)
+
     def test_actual_supervisor_typed_wires_preserve_original_failure_and_cleanup(self):
+        self.supervisor_composition(failed=False)
+
+    def supervisor_composition(self, *, failed):
         f = supervisor_fixture.SupervisorTest()
         f.setUp()
         leader, child = f.f.access, Mock()
@@ -299,9 +468,14 @@ class UnconsumedExecTest(unittest.TestCase):
             if index == 7:
                 raise original
             if index == 8:
-                return (11, 0x4057f)
-            if index == 9:
+                return (0, 0) if failed else (11, 0x4057f)
+            if failed and index == 9:
+                child.syscall_info.return_value = decode_syscall_info(*exit_info(-2, 1))
+                return (12, 0x857f)
+            if index == (10 if failed else 9):
                 return (11, 9)
+            if failed and index == 11:
+                return (12, 9)
             self.fail('unexpected wait')
         f.io.wait.side_effect = wait
         owner = f.owner()
@@ -311,13 +485,14 @@ class UnconsumedExecTest(unittest.TestCase):
         self.assertIs(owner.failure, original)
         self.assertIsNone(owner.cleanup_error)
         self.assertFalse(owner.drained)
-        self.assertEqual('exec-replaced', f.ledger.identity(1).terminal)
+        self.assertEqual('reaped' if failed else 'exec-replaced', f.ledger.identity(1).terminal)
         self.assertEqual('reaped', f.ledger.identity(2).terminal)
         self.assertEqual((3, 1, 0), (f.ledger.totals.attempts,
                                    f.ledger.totals.live, f.ledger.totals.pending))
         f.io.open.assert_called_once_with(11, 0)
         f.io.send.assert_called_once_with(70, 9, None, 0)
-        self.assertEqual([11, 11, 11, 12, 11, 12, 11, 11, 11],
+        self.assertEqual([11, 11, 11, 12, 11, 12, 11, 11, 12, 11, 12] if failed
+                         else [11, 11, 11, 12, 11, 12, 11, 11, 11],
                          [c.args[0] for c in f.io.wait.call_args_list])
         self.assertEqual(2, child.resume_syscall.call_count)  # newborn, exec ENTRY only
         self.assertFalse(leader_wire._unscoped_mutation)
