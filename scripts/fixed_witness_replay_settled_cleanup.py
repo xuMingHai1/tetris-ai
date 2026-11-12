@@ -15,7 +15,10 @@ SIGKILL = 9  # Frozen Linux ABI; injectable synthetic transport also runs on Win
 
 
 class SettledProcessCleanup:
-    """Pin every eligible unreaped child before signalling any of them.
+    """Normally pin all eligible groups before signalling any of them.
+
+    If a later open raises OSError, only earlier verified complete groups may
+    be killed/reaped; the operation still fails with the original open error.
 
     The exclusive original tracer must retain wait ownership throughout. With
     known creations bound first, each live original TGID and every thread's
@@ -59,6 +62,30 @@ class SettledProcessCleanup:
         self.pinned = []
         self.signalled = []
         self.close_errors = []
+        self.partial_error = None
+        self.partial_reaped = ()
+
+    def _drain_acquired_groups(self, identities):
+        """After a later open failed, use only already verified retained pins.
+
+        This never retries the failed open or signals a numeric PID. Validate
+        the complete original inventory before signalling any descriptor. The
+        original acquisition exception remains the operation's failure even
+        if every selected birth is actually reaped.
+        """
+        if not self.pinned:
+            return
+        self._same_inventory(identities)
+        selected = tuple(item for item in identities
+                         if item.group_birth in {leader.group_birth for leader, _ in self.pinned})
+        for item, fd in self.pinned:
+            self._same_inventory(identities)
+            if self.send_signal(fd, SIGKILL, None, 0) is not None:
+                raise CleanupReapError('invalid pidfd signal transport result')
+            self.signalled.append(item.birth)
+            self._same_inventory(identities)
+        self.reaper._after_pidfd_kill(selected, partial=True)
+        self.partial_reaped = self.reaper.run()
 
     def _same_inventory(self, identities):
         self.reaper._check()
@@ -100,8 +127,19 @@ class SettledProcessCleanup:
             leaders = tuple(item for item in identities if item.tid == item.tgid)
             for item in leaders:
                 self._same_inventory(identities)
-                fd = (self.startup_pin.take(item.tid) if self.startup_pin is not None
-                      else self.open_pidfd(item.tid, 0))
+                try:
+                    fd = (self.startup_pin.take(item.tid) if self.startup_pin is not None
+                          else self.open_pidfd(item.tid, 0))
+                except OSError:
+                    # A failed open transfers no descriptor. Earlier pins
+                    # still bind complete known groups; do not abandon them.
+                    # An uncertain/invalid returned FD takes the existing
+                    # fail-closed path instead, with no recovery signalling.
+                    try:
+                        self._drain_acquired_groups(identities)
+                    except BaseException as error:
+                        self.partial_error = error
+                    raise
                 if type(fd) is not int or not 0 <= fd < 2**31:
                     raise CleanupReapError('invalid pidfd transport result')
                 if any(previous == fd for _, previous in self.pinned):

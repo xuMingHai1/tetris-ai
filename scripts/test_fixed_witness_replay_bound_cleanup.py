@@ -175,16 +175,23 @@ class BoundCreationCleanupTest(unittest.TestCase):
                 self.fixture.owner().run()
             self.assertEqual([], self.transport.mock_calls)
 
-    def test_partial_pin_failure_preserves_pending_and_both_live_credits(self):
+    def test_partial_pin_failure_reaps_only_pinned_parent_and_retains_child(self):
         self.child()
         self.stop()
         before = self.ledger.totals
         self.transport.open.side_effect = [70, OSError('pin failed')]
+        owner = self.fixture.owner()
         with self.assertRaises(OSError):
-            self.fixture.owner().run()
-        self.assertEqual(before, self.ledger.totals)
-        self.transport.send.assert_not_called()
-        self.transport.wait.assert_not_called()
+            owner.run()
+        self.assertEqual((before.attempts, before.live - 1, 0, before.wait_stops, before.stopped),
+                         (self.ledger.totals.attempts, self.ledger.totals.live,
+                          self.ledger.totals.pending, self.ledger.totals.wait_stops,
+                          self.ledger.totals.stopped))
+        self.assertEqual('reaped', self.ledger.identity(1).terminal)
+        self.assertTrue(self.ledger.identity(2).alive)
+        self.assertEqual(1, len(owner.partial_reaped))
+        self.transport.send.assert_called_once_with(70, 9, None, 0)
+        self.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
         self.transport.close.assert_called_once_with(70)
 
     def test_newborn_queued_stop_drains_only_after_all_pidfd_kills(self):

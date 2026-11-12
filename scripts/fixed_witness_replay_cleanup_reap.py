@@ -46,6 +46,7 @@ class CleanupReaper:
         self.reaped = []
         self.last_wait = None
         self._killed_births = ()
+        self._unselected_births = ()
         self.drained_stops = 0
         self.last_drained_stop = None
         self.creation_binding_started = False
@@ -117,8 +118,11 @@ class CleanupReaper:
             # A killed group may outlive its leader's real reap. Preserve the
             # complete original set, including already reaped members; no new
             # birth, EXEC retirement or numeric rekey is an eligible target.
-            if any(item not in self._killed_births for item in identities):
+            if any(item not in self._killed_births + self._unselected_births for item in identities):
                 raise CleanupReapError('killed birth identity changed')
+            for original in self._unselected_births:
+                if self.ledger.identity(original.birth) != original:
+                    raise CleanupReapError('unselected cleanup birth changed')
             for original in self._killed_births:
                 current = self.ledger.identity(original.birth)
                 if current.alive:
@@ -137,7 +141,7 @@ class CleanupReaper:
                 raise CleanupReapError('thread cleanup dispatcher required')
             else:
                 dispatcher.cleanup_stable_group(tuple(members))
-        return identities
+        return tuple(item for item in identities if item not in self._unselected_births)
 
     def bind_retained_exec(self):
         """Adopt only the failed normal wait owner's already consumed EXEC.
@@ -466,14 +470,28 @@ class CleanupReaper:
             raise CleanupReapError('retained wait is not the matching creation event')
         return receipt
 
-    def _after_pidfd_kill(self, identities):
+    def _after_pidfd_kill(self, identities, *, partial=False):
         """Composing owner calls only after every pinned SIGKILL succeeded.
 
         Freeze exact birth identities, not TIDs or a generic permission flag.
+        A failed later pin may leave a strict subset of complete groups killed.
+        Freeze every unselected birth too; never wait on it or count its absence
+        as cleanup. The composing owner must retain the original pin failure.
         This does not authorize ptrace event handling or further task creation.
         """
         self._check()
-        if self.started or self._killed_births or self._inventory() != identities:
+        inventory = self._inventory()
+        if self.started or self._killed_births:
+            raise CleanupReapError('settled killed inventory required before wait')
+        if partial:
+            if (type(identities) is not tuple or not identities
+                    or len(set(identities)) != len(identities)
+                    or any(item not in inventory for item in identities)
+                    or any(item.group_birth in {k.group_birth for k in identities}
+                           for item in inventory if item not in identities)):
+                raise CleanupReapError('complete pinned groups required for partial cleanup')
+            self._unselected_births = tuple(item for item in inventory if item not in identities)
+        elif inventory != identities:
             raise CleanupReapError('settled killed inventory required before wait')
         self._killed_births = identities
 
@@ -532,7 +550,7 @@ class CleanupReaper:
                              or any(item.tid != item.tgid for item in identities))):
                     raise CleanupReapError('thread/exec cleanup requires pinned group SIGKILL')
                 if not identities:
-                    if self.ledger.totals.live != 1:
+                    if self.ledger.totals.live != 1 + len(self._unselected_births):
                         raise CleanupReapError('unsettled live reservations')
                     return tuple(self.reaped)
                 progress = False
