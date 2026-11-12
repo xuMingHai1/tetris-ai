@@ -439,3 +439,34 @@ quarantine；Linux独立JUnit bridge要求13项全部运行且零skip。
 有限剩余清单仍为上述实际可信宿主、all-artifact/JVM writer、filter/external
 no-injection checker、未覆盖复杂清理及完整冻结fixtures/task表/EXITKILL负例，
 再经整体最终Review/CI和原执行前门。无原生/network clean-build/历史输入执行。
+
+
+## 本次新增修改：原 completed ENTRY 后尚未消费的失败 exec EXIT
+
+`SettledProcessCleanup.run -> CleanupReaper.bind_inflight_exec` 继续要求原
+registered wait owner 最后一次 completed native nonleader ENTRY、原双成员组与
+同一 ENTRY/wire。每轮先 targeted wait 原 leader：若收到 EXEC，仍按既有路径
+核对 old TID 并安装身份；若无事件，才 targeted wait 原 executor。该线程的
+syscall-stop 先共享 stop debit，再由其原 wire 一次读取 native failed EXIT，调用
+既有 `cleanup_failed_exec_exit` 仅结算原 ENTRY，之后复用原组 pidfd SIGKILL 与
+逐 birth terminal reap。两条分支均保留原失败、deadline、birth 与累计预算。
+
+executor ECHILD 只表示未得到 stop，不构成 migration/reap；在原 deadline 内
+等待下一轮 leader，轮次间最多 sleep 10ms。leader ECHILD、其他 wait 错误、非
+syscall stop、非失败或非 native EXIT、terminal quarantine、owner/wire 变化、
+预算耗尽与不确定读取均停止且不 pin。读取前保留 raw，读取后保留 facts；整个
+阶段一次性，不重试读取、不 resume、不新增正常 observation/EXEC generation。
+上述规则接续本文件较早的 TGID-only 限制；其他 completed 历史、额外 siblings、
+leader 已 reap、nonleader 创建和复杂 job-control/event 仍不在此路径支持范围。
+
+原 Linux JUnit bridge 现强制 38 项 fake-only 测试、30秒、零 skip，其中新增14项
+覆盖失败 EXIT 分支与实际 TracerSupervisor/typed PtraceAccess/假 kernel 组合。
+这不执行原生探针、network clean-build 或历史输入，不证明整体验收成功。
+
+有限剩余清单：可信 Java host 的完整 source/toolchain/manifest 冻结、实际调度
+与终态监督；所有 artifact/JVM 的互斥同根计费；完整 filter/external no-injection
+checker；上述尚不支持的 cleanup 和其他 pin/binding 失败；全套 frozen fixtures、
+task reservation 表及 EXITKILL 负例；整体最终 Review/CI、compatibility/inputhash
+和唯一有界登记。170A/174 已接受范围、原 guard/协议/预算和停止门均保持。
+整体里程碑与 native/network/history 验收尚未完成，无研究结果或用户可见功能。
+仅 test-only 清理接线扩展，README/AGENTS 无需修改。
