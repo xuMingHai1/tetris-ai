@@ -3,7 +3,8 @@
 The tracer retains stdout/stderr only. A permanent same-root reservation moves
 artifact ownership to its exact direct child through the original stdin pipe.
 The trusted child calls receive before preparation, then uses the existing
-prepare/verify-only writers. No native transport or historical input runs here.
+prepare and mutually exclusive verify/report/execution writers. This transport
+does not authorize native probes or historical inputs.
 """
 import json
 import math
@@ -201,11 +202,57 @@ class CoordinatorArtifacts:
                 self._finish('VERIFY_FAILED', error)
             raise
 
-    def _finish(self, state, error=None):
+    def report_only(self, root, java_home, receipt, output, logs, *, nonce, request,
+                    handshake_bytes, report_bytes):
+        """One saved-prefix report; original writer predebits both JVM allowances."""
+        from fixed_witness_report_pipe import run_report_only
+        self._enter('PREPARED', 'REPORTING')
+        try:
+            result = run_report_only(root, java_home, receipt, output, logs, self.budget,
+                                     nonce=nonce, request=request, handshake_bytes=handshake_bytes,
+                                     report_bytes=report_bytes, total_deadline=self.deadline)
+            self._finish(result['state'])
+            return result
+        except BaseException as error:
+            if self.phase == 'REPORTING':
+                self._finish('REPORT_FAILED', error)
+            raise
+
+    def execute(self, root, java_home, receipt, output, logs, *, nonce, request,
+                handshake_bytes, journal_bytes, declaration_bytes, report_bytes):
+        """One caller-authorized request, never an execution permission itself.
+
+        The existing execution transport reserves H+J+D+R atomically before
+        spawn and binds the exact limits to Java's real writers. All request
+        copies must already have been charged to this same received budget.
+        """
+        from fixed_witness_replay_execution import run_execution
+        self._enter('PREPARED', 'EXECUTING')
+        try:
+            result = run_execution(root, java_home, receipt, output, logs, self.budget,
+                                   nonce=nonce, request=request, handshake_bytes=handshake_bytes,
+                                   journal_bytes=journal_bytes, declaration_bytes=declaration_bytes,
+                                   report_bytes=report_bytes, total_deadline=self.deadline)
+            self._finish(result['state'], execution=True,
+                         actions_started=result.get('verification', {}).get('actions_started'))
+            return result
+        except BaseException as error:
+            if self.phase == 'EXECUTING':
+                self._finish('EXECUTION_FAILED', error, execution=True)
+            raise
+
+    def _finish(self, state, error=None, *, execution=False, actions_started=None):
         self.phase = 'FINISHED'
-        record = {'state': state, 'diagnostic_started': False,
+        record = {'state': state,
                   'artifact_charged': self.budget.quota.charged,
                   'pipe_retained_bytes': self.budget.written}
+        if execution:
+            # Failure may follow ACK/actions: absence of a verified terminal
+            # is unknown, never evidence that no actions started.
+            record.update(execution_attempted=True, actions_started=actions_started,
+                          diagnostic_authorized=False, network_isolation_verified=False)
+        else:
+            record['diagnostic_started'] = False
         if error is not None:
             record['error_type'] = type(error).__name__[:64]
             record['error'] = str(error)[:128]
