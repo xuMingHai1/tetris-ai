@@ -266,7 +266,7 @@ class PipeTest(unittest.TestCase):
         self.assertEqual(['kill', 'stop'], events)
 
 
-def artificial_jvm(spec):
+def artificial_jvm(spec, coordinator=None):
     """JUnit supplies compiled classes; mock receipt ONLY, use real JVM/proc/ACK.
 
     This does not run prepare, prove clean-build provenance or open replay mode.
@@ -287,9 +287,13 @@ def artificial_jvm(spec):
                 'classpath': classpath_identity(root, spec['dependencies'])}
     with patch.object(pipe, 'verify_prepared', return_value=manifest), \
             patch.object(admission, 'verify_prepared', return_value=manifest):
-        result = pipe.run_verify_only(root, java, {'sha256': 'a'*64}, out / 'jvm', out,
-                                     OutputBudget(), nonce='b'*64,
-                                     total_deadline=time.monotonic()+60)
+        if coordinator is None:
+            result = pipe.run_verify_only(root, java, {'sha256': 'a'*64}, out / 'jvm', out,
+                                         OutputBudget(), nonce='b'*64,
+                                         total_deadline=time.monotonic()+60)
+        else:
+            result = coordinator.verify_only(root, java, {'sha256': 'a'*64}, out / 'jvm', out,
+                                             nonce='b'*64, artifact_bytes=pipe.JVM_ARTIFACT_BYTES)
     assert result['state'] == 'VERIFIED_NO_REPLAY', result
     assert result['returncode'] == 0 and result['ack_sent'], result
     assert not result['verification']['diagnostic_started'], result
@@ -298,7 +302,12 @@ def artificial_jvm(spec):
     assert result['verification']['artifact_bytes_limit'] == pipe.JVM_ARTIFACT_BYTES, result
     assert result['verification']['artifact_bytes'] == sum(
         (out / 'jvm' / name).stat().st_size for name in ('ready.json', 'verified.json')), result
-    (out / 'artificial-result.json').write_text(json.dumps(result) + '\n')
+    raw = (json.dumps(result) + '\n').encode('utf-8')
+    if coordinator is None:
+        (out / 'artificial-result.json').write_bytes(raw)
+    else:
+        from fixed_witness_replay_quota import write_exclusive
+        write_exclusive(out / 'artificial-result.json', raw, coordinator.budget.quota)
 
 
 if __name__ == '__main__':

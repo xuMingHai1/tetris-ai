@@ -207,3 +207,32 @@ Linux普通JUnit桥强制执行全部11项，含真实Python子进程超限终�
 可信Java host、全部artifact/JVM writer同根交接、完整filter/no-injection checker、复杂清理、
 冻结fixture和整体最终门禁仍未齐备。整体原生验收尚未完成，研究结果及用户可见功能无新增。
 仅test-only设施修复，生产架构、README/AGENTS、冻结协议/预算/guard无需改动。
+
+## 本次新增修改：协调器 artifact 的互斥交接与现有 JVM writer 接线
+
+`HostWriterHandoff.prepare(..., stdin=None, artifact_bytes=...)` 通过原
+`TracerSupervisor.for_host -> CoordinatorOutput.reserve_artifacts` 在 fork 前从原
+coordinator partition 永久预扣整份 artifact 额度。日志只使用扣除后的余额。
+原 launch 成功返回实际 PID 后、首次 wait 前发送一次小于 PIPE_BUF 的非阻塞 grant；
+原 post-fork finally 关闭父端，子进程必须读取 EOF 并核对 PID/parent，不能重发。
+额度保留失败、pipe/write/close/后续构建失败均不返还。固定10MiB、32KiB host/
+tracer 分区和原 task/deadline/stop 预算不变，内部 artifact 大小由冻结调度调用方给定，
+不增加总额。未配置该选项的原组件入口保持兼容，不代表完整 artifact 计费。
+
+`CoordinatorArtifacts.receive -> prepare -> verify_only` 是唯一协调器 writer 路径：
+独占 claim 与终态余量、build 的 manifest/classpath/日志/失败前缀，以及 JVM 的
+READY/verified 永久子预留都来自同一个 received allowance。现有 `run_verify_only`
+继续把确切额度传给 Java `ArtifactQuota`，读取不重复计费，另存副本重新计费。
+阶段失败消耗本次尝试；终态写失败不能覆盖原构建/验证错误。来源校验/build 工作仍在
+协调器内，未移到未计时宿主。该协作式 writer 不能阻止任意第三方直接文件写入。
+
+19项人工回归连接原 supervisor 的假内核 launch/wait/reap、PID grant、同根额度竞争、
+EOF/失败/不可重试及原 prepare 人工工具链。Linux 普通 CI 另经真实 Python child
+接收额度，调用现有普通 JVM `ArtifactQuota` 与真实 proc/READY/ACK/EOF；构建 receipt
+在此 JVM fixture 中明确 mock，不是来源认证、真实 native 或 network clean-build 验收。
+
+有限剩余项：完整 source/toolchain/import/manifest/task-fixture 冻结及实际宿主 CLI；
+完整 filter/external no-injection checker；未覆盖复杂 cleanup/job-control、完整 fixtures/
+EXITKILL负例；整体最终 Review/CI、compatibility/inputhash/唯一登记。原生/network/
+历史验收尚未完成，研究结果和用户可见功能本轮无新增。170A/174接受与所有停止门不变。
+本次只改变 test-only 研究调用链；生产 README/AGENTS/架构职责不变，无需 ADR。
