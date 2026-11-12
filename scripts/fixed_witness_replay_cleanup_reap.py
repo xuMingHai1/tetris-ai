@@ -2,8 +2,8 @@
 
 This supports process births and pinned stable thread groups with no unknown
 children, including event-bound process creations awaiting parent results.
-Unbound thread events require a process-only pre-binding inventory; existing
-multi-birth groups still require further integration. A completed original
+Unbound legacy thread events may join existing bound non-EXEC sibling groups
+through their original leader and native obligation before pinning. A completed original
 nonleader exec ENTRY may bind its pending TGID EXEC before any pin; an original
 failed wait owner's consumed EXEC can also be adopted.
 Stops are never resumed. Only known births successfully pidfd-SIGKILLed by
@@ -290,7 +290,8 @@ class CleanupReaper:
         resume, syscall-result settlement or a new reservation. Only positive
         known original leader TIDs are polled, including legacy CLONE_THREAD;
         no child stop or unknown task is guessed. Existing multi-birth groups
-        are refused before polling another unbound creation.
+        require a live leader, exact bound siblings with no unmatched EXEC,
+        and original native legacy thread obligations before any event wait.
         Other stops, ECHILD and terminal results fail closed (terminal PID is
         quarantined before checks). The original deadline bounds idle polling.
         """
@@ -306,14 +307,19 @@ class CleanupReaper:
                 if not pending:
                     self._inventory()
                     return tuple(self.bound_creations)
-                if (len({item.group_birth for item in identities}) != len(identities)
-                        or any(item.tid != item.tgid
-                               or item.tid in self.launch.unsettled_terminal_waits
-                               for item in identities)):
+                if any(item.tid in self.launch.unsettled_terminal_waits for item in identities):
                     raise CleanupReapError('ambiguous cleanup creation inventory')
                 dispatcher = self.launch.dispatcher
                 if dispatcher is None:
                     raise CleanupReapError('cleanup creation dispatcher required')
+                groups = {}
+                for identity in identities:
+                    dispatcher._task(identity.birth, identity.tid)
+                    groups.setdefault(identity.group_birth, []).append(identity)
+                for members in groups.values():
+                    if len(members) != 1 or members[0].tid != members[0].tgid:
+                        dispatcher.cleanup_stable_group(
+                            tuple(members), unbound_creations=pending)
                 # Validate the whole selected batch BEFORE the first wait.
                 bindings = tuple((item, dispatcher.cleanup_creation_binding(item))
                                  for item in pending)

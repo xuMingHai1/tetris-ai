@@ -368,3 +368,28 @@ leader 先退出、更多未 reap siblings/组内未绑定 creation、复杂 job
 整体最终 revision 独立 Review/CI、compatibility/inputhash 与唯一有界登记。
 不改原 guard/冻结协议/预算/生产代码；原 170A/174 接受及执行停止门保持，整体里程碑
 尚未完成，本轮无研究结果或用户可见游戏功能。README/AGENTS 无需调整。
+
+## 本次新增修改：已有 sibling 组中的原 leader 未绑定线程创建
+
+`SettledProcessCleanup.run -> CleanupReaper.bind_creation_events` 不再一概拒绝已有
+多个 birth 的线程组。首次事件 wait 前对全部现有 birth 核对原 wire、live leader、
+无 terminal 隔离、无 unmatched EXEC；仅允许原 leader 的精确 native legacy
+CLONE_THREAD reservation/obligation。原 `cleanup_stable_group` 在此阶段接收显式
+unbound 集合，但不因此授权 pin；实际准确 CLONE event 的一次 GETEVENTMSG、
+原 lifecycle child birth 和独占 wire 绑定完成后，仍走无例外的完整 stable-group
+检查，之后一次 group pidfd/SIGKILL 并逐 birth 真实 reap。parent pending obligation
+只在 parent 真实 reap 时结束；不 resume、不退款、不增加预算或原生执行权限。
+
+12 项新 fake-only 回归复用已有 dispatch/线程组 fixture，覆盖三 birth 实际形状终态、
+child 先 reap、原 wait receipt 复用而无重复事件读取/stop debit，以及 sibling EXEC、
+wire/leader/terminal 隔离/原 obligation 异常、不确定读取、child binding/pin 失败。
+组内未绑定 process creation 与 nonleader creation 仍拒绝。Linux 原 JUnit bridge
+强制执行既有13项及新增12项，共25项、30秒、零skip；所有kernel transports注入。
+
+有限剩余清单：可信Java宿主/source/toolchain/manifest冻结及完整filter/external
+no-injection checker；所有artifact/JVM的同根互斥writer及原硬deadline监督；其他
+in-flight EXEC/leader先退出/nonleader创建/复杂job-control与event及失败pin/binding
+整树清理；全套冻结fixture/task表与EXITKILL负例；整体最终Review/CI、compatibility/
+inputhash和唯一有界登记。整体原生/network clean-build/历史验收尚未完成；无研究
+结果或用户可见功能。原170A/174接受、guard/协议/预算及执行停止门不变。
+仅test-only调用关系扩展，README/AGENTS生产架构无需同步。
