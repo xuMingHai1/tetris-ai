@@ -106,8 +106,9 @@ class SettledCleanupTest(unittest.TestCase):
         self.assertEqual([1], owner.signalled)
         self.assertEqual([1, 2], [item.birth for item, _ in owner.pinned])
         self.assertEqual([call(71), call(70)], self.transport.close.call_args_list)
-        self.transport.wait.assert_not_called()
-        self.assertEqual(3, self.ledger.totals.live)
+        self.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
+        self.assertEqual([(1, 11)], [(b, tid) for b, tid, _ in owner.partial_reaped])
+        self.assertEqual(2, self.ledger.totals.live)
 
     def test_expiry_during_pin_closes_fd_and_never_sends(self):
         def acquire(tid, flags):

@@ -507,12 +507,13 @@ class CleanupReaper:
         return receipt
 
     def _after_pidfd_kill(self, identities, *, partial=False):
-        """Composing owner calls only after every pinned SIGKILL succeeded.
+        """Composing owner calls after every selected group's SIGKILL succeeded.
 
         Freeze exact birth identities, not TIDs or a generic permission flag.
-        A failed later pin may leave a strict subset of complete groups killed.
+        A failed later pin or signal may leave only a subset of complete groups
+        confirmed killed. An uncertain send never qualifies that group.
         Freeze every unselected birth too; never wait on it or count its absence
-        as cleanup. The composing owner must retain the original pin failure.
+        as cleanup. The composing owner must retain the original pin/signal failure.
         This does not authorize ptrace event handling or further task creation.
         """
         self._check()
