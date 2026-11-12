@@ -470,3 +470,31 @@ task reservation 表及 EXITKILL 负例；整体最终 Review/CI、compatibility
 和唯一有界登记。170A/174 已接受范围、原 guard/协议/预算和停止门均保持。
 整体里程碑与 native/network/history 验收尚未完成，无研究结果或用户可见功能。
 仅 test-only 清理接线扩展，README/AGENTS 无需修改。
+
+## 本次新增修改：后续 pidfd signal 失败后的已确认组回收
+
+`TracerSupervisor.run -> SettledProcessCleanup.run -> _signal_groups` 在后续
+pidfd SIGKILL 抛出异常或返回非法值时，保留原 signal 失败，并调用
+`_drain_signalled_groups -> CleanupReaper._after_pidfd_kill(partial=True) -> run`。
+只选择此前明确成功返回的完整组；不重试不确定的 send、不发送后续组、不等待未确认
+组、不推断 ESRCH/ECHILD 为退出。原 inventory、birth/wire、deadline、terminal
+quarantine 与共享 wait-stop 计费继续适用；实际 terminal reap 才释放对应 live credit。
+后续 pin 获取失败时的已有恢复路径也复用该逻辑，不增加额外发送或等待窗口。
+
+原 pin 获取异常（若有）仍是主失败，`signal_error` 单独保留发送阶段失败，
+`partial_error` 保留回收失败，`partial_reaped` 只在所选完整组全部实际回收后返回。
+中途已回收记录仍在原 `reaper.reaped` 中，close 错误继续单独保存。即使部分组回收
+成功，supervisor 仍保留原正常路径失败和 cleanup_error，不能标为整树 drained。
+
+复用原 partial-pin JUnit bridge，现强制25项 fake-only 回归零skip，其中12项新增
+覆盖不确定/非法 send、未发送的后续组、完整线程组、原 deadline/共享预算、terminal
+隔离、多重失败及真实 supervisor 调用组合。所有 kernel transports 均注入；这不是
+原生 signal/reap、network clean-build 或历史22步验收。
+
+有限剩余清单：完整 source/toolchain/import/manifest/task-fixture 冻结和实际宿主
+调度/终态监督；冻结 report/execution writer 的同根额度接线；完整 filter/external
+no-injection checker；其他 completed EXEC 历史、leader已reap、nonleader创建、复杂
+job-control/event 与 pin/binding 失败；全套冻结 fixtures/task表及 EXITKILL 负例；
+整体最终 Review/CI、compatibility/inputhash 与唯一登记。整体里程碑及原生/network/
+历史验收尚未完成，研究结果和游戏功能本轮无新增。170A/174 接受与全部原预算、
+guard/协议/停止门不变；仅 test-only 清理行为变化，README/AGENTS 无需修改。
