@@ -20,10 +20,12 @@ class WriterReservations:
 
     Each writer must reserve its own failure prefix inside its allowance. The
     host cannot borrow unused tracer/coordinator credit, even after failure.
+    An inherited HostWriterHandoff supplies host=None: that writer stays only
+    in the Java parent and must never be reconstructed by the tracer.
     """
 
     tracer: ByteQuota
-    host: ByteQuota
+    host: ByteQuota | None
     coordinator: ByteQuota
 
 
