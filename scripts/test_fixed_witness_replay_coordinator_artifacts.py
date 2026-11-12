@@ -1,5 +1,6 @@
 """Byte pipes/files and injected native transports only; no native probe."""
 import io
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -419,6 +420,143 @@ class CoordinatorModesTest(unittest.TestCase):
         self.assertEqual('TIMED_OUT', record['state'])
         self.assertIsNone(record['actions_started'])
         self.assertNotIn('diagnostic_started', record)
+
+
+class CoordinatorRequestTest(unittest.TestCase):
+    setUp = CoordinatorArtifactsTest.setUp
+    pipe = CoordinatorArtifactsTest.pipe
+    raw = CoordinatorArtifactsTest.raw
+    receive = CoordinatorArtifactsTest.receive
+    prepared = CoordinatorModesTest.prepared
+
+    def stage(self, child, execution=True):
+        if execution:
+            from test_fixed_witness_replay_execution import fixture
+        else:
+            from test_fixed_witness_report_pipe import fixture
+        return fixture(self.directory/'snapshot', child.budget.quota, child)
+
+    def test_original_copy_budget_and_receipt_reach_selected_transport(self):
+        for execution in (False, True):
+            with self.subTest(execution=execution), tempfile.TemporaryDirectory() as name:
+                self.directory = Path(name).resolve()
+                child = self.prepared()
+                before = child.budget.quota.charged
+                request = self.stage(child, execution)
+                copied = sum(p.stat().st_size for p in request.directory.iterdir())
+                self.assertEqual(before+copied, child.budget.quota.charged)
+                request.recheck()
+                target = ('fixed_witness_replay_execution.run_execution' if execution
+                          else 'fixed_witness_report_pipe.run_report_only')
+                with patch(target, return_value={'state': 'ARTIFICIAL'}) as run:
+                    function, limits = CoordinatorModesTest.mode(self, child, execution)
+                    function('s', 'j', {}, 'o', 'l', nonce='a'*64, request=request, **limits)
+                self.assertIs(request, run.call_args.kwargs['request'])
+                self.assertIs(child.budget, run.call_args.args[5])
+                self.assertEqual(child.deadline, run.call_args.kwargs['total_deadline'])
+                self.assertEqual(before+copied, child.budget.quota.charged)
+
+    def test_exhausted_copy_does_not_create_directory_or_launch(self):
+        child = self.prepared()
+        child.budget.quota.charge(child.budget.quota.remaining-1)
+        before = child.budget.quota.charged
+        with self.assertRaises(OutputLimitError):
+            self.stage(child)
+        self.assertFalse((self.directory/'snapshot').exists())
+        self.assertEqual(before, child.budget.quota.charged)
+        self.assertEqual('FINISHED', child.phase)
+
+    def test_partial_write_keeps_entire_copy_debit_and_original_error(self):
+        child = self.prepared()
+        before = child.budget.quota.charged
+        original = OSError('copy failed')
+        with patch.object(artifacts, 'write_exclusive', side_effect=original):
+            with self.assertRaises(OSError) as raised:
+                self.stage(child)
+        self.assertIs(original, raised.exception)
+        self.assertGreater(child.budget.quota.charged, before)
+        self.assertIs(original, child.terminal_error)
+        self.assertTrue((self.directory/'snapshot').is_dir())
+        with self.assertRaisesRegex(ValueError, 'stage'):
+            self.stage(child)
+
+    def test_independent_declaration_mismatch_keeps_failed_prefix(self):
+        child = self.prepared()
+        from test_fixed_witness_replay_execution import fixture
+        saved = fixture(self.directory/'original', ByteQuota())
+        payload = {p.name: p.read_bytes() for p in saved.directory.iterdir()}
+        with self.assertRaisesRegex(ValueError, 'differs from parent'):
+            child.stage_request(self.directory/'snapshot', payload, mode='execute',
+                                declaration=saved.declaration+b' ', expected_sha256=hashlib.sha256(
+                                    saved.declaration+b' ').hexdigest())
+        self.assertEqual(payload['request.json'], (self.directory/'snapshot'/'request.json').read_bytes())
+        self.assertEqual('REQUEST_FAILED', json.loads(
+            (self.directory/'coordinator-artifact-terminal.json').read_bytes())['state'])
+
+    def test_retained_copy_drift_is_not_refrozen(self):
+        child = self.prepared()
+        request = self.stage(child)
+        (request.directory/'input.csv').write_bytes(b'drift')
+        with self.assertRaisesRegex(ValueError, 'drift'):
+            request.recheck()
+        with self.assertRaisesRegex(ValueError, 'already attempted'):
+            self.stage(child)
+
+    def test_wrong_mode_or_receipt_never_reaches_transport(self):
+        for wrong in ('mode', 'receipt', 'verify'):
+            with self.subTest(wrong=wrong), tempfile.TemporaryDirectory() as name:
+                self.directory = Path(name).resolve()
+                child = self.prepared()
+                request = self.stage(child)
+                with patch('fixed_witness_replay_execution.run_execution') as execute, \
+                        patch('fixed_witness_report_pipe.run_report_only') as report, \
+                        patch('fixed_witness_replay_pipe.run_verify_only') as verify:
+                    with self.assertRaisesRegex(ValueError, 'staged request'):
+                        if wrong == 'verify':
+                            child.verify_only('s', 'j', {}, 'o', 'l', nonce='a'*64, artifact_bytes=10)
+                        else:
+                            function, limits = CoordinatorModesTest.mode(self, child, wrong != 'mode')
+                            function('s', 'j', {}, 'o', 'l', nonce='a'*64,
+                                     request=Mock() if wrong == 'receipt' else request, **limits)
+                execute.assert_not_called()
+                report.assert_not_called()
+                verify.assert_not_called()
+
+    def test_owner_and_expiry_rejected_before_copy(self):
+        for invalid in ('owner', 'deadline'):
+            with self.subTest(invalid=invalid), tempfile.TemporaryDirectory() as name:
+                self.directory = Path(name).resolve()
+                child = self.prepared()
+                if invalid == 'deadline':
+                    child.deadline = child.clock()
+                with patch.object(artifacts.os, 'getpid', return_value=0 if invalid == 'owner' else child.pid):
+                    with self.assertRaisesRegex(ValueError, 'owner/deadline'):
+                        self.stage(child)
+                self.assertFalse((self.directory/'snapshot').exists())
+
+    def test_wrong_file_set_or_oversize_rejected_before_reservation(self):
+        for payload in ({'extra': b'x'}, {'input.csv': b'x'*65537, 'request.json': b'x'}):
+            with self.subTest(names=tuple(payload)), tempfile.TemporaryDirectory() as name:
+                self.directory = Path(name).resolve()
+                child = self.prepared()
+                before = child.budget.quota.charged
+                with self.assertRaises(ValueError):
+                    child.stage_request(self.directory/'snapshot', payload, mode='execute',
+                                        declaration=b'x', expected_sha256='a'*64)
+                self.assertEqual(before, child.budget.quota.charged)
+                self.assertFalse((self.directory/'snapshot').exists())
+
+    def test_existing_directory_is_preserved_with_permanent_debit(self):
+        child = self.prepared()
+        path = self.directory/'snapshot'
+        path.mkdir()
+        (path/'user').write_bytes(b'preserve')
+        before = child.budget.quota.charged
+        with self.assertRaises(FileExistsError):
+            self.stage(child)
+        self.assertEqual(b'preserve', (path/'user').read_bytes())
+        self.assertGreater(child.budget.quota.charged, before)
+        self.assertEqual(['user'], [p.name for p in path.iterdir()])
 
 
 def ordinary_jvm_fixture(spec):

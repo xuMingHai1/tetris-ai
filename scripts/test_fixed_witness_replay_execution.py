@@ -22,7 +22,7 @@ ALLOWANCES = dict(handshake_bytes=300_000, journal_bytes=100_000,
                   declaration_bytes=16_384, report_bytes=100_000)
 
 
-def fixture(snapshot, quota):
+def fixture(snapshot, quota, coordinator=None):
     source = (b'shape_feasibility_witness,seed,step,piece,actions\n'
               b'shape_feasibility_witness,71,1,O,HARD_DROP\n')
     # Literal Java canonical fixture, not a Python request serializer.
@@ -30,6 +30,9 @@ def fixture(snapshot, quota):
            + b'","paths":[{"id":"71","placements":1}],"expected":{"71":{"required":0,'
              b'"forbidden":0,"rawHoles":0,"requiredHoles":0,"forbiddenHoles":0,'
              b'"supportHoles":0,"outsideHoles":0}}}\n')
+    if coordinator is not None:
+        return coordinator.stage_request(snapshot, {'input.csv': source, 'request.json': raw},
+                                         mode='execute', declaration=raw, expected_sha256=_hash(raw))
     snapshot.mkdir()
     write_exclusive(snapshot / 'input.csv', source, quota)
     write_exclusive(snapshot / 'request.json', raw, quota)
@@ -121,7 +124,7 @@ def artificial_execution_jvm(spec, coordinator=None):
     home.mkdir()
     tmp.mkdir()
     budget = OutputBudget() if coordinator is None else coordinator.budget
-    request = fixture(base / 'snapshot', budget.quota)
+    request = fixture(base / 'snapshot', budget.quota, coordinator)
     version = next(json.loads(line.split('=', 1)[1]) for line in
                    (java / 'release').read_text().splitlines() if line.startswith('JAVA_VERSION='))
     manifest = dict(toolchain=dict(java_home=str(java), java_version=version,

@@ -192,6 +192,7 @@ class CoordinatorArtifacts:
         from fixed_witness_replay_pipe import run_verify_only
         self._enter('PREPARED', 'VERIFYING')
         try:
+            self._request_binding('verify', None)
             result = run_verify_only(root, java_home, receipt, output, logs, self.budget,
                                      nonce=nonce, total_deadline=self.deadline,
                                      artifact_bytes=artifact_bytes)
@@ -202,12 +203,66 @@ class CoordinatorArtifacts:
                 self._finish('VERIFY_FAILED', error)
             raise
 
+    def stage_request(self, directory, files, *, mode, declaration, expected_sha256):
+        """Copy once on the received allowance, retaining independent input bytes.
+
+        The caller supplies already retained bytes, never historical input selected
+        here. Reserve the entire copy before creating its exclusive directory;
+        failed writes/validation keep their debit and prohibit another attempt.
+        Existing retainers own request semantics; no JSON is regenerated here.
+        """
+        from fixed_witness_report_pipe import LIMITS, retain_request
+        from fixed_witness_replay_execution_evidence import INPUT_LIMITS, retain_execution_request
+        self._enter('PREPARED', 'STAGING_REQUEST')
+        try:
+            if getattr(self, '_request_attempted', False):
+                raise ValueError('coordinator request already attempted')
+            self._request_attempted = True
+            if mode not in ('report', 'execute'):
+                raise ValueError('one report or execution request required')
+            limits = LIMITS if mode == 'report' else INPUT_LIMITS
+            if type(files) is not dict or set(files) != set(limits):
+                raise ValueError('exact request file set required')
+            payload = dict(files)
+            if any(type(raw) is not bytes or len(raw) > limits[name]
+                   for name, raw in payload.items()):
+                raise ValueError('bounded immutable request bytes required')
+            path = Path(directory)
+            if (not path.is_absolute() or path.name in ('', '.', '..')
+                    or path.parent != path.parent.resolve(strict=True)):
+                raise ValueError('canonical new request directory required')
+            quota = self.budget.quota.reserve(sum(map(len, payload.values())))
+            path.mkdir()  # Exclusive: retain any partial prefix, never overwrite.
+            for name, raw in payload.items():
+                self._request_owner()
+                write_exclusive(path / name, raw, quota)
+            retain = retain_request if mode == 'report' else retain_execution_request
+            request = retain(path, declaration, expected_sha256)
+            self._request_owner()
+            self._request_mode, self._request_receipt = mode, request
+            self.phase = 'PREPARED'
+            return request
+        except BaseException as error:
+            self._finish('REQUEST_FAILED', error)
+            raise
+
+    def _request_owner(self):
+        if os.getpid() != self.pid or os.getppid() != self.parent or self.clock() >= self.deadline:
+            raise ValueError('original coordinator owner/deadline required')
+
+    def _request_binding(self, mode, request):
+        if (getattr(self, '_request_attempted', False)
+                and (getattr(self, '_request_mode', None) != mode
+                     or getattr(self, '_request_receipt', None) is not request)):
+            raise ValueError('original staged request and mode required')
+
     def report_only(self, root, java_home, receipt, output, logs, *, nonce, request,
                     handshake_bytes, report_bytes):
         """One saved-prefix report; original writer predebits both JVM allowances."""
         from fixed_witness_report_pipe import run_report_only
         self._enter('PREPARED', 'REPORTING')
         try:
+            self._request_binding('report', request)
             result = run_report_only(root, java_home, receipt, output, logs, self.budget,
                                      nonce=nonce, request=request, handshake_bytes=handshake_bytes,
                                      report_bytes=report_bytes, total_deadline=self.deadline)
@@ -229,6 +284,7 @@ class CoordinatorArtifacts:
         from fixed_witness_replay_execution import run_execution
         self._enter('PREPARED', 'EXECUTING')
         try:
+            self._request_binding('execute', request)
             result = run_execution(root, java_home, receipt, output, logs, self.budget,
                                    nonce=nonce, request=request, handshake_bytes=handshake_bytes,
                                    journal_bytes=journal_bytes, declaration_bytes=declaration_bytes,
