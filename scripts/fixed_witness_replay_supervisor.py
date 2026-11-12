@@ -78,7 +78,7 @@ class TracerSupervisor:
 
     @classmethod
     def for_host(cls, ledger, command, cwd, environment, stdin, directory, deadline,
-                 writers, *, exec_observations=None, prepared_probes=None):
+                 writers, *, exec_observations=None, prepared_probes=None, artifact_bytes=None):
         """Prepare prefix, native launch and enforced coordinator output pipes.
 
         This does not run the launch or satisfy the original acceptance guard.
@@ -90,6 +90,10 @@ class TracerSupervisor:
         evidence = TracerEvidence(writers, directory)
         output = CoordinatorOutput(writers, directory)
         try:
+            if artifact_bytes is not None:
+                if stdin is not None:
+                    raise SupervisorError('artifact grant owns coordinator stdin exclusively')
+                stdin = output.reserve_artifacts(directory, artifact_bytes, deadline)
             launch = CoordinatorLaunch.for_host(
                 ledger, command, cwd, environment, (stdin, *output.writers), deadline)
             sources = None
@@ -188,6 +192,8 @@ class TracerSupervisor:
                 if self.output is not None:
                     self.output.require_launchable()
                 self.launch.launch()
+                if self.output is not None:
+                    self.output.send_artifacts(self.launch)
             finally:
                 if self.output is not None:
                     self.output.release_parent_writers()

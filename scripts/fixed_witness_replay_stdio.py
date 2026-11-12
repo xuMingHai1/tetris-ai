@@ -53,6 +53,7 @@ class CoordinatorOutput:
         self.claimed = False
         self.parent_released = False
         self.closed = False
+        self.artifacts = None
         try:
             for name in ('stdout', 'stderr'):
                 # No buffered bytes may survive a failed write/flush and be
@@ -78,12 +79,33 @@ class CoordinatorOutput:
                 or launch.attempted):
             raise CoordinatorOutputError('exclusive original launch output pipes required')
         self.claimed = True
+        if self.artifacts is not None:
+            self.artifacts.claim(launch)
+
+    def reserve_artifacts(self, directory, allowance, deadline):
+        """Before fork, remove the entire child allowance from pipe credit."""
+        from fixed_witness_replay_coordinator_artifacts import CoordinatorArtifactGrant
+        if self.claimed or self.closed or self.failure is not None or self.artifacts is not None:
+            raise CoordinatorOutputError('unclaimed original coordinator output required')
+        self.artifacts = CoordinatorArtifactGrant(self.quota, directory, allowance, deadline)
+        return self.artifacts.reader
+
+    def send_artifacts(self, launch):
+        if self.artifacts is not None:
+            self.artifacts.send(launch)
 
     def release_parent_writers(self):
         """After the only fork attempt; closing uncertain FDs is never retried."""
         if self.parent_released:
             return
         self.parent_released = True
+        if self.artifacts is not None:
+            try:
+                self.artifacts.close()
+            except BaseException as error:
+                self.close_errors.append(error)
+                if self.failure is None:
+                    self.failure = error
         for fd in self.writers:
             try:
                 os.close(fd)

@@ -88,7 +88,7 @@ class HostWriterHandoff:
         result.claimed = False
         return result
 
-    def prepare(self, ledger, command, cwd, environment, stdin, *, prepared_probes):
+    def prepare(self, ledger, command, cwd, environment, stdin, *, prepared_probes, artifact_bytes=None):
         """Consume the grant directly into the existing enforced lifecycle.
 
         Failure during source/native/output preparation consumes the grant too.
@@ -112,4 +112,5 @@ class HostWriterHandoff:
             raise ValueError('original prepared probe sources required')
         return TracerSupervisor.for_host(
             ledger, command, cwd, environment, stdin, self.directory,
-            self.deadline, self._writers, prepared_probes=prepared_probes)
+            self.deadline, self._writers, prepared_probes=prepared_probes,
+            artifact_bytes=artifact_bytes)

@@ -43,6 +43,10 @@ class FixedWitnessPipeTest {
                 "-p", "test_fixed_witness_replay_execution.py"), "execution-handshake-suite", 30);
         assertTrue(handshake.contains("Ran 2 tests") && handshake.contains("\nOK\n"), handshake);
         assertFalse(handshake.contains("skipped"), handshake);
+        var artifacts = python(List.of("-B", "-m", "unittest", "discover", "-v", "-s", "scripts",
+                "-p", "test_fixed_witness_replay_coordinator_artifacts.py"), "coordinator-artifacts", 30);
+        assertTrue(artifacts.contains("Ran 19 tests") && artifacts.contains("\nOK\n"), artifacts);
+        assertFalse(artifacts.contains("skipped"), artifacts);
         var registration = python(List.of("-m", "unittest", "discover", "-v", "-s", "scripts",
                 "-p", "test_fixed_witness_replay_registration.py"), "registration-suite", 30);
         assertTrue(registration.contains("Ran 8 tests") && registration.contains("\nOK\n"), registration);
@@ -78,6 +82,17 @@ class FixedWitnessPipeTest {
                 spec.toString()), "jvm", 120);
         assertTrue(Files.isRegularFile(output.resolve("artificial-result.json")));
         assertFalse(Files.exists(output.resolve("journal.jsonl")));
+        var charged = Files.createDirectory(directory.resolve("charged-jvm"));
+        var chargedSpec = directory.resolve("charged-spec.json");
+        Files.writeString(chargedSpec, JsonMapper.builder().build().writeValueAsString(Map.of(
+                "root", root.toString(), "java", Path.of(System.getProperty("java.home")).toRealPath().toString(),
+                "out", charged.toString(), "dependencies", dependencies)));
+        python(List.of("-B", "-c", "import json,sys; sys.path.insert(0,'scripts'); "
+                + "from test_fixed_witness_replay_coordinator_artifacts import ordinary_jvm_fixture; "
+                + "ordinary_jvm_fixture(json.load(open(sys.argv[1])))", chargedSpec.toString()), "charged-jvm", 110);
+        assertTrue(Files.readString(charged.resolve("coordinator-artifact-terminal.json"))
+                .contains("VERIFIED_NO_REPLAY"));
+        assertFalse(Files.exists(charged.resolve("journal.jsonl")));
     }
 
     private String python(List<String> args, String name, int seconds) throws Exception {

@@ -1,0 +1,347 @@
+"""Byte pipes/files and injected native transports only; no native probe."""
+import io
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import time
+import unittest
+from unittest.mock import Mock, patch
+
+import fixed_witness_replay_coordinator_artifacts as artifacts
+from fixed_witness_replay_quota import ByteQuota, OUTPUT_BYTES, OutputLimitError, write_exclusive
+from fixed_witness_replay_stdio import CoordinatorOutput
+from fixed_witness_replay_supervisor import TracerSupervisor
+from fixed_witness_replay_writers import reserve_writers, COORDINATOR_BYTES
+import test_fixed_witness_replay_supervisor as supervisor_fixture
+
+
+class CoordinatorArtifactsTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name).resolve()
+        self.deadline = time.monotonic() + 20
+        self.allowance = 1024 * 1024
+        self.root = ByteQuota()
+        self.writers = reserve_writers(self.root)
+
+    def pipe(self, raw, *, eof=True):
+        read, write = os.pipe()
+        self.addCleanup(os.close, read)
+        os.write(write, raw)
+        if eof:
+            os.close(write)
+        else:
+            self.addCleanup(os.close, write)
+        return read
+
+    def raw(self, parent=None, pid=None, allowance=None, nanos=10_000_000_000):
+        return ('FIXED_ARTIFACTS_V1 %d %d %d %d\n' % (
+            os.getppid() if parent is None else parent, os.getpid() if pid is None else pid,
+            self.allowance if allowance is None else allowance, nanos)).encode('ascii')
+
+    def receive(self, raw=None):
+        return artifacts.CoordinatorArtifacts.receive(
+            self.pipe(self.raw() if raw is None else raw), self.directory, self.deadline)
+
+    def grant(self):
+        grant = artifacts.CoordinatorArtifactGrant(
+            self.writers.coordinator, self.directory, self.allowance, self.deadline)
+        self.addCleanup(grant.close)
+        return grant
+
+    def test_reservation_removes_child_credit_before_any_pipe_write(self):
+        grant = self.grant()
+        self.assertEqual(self.allowance, self.writers.coordinator.charged)
+        self.assertEqual(OUTPUT_BYTES, self.root.charged)
+        self.assertFalse(grant.sent)
+        self.assertFalse(hasattr(grant, 'quota'))
+        self.assertEqual([], list(self.directory.iterdir()))
+
+    def test_second_transfer_and_failed_reservation_never_retry(self):
+        self.writers.coordinator.charge(COORDINATOR_BYTES - 1)
+        with self.assertRaises(OutputLimitError):
+            self.grant()
+        with self.assertRaisesRegex(ValueError, 'attempted'):
+            self.grant()
+
+    def test_pipe_creation_failure_keeps_permanent_debit(self):
+        with patch.object(artifacts.os, 'pipe', side_effect=OSError('pipe failed')):
+            with self.assertRaises(OSError):
+                self.grant()
+        self.assertEqual(self.allowance, self.writers.coordinator.charged)
+        with self.assertRaises(ValueError):
+            self.grant()
+
+    def test_grant_binds_exact_launch_pid_and_original_deadline(self):
+        grant = self.grant()
+        launch = Mock(attempted=False, owner=os.getpid(), deadline=self.deadline,
+                      stdio=(grant.reader, 20, 21))
+        grant.claim(launch)
+        launch.attempted, launch.cleanup_tid, launch.stopped = True, os.getpid() + 1, None
+        launch.clock.return_value = self.deadline - 2
+        grant.send(launch)
+        reader = os.dup(grant.reader)
+        self.addCleanup(os.close, reader)
+        grant.close()
+        expected = ('FIXED_ARTIFACTS_V1 %d %d %d 2000000000\n' % (
+            os.getpid(), launch.cleanup_tid, self.allowance)).encode('ascii')
+        self.assertEqual(expected, os.read(reader, 200))
+        self.assertEqual(b'', os.read(reader, 1))
+        launch._owner_and_deadline.assert_called_once()
+        with self.assertRaises(ValueError):
+            grant.send(launch)
+
+    def test_wrong_launch_and_failed_send_cannot_reissue(self):
+        grant = self.grant()
+        launch = Mock(attempted=False, owner=os.getpid(), deadline=self.deadline,
+                      stdio=(grant.reader, 20, 21))
+        grant.claim(launch)
+        launch.attempted, launch.cleanup_tid, launch.stopped = True, os.getpid() + 1, None
+        launch.clock.return_value = time.monotonic()
+        with patch.object(artifacts.os, 'write', side_effect=BlockingIOError()):
+            with self.assertRaises(BlockingIOError):
+                grant.send(launch)
+        with self.assertRaises(ValueError):
+            grant.send(launch)
+        self.assertEqual(self.allowance, self.writers.coordinator.charged)
+
+    def test_received_writer_claim_and_terminal_reserve_are_same_allowance(self):
+        child = self.receive()
+        self.assertEqual(artifacts.TERMINAL_BYTES + len(self.raw()), child.budget.quota.charged)
+        self.assertEqual(self.raw(), (self.directory / 'coordinator-artifact-claim.txt').read_bytes())
+        self.assertLessEqual(child.deadline, self.deadline)
+        with self.assertRaises(FileExistsError):
+            self.receive()
+
+    def test_each_grant_identity_and_bounds_rejected_before_writing(self):
+        for raw in (self.raw(parent=0), self.raw(pid=os.getpid()+1),
+                    self.raw(allowance=4096), self.raw(allowance=COORDINATOR_BYTES),
+                    self.raw(nanos=0), self.raw(nanos=900_000_000_001)):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                self.receive(raw)
+        self.assertEqual([], list(self.directory.iterdir()))
+
+    def test_noncanonical_oversized_truncated_or_extra_data_rejected(self):
+        for raw in (b'', self.raw()[:-1], self.raw()+b'\n', b'x'*161,
+                    self.raw().replace(b'FIXED_ARTIFACTS_V1', b'OTHER'),
+                    self.raw().replace(b' 10000000000', b' 010000000000')):
+            with self.subTest(raw=raw), self.assertRaises(ValueError):
+                self.receive(raw)
+
+    def test_original_deadline_requires_eof_and_cannot_extend(self):
+        clock = Mock(side_effect=[1., 1., 2.])
+        with self.assertRaisesRegex(ValueError, 'deadline'):
+            artifacts.CoordinatorArtifacts.receive(
+                self.pipe(self.raw(), eof=False), self.directory, 2., clock=clock)
+        self.assertEqual([], list(self.directory.iterdir()))
+
+    def test_regular_file_and_invalid_deadlines_rejected(self):
+        for deadline in (True, float('nan'), float('inf'), 0, time.monotonic()+901):
+            with self.subTest(deadline=deadline), self.assertRaises(ValueError):
+                artifacts.CoordinatorArtifacts.receive(self.pipe(self.raw()), self.directory, deadline)
+        path = self.directory / 'file'
+        path.write_bytes(self.raw())
+        with path.open('rb') as stream, self.assertRaisesRegex(ValueError, 'pipe'):
+            artifacts.CoordinatorArtifacts.receive(stream.fileno(), self.directory, self.deadline)
+
+    def test_original_owner_checked_before_build_or_jvm(self):
+        child = self.receive()
+        with patch.object(artifacts.os, 'getppid', return_value=0), \
+                patch('fixed_witness_replay_prepare.prepare') as build:
+            with self.assertRaisesRegex(ValueError, 'owner'):
+                child.prepare('source', 'jdk', 'evidence', build_storage='build')
+            build.assert_not_called()
+        with self.assertRaises(ValueError):
+            child.prepare('source', 'jdk', 'evidence', build_storage='build')
+
+    def test_existing_prepare_and_verify_share_exact_budget_and_earlier_deadline(self):
+        child = self.receive()
+        receipt = {'manifest': 'retained', 'sha256': 'a'*64}
+        def build(*args, **kwargs):
+            self.assertIs(child.budget, args[3])
+            self.assertEqual(child.deadline, kwargs['total_deadline'])
+            write_exclusive(self.directory / 'manifest', b'build', args[3].quota)
+            return receipt
+        def verify(*args, **kwargs):
+            self.assertIs(child.budget, args[5])
+            self.assertEqual(child.deadline, kwargs['total_deadline'])
+            args[5].quota.reserve(kwargs['artifact_bytes'])
+            return {'state': 'VERIFIED_NO_REPLAY'}
+        with patch('fixed_witness_replay_prepare.prepare', side_effect=build), \
+                patch('fixed_witness_replay_pipe.run_verify_only', side_effect=verify):
+            self.assertIs(receipt, child.prepare('s', 'j', 'e', build_storage='b'))
+            result = child.verify_only('s', 'j', receipt, 'o', 'l', nonce='b'*64, artifact_bytes=100)
+        self.assertEqual('VERIFIED_NO_REPLAY', result['state'])
+        self.assertEqual(4096 + len(self.raw()) + 5 + 100, child.budget.quota.charged)
+        self.assertFalse(json.loads((self.directory / 'coordinator-artifact-terminal.json').read_bytes())[
+            'diagnostic_started'])
+        with self.assertRaises(ValueError):
+            child.verify_only('s', 'j', receipt, 'o', 'l', nonce='b'*64, artifact_bytes=100)
+
+    def test_build_failure_retains_terminal_and_original_no_retry(self):
+        child = self.receive()
+        failure = OSError('build failed')
+        with patch('fixed_witness_replay_prepare.prepare', side_effect=failure):
+            with self.assertRaises(OSError) as raised:
+                child.prepare('s', 'j', 'e', build_storage='b')
+        self.assertIs(failure, raised.exception)
+        self.assertEqual('PREPARE_FAILED', json.loads((
+            self.directory / 'coordinator-artifact-terminal.json').read_bytes())['state'])
+        with self.assertRaises(ValueError):
+            child.verify_only('s', 'j', {}, 'o', 'l', nonce='b'*64, artifact_bytes=1)
+
+    def test_actual_verify_prelaunch_jvm_reservation_denies_after_build_consumption(self):
+        child = self.receive()
+        child.phase = 'PREPARED'
+        child.budget.quota.charge(child.budget.quota.remaining - 15)
+        with patch('fixed_witness_replay_pipe.verify_prepared', return_value={'environment': {}}), \
+                patch('fixed_witness_replay_pipe.command_for', return_value=['artificial']), \
+                patch('fixed_witness_replay_pipe.run_process') as launch:
+            with self.assertRaises(OutputLimitError):
+                child.verify_only(self.directory, self.directory, {}, self.directory/'new',
+                                  self.directory, nonce='a'*64, artifact_bytes=16)
+            launch.assert_not_called()
+        self.assertEqual(15, child.budget.quota.remaining)
+        self.assertEqual('VERIFY_FAILED', json.loads((
+            self.directory / 'coordinator-artifact-terminal.json').read_bytes())['state'])
+
+    def test_parent_pipe_credit_and_child_artifacts_are_disjoint(self):
+        self.grant()
+        child = self.receive()
+        pipe = io.BytesIO()
+        remaining = self.writers.coordinator.remaining
+        self.writers.coordinator.charge(remaining - 3)
+        from fixed_witness_replay_process import OutputBudget
+        self.assertTrue(OutputBudget(quota=self.writers.coordinator).consume(b'abcdef', pipe))
+        write_exclusive(self.directory / 'child', b'still child credit', child.budget.quota)
+        self.assertEqual(b'abc', pipe.getvalue())
+        self.assertEqual(0, self.writers.coordinator.remaining)
+        self.assertEqual(OUTPUT_BYTES, self.root.charged)
+
+    def test_real_supervisor_sends_after_original_launch_before_wait_and_closes(self):
+        f = supervisor_fixture.SupervisorTest()
+        f.setUp()
+        f.launch.owner = os.getpid()
+        f.f.stub.parent_pid = os.getpid()
+        f.f.system.getpid.return_value = os.getpid()
+        f.f.system.listdir.return_value = [str(os.getpid())]
+        f.ledger._tasks[0].tid = os.getpid()
+        f.launch.deadline, f.launch.clock = self.deadline, time.monotonic
+        output = CoordinatorOutput(self.writers, self.directory)
+        reader = output.reserve_artifacts(self.directory, self.allowance, self.deadline)
+        child_stdin = os.dup(reader)
+        self.addCleanup(os.close, child_stdin)
+        f.launch.stdio = (reader, *output.writers)
+        owner = f.owner(output=output)
+        original = owner.waitpid
+        def wait(tid, flags):
+            if not hasattr(wait, 'received'):
+                wait.received = os.read(child_stdin, MAX_READ)
+                self.assertTrue(wait.received.startswith(b'FIXED_ARTIFACTS_V1 '))
+                self.assertEqual(b'', os.read(child_stdin, 1))
+            return original(tid, flags)
+        MAX_READ = 200
+        owner.waitpid = wait
+        owner.run()
+        self.assertTrue(owner.drained)
+        self.assertTrue(output.artifacts.sent and output.artifacts.closed)
+        self.assertEqual(self.allowance, self.writers.coordinator.charged)
+
+    def test_factory_passes_exclusive_stdin_and_source_handoff_configuration(self):
+        import test_fixed_witness_replay_writer_handoff as host_fixture
+        read = self.pipe(host_fixture.grant())
+        from fixed_witness_replay_writer_handoff import HostWriterHandoff
+        host = HostWriterHandoff.receive(read, self.directory, self.deadline)
+        with patch('fixed_witness_replay_supervisor.TracerSupervisor.for_host', return_value='owner') as factory:
+            self.assertEqual('owner', host.prepare(Mock(), ['fixed'], '/fixed', {}, None,
+                             prepared_probes=(1, 2, 3, 4), artifact_bytes=self.allowance))
+        self.assertIsNone(factory.call_args.args[4])
+        self.assertEqual(self.allowance, factory.call_args.kwargs['artifact_bytes'])
+
+    def test_terminal_disk_failure_keeps_original_build_failure_and_charge(self):
+        child = self.receive()
+        failure = OSError('original build error')
+        with patch('fixed_witness_replay_prepare.prepare', side_effect=failure), \
+                patch.object(artifacts, 'write_exclusive', side_effect=OSError('disk full')):
+            with self.assertRaises(OSError) as raised:
+                child.prepare('s', 'j', 'o', build_storage='b')
+        self.assertIs(failure, raised.exception)
+        self.assertIsNotNone(child.terminal_error)
+        self.assertEqual('FINISHED', child.phase)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'artificial Linux build processes required')
+    def test_actual_prepare_uses_received_allowance_without_new_root(self):
+        import test_fixed_witness_replay_prepare as preparation_fixture
+        fixture = preparation_fixture.PreparationTest()
+        fixture.setUp()
+        self.addCleanup(fixture.doCleanups)
+        self.addCleanup(fixture.directory.cleanup)
+        child = self.receive()
+        receipt = child.prepare(fixture.root, fixture.jdk, fixture.out, build_storage=fixture.build)
+        self.assertEqual('PREPARED', child.phase)
+        manifest = json.loads(Path(receipt['manifest']).read_bytes())
+        self.assertFalse(manifest['diagnostic_started'])
+        self.assertEqual(4096 + len(self.raw()) + 4096 + sum(
+            path.stat().st_size for path in fixture.out.iterdir()), child.budget.quota.charged)
+
+
+def ordinary_jvm_fixture(spec):
+    """Actual inherited grant -> actual verify-only JVM; build receipt mocked.
+
+    Ordinary CI subprocesses only. No native tracer/ptrace/fork probe, clean
+    network build, historical fixture, or whole-source provenance is claimed.
+    """
+    import subprocess
+    root = Path(spec['root']).resolve()
+    session = Path(spec['out']).resolve()
+    writers = reserve_writers(ByteQuota())
+    deadline = time.monotonic() + 90
+    grant = artifacts.CoordinatorArtifactGrant(writers.coordinator, session, 4*1024*1024, deadline)
+    code = ("import json,sys,time; sys.path.insert(0,'scripts'); "
+            "from test_fixed_witness_replay_coordinator_artifacts import ordinary_jvm_child; "
+            "ordinary_jvm_child(json.loads(sys.argv[1]))")
+    child = None
+    try:
+        child = subprocess.Popen([sys.executable, '-B', '-c', code, json.dumps(spec)], cwd=root,
+                                 stdin=grant.reader, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        launch = Mock(attempted=False, owner=os.getpid(), deadline=deadline,
+                      stdio=(grant.reader, 20, 21))
+        grant.claim(launch)
+        launch.attempted, launch.cleanup_tid, launch.stopped = True, child.pid, None
+        launch.clock = time.monotonic
+        grant.send(launch)
+        grant.close()
+        _, stderr = child.communicate(timeout=80)
+        assert child.returncode == 0, stderr.decode('utf-8', errors='replace')
+        assert writers.coordinator.charged == 4*1024*1024
+        record = json.loads((session / 'coordinator-artifact-terminal.json').read_bytes())
+        assert record['state'] == 'VERIFIED_NO_REPLAY' and not record['diagnostic_started']
+    finally:
+        grant.close()
+        if child is not None:
+            if child.poll() is None:
+                child.kill()
+                child.wait(timeout=5)
+            if child.stderr is not None:
+                child.stderr.close()
+
+
+def ordinary_jvm_child(spec):
+    from test_fixed_witness_replay_pipe import artificial_jvm
+    child = artifacts.CoordinatorArtifacts.receive(0, spec['out'], time.monotonic()+90)
+    # Match the existing artificial_jvm receipt limitation explicitly. Still
+    # call the actual coordinator prepare stage and its exact budget writer.
+    def build(root, java, output, budget, **kwargs):
+        write_exclusive(Path(spec['out']) / 'fixture-build-receipt.json',
+                        b'{"artificial_build":true}\n', budget.quota)
+        return {'sha256': 'a'*64}
+    with patch('fixed_witness_replay_prepare.prepare', side_effect=build):
+        child.prepare(spec['root'], spec['java'], 'artificial', build_storage='artificial')
+    artificial_jvm(spec, child)
+
+
+if __name__ == '__main__':
+    unittest.main()
