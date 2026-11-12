@@ -72,8 +72,10 @@ Linux普通JUnit bridge要求17项/零skip、30秒；所有fork/wait/ptrace/pidf
 有限剩余集成清单：
 
 1. 本入口的原可信Java host调用、原来源/manifest冻结及完整filter/external no-injection checker。
-2. host/tracer/coordinator三个互斥writer的同根10MiB额度传输与实际写前执行；
-   `reserve_writers`仍只是分区，当前入口要求host提供已计费stdio，不伪称已实施此条件。
+2. host/tracer/coordinator三个互斥writer的同根10MiB跨进程额度传输与全部artifact写前执行；
+   [协调器输出接线](heart-fixed-witness-replay-quota.md)已使`TracerSupervisor.for_host`
+   从原coordinator partition计费实际stdout/stderr pipe、复用原wait/cleanup排空；
+   Java宿主交接及所有artifact/JVM预留仍未接齐，不声称整体root已完成。
 3. 复杂thread EXEC/leader提前退出/job-control清理、pin/binding失败及全部固定fixture/task预留表。
 4. EXITKILL终末负例及整体最终revision独立Review/适用CI/原执行前门禁、compatibility/inputhash和唯一登记。
 

@@ -20,6 +20,35 @@
 其余整体最终Review/CI、唯一验收登记和历史执行停止门保持。仅test-only设施，
 不改变生产架构，README/AGENTS无需调整。
 
+## 本次新增修改：协调器 stdout/stderr 接入原监督器
+
+`TracerSupervisor.for_host()`现在在唯一fork前建立`CoordinatorOutput`的两条pipe，
+将write FD原样交给`CoordinatorLaunch.for_host()`，从已永久分区的
+`writers.coordinator`消费stdout/stderr保留前缀。该partition只准一次stdio claim；
+原有artifact/JVM子预留仍从同一个对象扣除，不额外建立root或按日志大小重计。
+构造失败不退claim/额度、不覆盖旧文件；额度耗尽在fork前拒绝。
+
+`run -> launch/finally关闭父write端 -> InitialWaitOwner/BoundedWaitOwner`在每次
+实际wait前通过同一个`_wait`排空两条pipe，每流最多16KiB，先charge后write/flush。
+输出失败发生在消费wait之前，不会丢失EXEC/terminal receipt；溢出只保留可计费前缀，
+锁存后走原`SettledProcessCleanup`的pin/kill/实际reap。cleanup仍有界读取并丢弃后续
+字节，不重试失败sink、不跨writer借额度。全部birth真实reap后仍须在原deadline内
+排空EOF，再关闭FD/sink；sink采用无缓冲二进制文件，避免失败后close隐式重写；EOF本身不结算task，close失败不能返回drained成功。
+未配置output的既有直接构造路径保持原调用方负责stdio的契约。
+
+21项集成测试使用真实临时pipe/文件，但全部fork/wait/ptrace/pidfd/signal均为fake。
+覆盖原双EXEC/精确ENTRY/typed wire/reap链、两个输出流、artifact争用、超额后清理、
+不丢wait、末尾排空、ECHILD、期限、I/O/close失败及一次性factory；Linux普通JUnit
+桥强制21项/零skip/30秒。它们不是原生能力或完整network clean-build验收。
+
+有限剩余清单：可信Java宿主的启动/终态观察与三个writer的跨进程互斥交接；协调器
+全部artifact/JVM保留额度与原来源/manifest冻结、完整filter/external no-injection checker；
+剩余复杂cleanup和完整冻结fixture/task预留表、EXITKILL终末负例；最终整体Review/CI、
+compatibility/inputhash、唯一登记和原执行前门。此接线没有完成上述项，不可把
+进程内原ByteQuota的共享升级为Java/Python跨进程传输证明，不fork/pickle该对象。
+没有native probe、network clean-build或历史22步执行；研究结果和用户可见功能无新增。
+仅test-only设施，生产架构/README/AGENTS、预算/guard及全部停止门不变。
+
 ## 既有组件与交接记录
 
 本组件落实[已接受设计](../design/heart-fixed-witness-replay.md)的固定10MiB输出上限，

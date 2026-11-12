@@ -1,8 +1,9 @@
 """Compose the existing tracer lifecycle; no CLI, source freeze or acceptance run.
 
-The trusted host must supply a prepared CoordinatorLaunch with charged stdio,
-original deadline and reserved tracer slot. This entry does not authenticate
-that host, enforce cross-process writer quotas or certify kernel capabilities.
+The trusted host supplies the original deadline and reserved tracer slot. The
+for_host factory enforces coordinator pipe retention from its original writer
+partition; a caller-provided launch still owns its stdio policy. This entry does
+not authenticate the host, transfer cross-process quotas or certify capability.
 """
 import os
 import time
@@ -11,6 +12,7 @@ from fixed_witness_replay_exec_observation import OwnedExecObservations
 from fixed_witness_replay_initial_wait import InitialWaitOwner
 from fixed_witness_replay_launch import CoordinatorLaunch
 from fixed_witness_replay_settled_cleanup import SettledProcessCleanup
+from fixed_witness_replay_stdio import CoordinatorOutput, CoordinatorOutputError
 from fixed_witness_replay_wait_owner import BoundedWaitOwner
 
 
@@ -29,7 +31,7 @@ class TracerSupervisor:
     original exception. Unsupported thread/event inventories remain incomplete.
     """
 
-    def __init__(self, launch, *, exec_observations=None, waitpid=os.waitpid,
+    def __init__(self, launch, *, exec_observations=None, output=None, waitpid=os.waitpid,
                  sleep=time.sleep, open_pidfd=None, send_signal=None, close=os.close):
         if (type(launch) is not CoordinatorLaunch or launch.attempted
                 or launch.stopped is not None
@@ -44,14 +46,58 @@ class TracerSupervisor:
             raise SupervisorError('fixed wait and descriptor transports required')
         if any(fn is not None and not callable(fn) for fn in (open_pidfd, send_signal)):
             raise SupervisorError('fixed pidfd transports required')
+        if output is not None:
+            if type(output) is not CoordinatorOutput:
+                raise SupervisorError('original coordinator output transport required')
+            output.claim(launch)
         launch._supervisor_claimed = True
         self.launch, self.exec_observations = launch, exec_observations
+        self.output = output
         self.waitpid, self.sleep = waitpid, sleep
         self.open_pidfd, self.send_signal, self.close = open_pidfd, send_signal, close
         self.started = False
         self.initial = self.dispatcher = self.waiter = self.cleanup = None
         self.failure = self.cleanup_error = None
         self.drained = False
+
+    @classmethod
+    def for_host(cls, ledger, command, cwd, environment, stdin, directory, deadline,
+                 writers, *, exec_observations=None):
+        """Prepare native launch with enforced coordinator stdout/stderr pipes.
+
+        This does not run the launch or satisfy the original acceptance guard.
+        The dedicated tracer receives exclusive reservations from its host;
+        artifact/JVM sub-reservations must use writers.coordinator as well.
+        Native wires load before fork; any construction failure closes pipes.
+        """
+        output = CoordinatorOutput(writers, directory)
+        try:
+            launch = CoordinatorLaunch.for_host(
+                ledger, command, cwd, environment, (stdin, *output.writers), deadline)
+            return cls(launch, exec_observations=exec_observations, output=output)
+        except BaseException:
+            output.close()
+            raise
+
+    def _wait(self, tid, options):
+        # Poll BEFORE consuming a wait tuple. An output failure must not lose
+        # an EXEC/terminal receipt or release a live credit by inference.
+        if self.output is not None:
+            self.output.poll(cleanup=self.failure is not None)
+            self.launch._owner_and_deadline()
+        return self.waitpid(tid, options)
+
+    def _finish_output(self, *, cleanup=False):
+        if self.output is None:
+            return
+        while not self.output.drained:
+            self.launch._owner_and_deadline()
+            self.output.poll(cleanup=cleanup)
+            if not self.output.drained:
+                remaining = self.launch.deadline - self.launch.clock()
+                if remaining <= 0:
+                    raise CoordinatorOutputError('original output drain deadline exhausted')
+                self.sleep(min(0.01, remaining))
 
     def run(self):
         """Attempt once; retain every intermediate owner for failure evidence.
@@ -65,14 +111,23 @@ class TracerSupervisor:
             raise SupervisorError('supervisor already attempted')
         self.started = True
         try:
-            self.launch.launch()
+            try:
+                if self.output is not None:
+                    self.output.require_launchable()
+                self.launch.launch()
+            finally:
+                if self.output is not None:
+                    self.output.release_parent_writers()
             self.initial = InitialWaitOwner(
-                self.launch, waitpid=self.waitpid, sleep=self.sleep,
+                self.launch, waitpid=self._wait, sleep=self.sleep,
                 exec_observations=self.exec_observations)
             self.dispatcher = self.initial.run()
             self.waiter = BoundedWaitOwner(
-                self.dispatcher, waitpid=self.waitpid, sleep=self.sleep)
+                self.dispatcher, waitpid=self._wait, sleep=self.sleep)
             totals = self.waiter.run()
+            self._finish_output()
+            if self.output is not None and self.output.failure is not None:
+                raise CoordinatorOutputError('coordinator output failed') from self.output.failure
             self.drained = True
             return totals
         except BaseException as error:
@@ -89,8 +144,20 @@ class TracerSupervisor:
                     self.cleanup = SettledProcessCleanup(
                         self.launch, open_pidfd=self.open_pidfd,
                         send_signal=self.send_signal, close=self.close,
-                        waitpid=self.waitpid, sleep=self.sleep)
+                        waitpid=self._wait, sleep=self.sleep)
                     self.cleanup.run()
+                self._finish_output(cleanup=True)
             except BaseException as cleanup_error:
                 self.cleanup_error = cleanup_error
             raise
+        finally:
+            if self.output is not None:
+                self.output.close()
+                if self.output.close_errors and self.failure is None:
+                    self.drained = False
+                    self.failure = CoordinatorOutputError('coordinator output close failed')
+                    if self.launch.stopped is None:
+                        self.launch.stopped = str(self.failure)
+                    if self.exec_observations is not None:
+                        self.exec_observations.fail(self.launch.stopped)
+                    raise self.failure from self.output.close_errors[0]
