@@ -75,6 +75,10 @@ class SettledProcessCleanup:
         failed = True
         try:
             self.reaper._check()
+            # EXEC may have retired/rekeyed a thread before normal dispatch
+            # failed. Adopt only that owner's consumed event before any PID pin.
+            if not self.reaper.exec_binding_started:
+                self.reaper.bind_retained_exec()
             # Recover the original owner's consumed creation event, or wait
             # for its already-reserved native event, before opening any PID.
             # Never retry a previously attempted/failed binding phase. Fully

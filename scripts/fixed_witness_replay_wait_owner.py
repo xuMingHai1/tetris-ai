@@ -61,6 +61,7 @@ class _OwnedWait:
     adopted: bool = False
     facts: object = None
     resume_attempted: bool = False
+    exec_installed: bool = False
 
 
 class BoundedWaitOwner:

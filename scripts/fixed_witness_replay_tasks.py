@@ -252,6 +252,14 @@ class TaskLedger:
         group creations fail closed rather than inventing syscall outcomes.
         """
         self._running()
+        return self.cleanup_exec_identity(ticket, old_tid, new_tid)
+
+    def cleanup_exec_identity(self, ticket, old_tid, new_tid):
+        """Apply original-owner authenticated EXEC during failed cleanup only.
+
+        Same identity checks as normal EXEC, without clearing a stopped ledger.
+        This bookkeeping is not authentication, a new allowance or resume proof.
+        """
         task = self._task(ticket)
         if (ticket == 0 or not task.alive or type(old_tid) is not int
                 or type(new_tid) is not int or old_tid != task.tid):
