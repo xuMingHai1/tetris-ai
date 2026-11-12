@@ -11,6 +11,46 @@ host证据writer及整套fixture仍未接通，不能执行原生probe/network c
 
 ## 问题与源码证据
 
+### 本次新增修改：prepare receipt 到原监督器的来源接线
+
+`TracerSupervisor.for_host(..., prepared_probes=(root, receipt, births, networks))`
+现在可使用原 `prepare` 返回且由可信父侧独立保留的 manifest receipt。新
+`PreparedProbeSources` 在原 owner/deadline 门内有界读取 manifest，核对原 SHA256、
+PREPARED/未执行状态和 checkout classpath，再从其中的完整 tracked-file inventory
+取得固定 probe 与 network launcher 的预期字节哈希，不以当前文件或 tracee 自报值
+重新冻结。两条原 `network.chain` 记录必须分别绑定精确 x32/compat argv、该 launcher、
+同一解释器和冻结的库；canonical 常规文件、大小、读取期间身份及哈希均核对。
+该阶段不运行 Git/辅助进程、不加载库、不安装 filter，也不启动 probe。
+
+记录直接构造唯一 `OwnedExecObservations` 并由原 supervisor/initial wait/dispatcher
+领取；不得同时传入另一份 observation 配置。原 fork 之前再次校验，原 loop/cleanup/
+output close 结束后、原 tracer 生命周期证据写入之前校验同一组原文件。漂移永久撤销该配置并禁止成功返回；已有执行
+错误与 cleanup 结果保留，来源错误单独记录为 `source_error`，不替换原异常。
+只读观察无新增保留副本，不额外分配证据预算或 task。原 source manifest 已由 prepare
+按同根证据口径计费；本接线不授予跨进程复制 ByteQuota 或 writer 的权利。
+
+21 项 fake-only 用例包含原 receipt 错误、probe/launcher/解释器/库漂移、精确 argv、
+canonical/常规文件、读中 deadline、失败不重试、fork 前拒绝、reap 后漂移、原执行错误
+保留、领取后每次读取绑定实际 owner 的原 deadline，以及从新来源记录经过原两次
+EXEC/ENTRY/terminal checker 的组合路径，以及真实同根 writer 下来源失败/原执行错误/证据写入失败的优先次序。Linux
+普通 JUnit 桥强制 30 秒内全部执行且零 skip。内核与文件操作均为注入，不能视为原生
+能力结果。可信 host 仍须保证独占文件和独立 receipt，无法抵抗恶意改写后恢复；同步
+文件系统调用无法强制抢占，沿用原 cooperative host 限制。
+
+有限剩余集成清单：
+
+1. 本接线关闭 prepare manifest 到固定 probe/launcher 记录再到实际 dispatcher 的缺口。
+2. 完整可信 Java host、原 task reservation 表所选 birth 的实际调度、三个 writer 跨进程
+   互斥交接、coordinator 全部 artifact/JVM enforcement 和 full filter/external
+   no-injection checker 仍缺；本 API 的 `births` 不是该调度的认证证明。
+3. 未消费 EXEC/de_thread、leader 提前退出及复杂 jobcontrol/ptrace/pin 失败整树清理、
+   全部 frozen fixtures 与 EXITKILL 终末负例仍须完成。
+4. 整体最终 revision 独立 Review/适用 CI、compatibility/inputhash、唯一登记和原执行门
+   满足前，不执行 native probe/network clean-build/历史输入。
+
+整体里程碑和原生验收仍未完成；研究结果、用户可见游戏功能本轮无新增。仅 test-only
+设施及交接说明变化，生产 API/冻结协议/guard/预算不变，README/AGENTS 无需同步。
+
 `CreationSyscallDispatcher.syscall_info_stop`要求原生 syscall-info；原
 `test_fixed_witness_replay_network.py` 的 `probe('x32')` 调用 `0x40000029`
 （x32 socket），`probe('compat')`执行 `b866000000cd80c3`（i386 socketcall）。
