@@ -245,7 +245,7 @@ EXITKILL负例；整体最终 Review/CI、compatibility/inputhash/唯一登记�
 OutputBudget、绝对 deadline 和独立 request receipt。原 report 的 H+R、execution
 的 H+J+D+R 在 spawn 前原子永久扣减，Java 的 READY、journal、declaration、report
 及终态 writer 继续绑定确切子额度；日志使用余量，读取不重复计费。新建 request
-副本仍必须由调用方用同一 received quota 写入，不能另外创建根预算。
+副本仍必须用同一 received quota 写入，不能另外创建根预算；下节接通该写入路径。
 
 execution 失败可能已发生 ACK/动作，协调器终态因此记录 `execution_attempted=true`
 和未知的 `actions_started=null`，不能写成“没有执行”；仅已有最终核验成功时记录
@@ -265,3 +265,24 @@ compatibility/inputhash/唯一登记。完整套件的所有调用方尚未接�
 完整宿主交付或历史执行授权。整体原生/network/历史验收尚未完成；研究结果和游戏
 功能本轮无新增。170A/174、10MiB、task/stop/时间预算、原 guard 与停止门均不变。
 仅研究设施接线，生产 README/AGENTS/架构职责无需修改。
+
+## 本次新增修改：received writer 的独占 request 副本
+
+`CoordinatorArtifacts.stage_request` 现在从 PREPARED 阶段接收调用方独立保留的原始
+bytes、declaration 与 hash，在创建新目录前从原 received quota 永久预扣整份副本。
+report 的三文件或 execution 的两文件使用原有大小限制与 `write_exclusive`，然后直接
+调用原 `retain_request` / `retain_execution_request`，不重新序列化 declaration 或实现规则。
+返回的精确 receipt 与模式绑定；已经 stage 后不能换 receipt、换模式或转 verify-only。
+失败保留原错误、已写前缀和全部扣费，不能重试 stage；终态写入仍使用原预留。
+
+现有独立调用者仍可传入自行保留并已计费的 receipt；新方法不声称从外部 receipt 推断
+其计费来源。完整 suite 的调用方应使用此路径。两条已有 Linux Python-child -> 普通
+report/execution JVM 联调已改用该实际接线；人工输入和 mocked build receipt 的边界不变。
+新增9项回归核对预扣不足不建目录、独立 declaration 不匹配、写入失败、独占目录保留、
+owner/deadline、copy 漂移、错误文件集和原 receipt/mode 绑定，Linux 桥要求35项零跳过。
+
+有限剩余项仍为完整可信宿主 CLI/冻结 suite 调度及 source/import/stdlib/动态库/JDK/
+toolchain/manifest/task-fixture 冻结，完整 filter/external no-injection checker，复杂 cleanup/
+job-control/完整 fixtures/EXITKILL，以及整体最终 Review/CI/compatibility/inputhash/唯一登记。
+本节只接通 request 副本写入，不是完整宿主或原生/network/历史验收；研究结果和游戏功能
+无新增。170A/174、所有原预算、guard 和停止门保持；无需修改生产架构文档。

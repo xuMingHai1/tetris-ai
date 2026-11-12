@@ -45,7 +45,7 @@ class FixedWitnessPipeTest {
         assertFalse(handshake.contains("skipped"), handshake);
         var artifacts = python(List.of("-B", "-m", "unittest", "discover", "-v", "-s", "scripts",
                 "-p", "test_fixed_witness_replay_coordinator_artifacts.py"), "coordinator-artifacts", 30);
-        assertTrue(artifacts.contains("Ran 26 tests") && artifacts.contains("\nOK\n"), artifacts);
+        assertTrue(artifacts.contains("Ran 35 tests") && artifacts.contains("\nOK\n"), artifacts);
         assertFalse(artifacts.contains("skipped"), artifacts);
         var registration = python(List.of("-m", "unittest", "discover", "-v", "-s", "scripts",
                 "-p", "test_fixed_witness_replay_registration.py"), "registration-suite", 30);

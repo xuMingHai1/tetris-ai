@@ -18,7 +18,7 @@ def encoded(value):
     return (json.dumps(value, separators=(',', ':')) + '\n').encode()
 
 
-def fixture(snapshot, quota=None):
+def fixture(snapshot, quota=None, coordinator=None):
     """Artificial one-path/one-step declaration with an empty saved prefix."""
     source = b'shape_feasibility_witness,seed,step,piece,actions\nshape_feasibility_witness,71,1,O,HARD_DROP\n'
     expected = dict(required=0, forbidden=0, rawHoles=0, requiredHoles=0, forbiddenHoles=0,
@@ -26,6 +26,10 @@ def fixture(snapshot, quota=None):
     declaration = encoded(dict(schema='fixed-witness-report-request-v1', inputSha256=report._hash(source),
                                journalSha256=report._hash(b''), paths=[dict(id='71', placements=1)],
                                expected={'71': expected}))
+    if coordinator is not None:
+        return coordinator.stage_request(snapshot, {'request.json': declaration, 'input.csv': source,
+                                         'journal.jsonl': b''}, mode='report', declaration=declaration,
+                                         expected_sha256=report._hash(declaration))
     snapshot.mkdir()
     for name, raw in (('request.json', declaration), ('input.csv', source), ('journal.jsonl', b'')):
         if quota is None:
@@ -167,7 +171,7 @@ def artificial_report_jvm(spec, coordinator=None):
     home.mkdir()
     tmp.mkdir()
     budget = OutputBudget() if coordinator is None else coordinator.budget
-    request = fixture(base / 'snapshot', budget.quota)
+    request = fixture(base / 'snapshot', budget.quota, coordinator)
     version = next(json.loads(line.split('=', 1)[1]) for line in
                    (java / 'release').read_text().splitlines() if line.startswith('JAVA_VERSION='))
     manifest = {'toolchain': {'java_home': str(java), 'java_version': version,
