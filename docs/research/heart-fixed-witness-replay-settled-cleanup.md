@@ -323,3 +323,15 @@ no-injection checker；三个互斥writer的同根10MiB实际写前计费；上�
 完整冻结fixtures/task预留表及EXITKILL负例；整体最终revision独立Review、适用CI、
 compatibility/inputhash与唯一登记。原170A/174明确接受、预算及执行停止门不变。
 本次仅test-only调用路径变化，无生产API、依赖或运行方式变化，README/AGENTS无需同步。
+
+
+## 本次新增修改：完成的 wait receipt 不参与后续失败接管
+
+PR245/246实际组合复审发现，输出轮询可能在成功的clone ENTRY之后、下一次wait之前
+失败；此前清理器会错误接管上一条已成功分发的syscall-stop。`BoundedWaitOwner`现在仅在
+原dispatch/resume及reap observation全部成功返回后，将原receipt标记completed并保留诊断。
+cleanup的creation/EXEC接管跳过此完成记录，继续原有定向有界wait；任何不确定resume、
+部分observation或dispatch失败均不标记，仍保留原一次性接管与拒绝规则。无新预算或重试。
+真实CoordinatorOutput额度耗尽的fake-only组合回归同时覆盖线程和process creation：
+原ENTRY完成后输出失败，消费后续准确事件，原group pin/kill并逐birth实际reap。
+本修改仍不证明native/network/history整体验收；原执行门、有限剩余清单和授权均不变。

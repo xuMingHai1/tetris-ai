@@ -1,6 +1,7 @@
 """Real temporary byte pipes/files, fake-only fork/wait/ptrace/pidfd transports."""
 import io
 import os
+import struct
 from pathlib import Path
 import tempfile
 import unittest
@@ -11,6 +12,8 @@ from fixed_witness_replay_stdio import CoordinatorOutput, CoordinatorOutputError
 from fixed_witness_replay_supervisor import TracerSupervisor, SupervisorError
 from fixed_witness_replay_writers import reserve_writers, COORDINATOR_BYTES, REPORT_BYTES
 import test_fixed_witness_replay_supervisor as fixture
+from fixed_witness_replay_ptrace import decode_syscall_info
+from test_fixed_witness_replay_ptrace import entry
 
 
 class ChargedStdioTest(unittest.TestCase):
@@ -80,6 +83,52 @@ class ChargedStdioTest(unittest.TestCase):
         self.assertEqual(b'abc', (self.path / 'coordinator-stdout.log').read_bytes())
         self.assertEqual(0, self.writers.coordinator.remaining)
         self.assertEqual(REPORT_BYTES, self.writers.host.remaining)
+
+    def test_output_failure_before_creation_wait_ignores_completed_entry_receipt(self):
+        for number, flags, event, groups in ((56, 0x10900, 0x3057f, 1),
+                                             (57, 0, 0x1057f, 2)):
+            with self.subTest(number=number):
+                if number == 57:
+                    self.setUp()
+                raw, size = entry(number)
+                raw = bytearray(raw)
+                struct.pack_into('<Q', raw, 32, flags)
+                self.f.f.access.syscall_info.return_value = decode_syscall_info(bytes(raw), size)
+                self.f.f.access.event_tid.return_value = 12
+                self.f.io.open.side_effect = [70, 71]
+                self.writers.coordinator.charge(COORDINATOR_BYTES - 3)
+                child = os.dup(self.output.writers[0])
+                remaining = [child]
+                self.addCleanup(lambda remaining=remaining: [os.close(fd) for fd in remaining])
+                def wait(tid, options):
+                    count = self.f.io.wait.call_count
+                    if count == 1:
+                        return (11, 0x137f)
+                    if count == 2:
+                        os.write(child, b'abcdef')
+                        return (11, 0x857f)
+                    if count == 3:
+                        os.close(child)
+                        remaining.clear()
+                        return (11, event)
+                    return (tid, 9)
+                self.f.io.wait.side_effect = wait
+                owner = self.owner()
+                with self.assertRaises(CoordinatorOutputError) as raised:
+                    owner.run()
+                self.assertIs(owner.failure, raised.exception)
+                self.assertIsNone(owner.cleanup_error)
+                self.assertTrue(owner.waiter.last_wait.completed)
+                self.assertFalse(owner.waiter.last_wait.adopted)
+                self.assertIsNone(owner.cleanup.reaper.adopted_wait)
+                self.assertEqual((1, 0), (self.f.ledger.totals.live,
+                                        self.f.ledger.totals.pending))
+                self.assertEqual(groups, self.f.io.open.call_count)
+                self.assertEqual(groups, self.f.io.send.call_count)
+                self.assertEqual(5, self.f.io.wait.call_count)
+                self.f.f.access.event_tid.assert_called_once_with(11)
+                self.assertEqual(0, self.writers.coordinator.remaining)
+                self.assertEqual(b'abc', (self.path / 'coordinator-stdout.log').read_bytes())
 
     def test_output_before_handshake_does_not_invent_initial_stop_or_reap(self):
         self.writers.coordinator.charge(COORDINATOR_BYTES - 1)
