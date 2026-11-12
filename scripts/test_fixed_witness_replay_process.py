@@ -1,4 +1,5 @@
 """Artificial subprocesses only: no Java, historical CSV, seed or search."""
+import io
 import os
 from pathlib import Path
 import signal
@@ -7,8 +8,9 @@ import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+import fixed_witness_replay_process as process_module
 from fixed_witness_replay_process import OutputBudget, run_process
 
 
@@ -47,6 +49,79 @@ class BudgetTest(unittest.TestCase):
         self.assertTrue(budget.consume(b'defg', second))
         self.assertEqual((first.getvalue(), second.getvalue(), budget.written, budget.observed),
                          (b'abc', b'de', 5, 7))
+
+
+class OutputFailureTest(unittest.TestCase):
+    """Actual log files; process, selector, read and signal transports injected."""
+
+    def exercise(self, failing_stream, short):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            original_open = Path.open
+            attempts, sinks = [], []
+            patches = []
+
+            def open_sink(path, *args, **kwargs):
+                sink = original_open(path, *args, **kwargs)
+                sinks.append(sink)
+                if path.name == 'failure-' + failing_stream + '.log':
+                    raw = sink.raw if isinstance(sink, io.BufferedWriter) else sink
+
+                    def fail(data):
+                        attempts.append(bytes(data))
+                        if short:
+                            return 0
+                        raise OSError('injected raw write failure')
+
+                    patched = patch.object(raw, 'write', side_effect=fail)
+                    patched.start()
+                    patches.append(patched)
+                return sink
+
+            child = Mock(pid=123, stdin=None, returncode=-9)
+            selector = Mock()
+            selector.__enter__ = Mock(return_value=selector)
+            selector.__exit__ = Mock(return_value=False)
+            # The selected real file receives the original charged data.
+            selector.select.side_effect = lambda timeout: [
+                (Mock(fileobj=child.stdout, data=sinks[0 if failing_stream == 'stdout' else 1]), 1)]
+            budget = OutputBudget(8)
+            try:
+                with patch.object(Path, 'open', open_sink), \
+                     patch.object(process_module.sys, 'platform', 'linux'), \
+                     patch.object(process_module.subprocess, 'Popen', return_value=child) as launch, \
+                     patch.object(process_module.selectors, 'DefaultSelector', return_value=selector), \
+                     patch.object(process_module.os, 'set_blocking'), \
+                     patch.object(process_module.os, 'read', return_value=b'once'), \
+                     patch.object(process_module.os, 'killpg', create=True) as kill, \
+                     patch.object(process_module.signal, 'SIGKILL', 9, create=True):
+                    result = run_process(['artificial'], root, root, 'failure', budget,
+                        seconds=1, total_deadline=time.monotonic() + 5,
+                        cancellation={'signal': None})
+                self.assertEqual('PROCESS_ERROR', result['state'])
+                self.assertEqual([b'once'], attempts)
+                self.assertEqual((4, 4, 4), (budget.quota.charged, budget.written,
+                                          result['stdout_stderr_bytes']))
+                self.assertTrue(all(isinstance(sink, io.FileIO) and sink.closed for sink in sinks))
+                self.assertEqual(b'', (root / ('failure-' + failing_stream + '.log')).read_bytes())
+                launch.assert_called_once()
+                kill.assert_called_once_with(123, 9)
+                child.wait.assert_called_once_with(timeout=2)
+                child.stdout.close.assert_called_once()
+                child.stderr.close.assert_called_once()
+            finally:
+                for patched in reversed(patches):
+                    patched.stop()
+
+    def test_failed_raw_write_is_not_retried_by_flush_or_close(self):
+        for stream in ('stdout', 'stderr'):
+            with self.subTest(stream=stream):
+                self.exercise(stream, False)
+
+    def test_short_raw_write_keeps_charge_without_retry(self):
+        for stream in ('stdout', 'stderr'):
+            with self.subTest(stream=stream):
+                self.exercise(stream, True)
 
 
 @unittest.skipUnless(sys.platform == 'linux', 'real Linux process groups required')

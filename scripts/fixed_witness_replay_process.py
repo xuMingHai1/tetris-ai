@@ -171,8 +171,9 @@ def run_process(command, cwd, output, name, budget, *, seconds, total_deadline, 
         if environment is None or seconds > JVM_SECONDS:
             raise ValueError('handshake requires explicit environment and <=120s stage')
         result['ack_sent'] = False
-    with (output / (name + '-stdout.log')).open('xb') as stdout, \
-            (output / (name + '-stderr.log')).open('xb') as stderr, \
+    # Raw sinks cannot retain bytes for a second write during failure cleanup.
+    with (output / (name + '-stdout.log')).open('xb', buffering=0) as stdout, \
+            (output / (name + '-stderr.log')).open('xb', buffering=0) as stderr, \
             selectors.DefaultSelector() as selector, \
             (nullcontext(cancellation) if cancellation is not None else _cancellation()) as cancellation:
         try:

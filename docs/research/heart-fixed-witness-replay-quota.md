@@ -127,3 +127,22 @@ Linux普通JUnit桥强制执行全部11项，含真实Python子进程超限终�
 
 这是test-only离线设施，不改变生产包职责、构建输入或运行方式，README/AGENTS/ADR无需变化；
 研究索引补充组件入口。不更改冻结设计预算、原guard或selector。
+
+
+## 本次新增修改：构建/JVM进程日志失败不再缓冲重写
+
+原 `run_process` 的stdout/stderr日志仍是BufferedWriter。`OutputBudget.consume`
+已在写前扣费，但底层写入失败后，finally的flush和上下文close可能再次提交缓冲字节。
+这与原失败不重试要求冲突；协调器管道writer已有无缓冲实现，不能覆盖这个既有调用方。
+本次仅将这两个真实日志sink改为独占raw FileIO；仍先计费，短写和失败不退款，
+仍走原进程组kill/wait/关pipe路径，不改变启动、配额、deadline或认证语义。
+
+新增两项跨平台fake-only组合回归分别在stdout和stderr注入底层异常/短写，断言只尝试
+一次写入、原4字节charge保留、实际文件为空、原kill/wait和sink关闭执行。
+进程/selector/read/signal全部注入，只有临时文件为真实I/O；原Linux进程测试和JUnit桥
+继续覆盖其原有人工子进程路径。未执行native probe、network clean-build或历史输入。
+
+此修复关闭既有构建/JVM日志的失败重写缺口；不是跨进程配额交接或完整host实现。
+可信Java host、全部artifact/JVM writer同根交接、完整filter/no-injection checker、复杂清理、
+冻结fixture和整体最终门禁仍未齐备。整体原生验收尚未完成，研究结果及用户可见功能无新增。
+仅test-only设施修复，生产架构、README/AGENTS、冻结协议/预算/guard无需改动。
