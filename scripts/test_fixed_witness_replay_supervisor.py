@@ -1,7 +1,9 @@
 """Actual composed owners with injected fork/wait/ptrace/pidfd only."""
+import struct
 import unittest
-from unittest.mock import Mock, call
+from unittest.mock import Mock, call, patch
 
+from fixed_witness_replay_dispatch import CreationSyscallDispatcher
 from fixed_witness_replay_exec_observation import OwnedExecObservations
 from fixed_witness_replay_initial_wait import InitialWaitOwner, InitialWaitError
 from fixed_witness_replay_ptrace import SignalInfo, PtraceAccess, decode_syscall_info
@@ -185,6 +187,30 @@ class SupervisorTest(unittest.TestCase):
         self.assertEqual((3, 3, 1), (self.ledger.totals.attempts,
                                    self.ledger.totals.live, self.ledger.totals.pending))
         self.assertEqual(3, self.io.wait.call_count)
+
+    def test_thread_event_failure_before_binding_reuses_owned_stop_then_group_cleanup(self):
+        raw, size = entry(56)
+        raw = bytearray(raw)
+        struct.pack_into('<Q', raw, 32, 0x10000 | 0x800 | 0x100)
+        self.f.access.syscall_info.return_value = decode_syscall_info(bytes(raw), size)
+        self.f.access.event_tid.return_value = 12
+        original = OSError('event dispatch failed before read')
+        owner = self.owner()
+        self.io.wait.side_effect = [(11, 0x137f), (11, 0x857f), (11, 0x3057f),
+                                   (11, 9), (12, 9)]
+        # Retain the normal owner's charged stop and successful event read.
+        # Only normal child binding fails; cleanup uses its own existing path.
+        with patch.object(CreationSyscallDispatcher, 'child_event', side_effect=original):
+            with self.assertRaises(OSError) as raised:
+                owner.run()
+        self.assertIs(raised.exception, original)
+        self.assertIsNone(owner.cleanup_error)
+        self.assertEqual((3, 1, 0), (self.ledger.totals.attempts,
+                                   self.ledger.totals.live, self.ledger.totals.pending))
+        self.f.access.event_tid.assert_called_once_with(11)
+        self.io.open.assert_called_once_with(11, 0)
+        self.io.send.assert_called_once_with(70, 9, None, 0)
+        self.assertEqual(5, self.io.wait.call_count)
 
     def test_direct_initial_owner_rejects_claimed_or_stopped_before_wait_claim(self):
         f = chain_fixture.FilterExecChainTest()

@@ -2,7 +2,8 @@
 
 This supports process births and pinned stable thread groups with no unknown
 children, including event-bound process creations awaiting parent results.
-The trusted host must still handle unbound threads and unconsumed exec events;
+Unbound thread events require a process-only pre-binding inventory; existing
+multi-birth groups and unconsumed exec events still require further integration.
 an original failed wait owner's consumed EXEC can be adopted before any pin.
 Stops are never resumed. Only known births successfully pidfd-SIGKILLed by
 the composing cleanup owner may drain queued signal/syscall stops.
@@ -76,16 +77,21 @@ class CleanupReaper:
             # A real creation event already identifies this child's immutable
             # birth. Parent result is not required to kill/reap both tasks;
             # actual parent reap closes the obligation, never synthetic finish.
-            if pending.child is None or pending.thread:
+            if pending.child is None:
                 raise CleanupReapError('unresolved creation requires integrated tree cleanup')
+            if (pending.thread and (self.launch.dispatcher is None
+                    or pending.parent not in self.launch.dispatcher.lifecycle._pending)):
+                raise CleanupReapError('unresolved creation requires original native obligation')
             parent = self.ledger.identity(pending.parent)
             child = self.ledger.identity(pending.child)
             if (not parent.alive or pending.child != pending.reservation
                     or pending.kind not in ('fork', 'vfork', 'clone')
-                    or child.group_birth != child.birth
-                    or child.tid != child.tgid
+                    or (pending.thread and (pending.kind != 'clone'
+                                            or child.group_birth != parent.group_birth))
+                    or (not pending.thread and (child.group_birth != child.birth
+                                                or child.tid != child.tgid))
                     or (not child.alive and child.terminal != 'reaped')):
-                raise CleanupReapError('ambiguous pending process birth')
+                raise CleanupReapError('ambiguous pending creation birth')
         dispatcher = self.launch.dispatcher
         # Failure before the dispatcher was assigned is supported: the ledger
         # preserves the returned coordinator birth before fallible wire setup.
@@ -184,11 +190,13 @@ class CleanupReaper:
             raise
 
     def bind_creation_events(self):
-        """Consume in-flight process events before pidfd inventory acquisition.
+        """Consume in-flight creation events before pidfd inventory acquisition.
 
         Explicit, one-shot cleanup phase: never normal StopReader/dispatch,
         resume, syscall-result settlement or a new reservation. Only positive
-        known parent TIDs are polled; no child stop or unknown task is guessed.
+        known original leader TIDs are polled, including legacy CLONE_THREAD;
+        no child stop or unknown task is guessed. Existing multi-birth groups
+        are refused before polling another unbound creation.
         Other stops, ECHILD and terminal results fail closed (terminal PID is
         quarantined before checks). The original deadline bounds idle polling.
         """
@@ -199,16 +207,16 @@ class CleanupReaper:
             while True:
                 self._check()
                 identities = self.ledger.cleanup_identities()
-                if (len({item.group_birth for item in identities}) != len(identities)
-                        or any(item.tid != item.tgid
-                               or item.tid in self.launch.unsettled_terminal_waits
-                               for item in identities)):
-                    raise CleanupReapError('ambiguous cleanup creation inventory')
                 pending = tuple(item for item in self.ledger.cleanup_pending()
                                 if item.child is None)
                 if not pending:
                     self._inventory()
                     return tuple(self.bound_creations)
+                if (len({item.group_birth for item in identities}) != len(identities)
+                        or any(item.tid != item.tgid
+                               or item.tid in self.launch.unsettled_terminal_waits
+                               for item in identities)):
+                    raise CleanupReapError('ambiguous cleanup creation inventory')
                 dispatcher = self.launch.dispatcher
                 if dispatcher is None:
                     raise CleanupReapError('cleanup creation dispatcher required')

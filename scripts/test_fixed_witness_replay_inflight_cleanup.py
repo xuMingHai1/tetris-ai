@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import call
 
 from fixed_witness_replay_cleanup_reap import CleanupReapError
-from fixed_witness_replay_creation import CLONE_VM, CLONE_VFORK, SIGCHLD
+from fixed_witness_replay_creation import CLONE_VM, CLONE_VFORK, CLONE_THREAD, CLONE_SIGHAND, SIGCHLD
 from fixed_witness_replay_tasks import TaskAccountingError
 from fixed_witness_replay_wait_owner import WAIT_OPTIONS
 from test_fixed_witness_replay_ptrace import entry
@@ -46,6 +46,108 @@ class InflightCleanupTest(unittest.TestCase):
         self.assertEqual('lifecycle failure', self.launch.dispatcher.lifecycle.stopped)
         self.assertEqual('reader failure', self.launch.reader.stopped)
         self.assertEqual('original failure', self.launch.stopped)
+
+    def pending_thread(self):
+        return self.pending(56, CLONE_VM | CLONE_SIGHAND | CLONE_THREAD)
+
+    def test_thread_event_to_single_group_pin_kill_and_each_birth_reap(self):
+        owner = self.pending_thread()
+        before = self.ledger.totals
+        self.transport.wait.side_effect = [(11, 0x3057f), (11, 9), (12, 9)]
+        owner.run()
+        self.assertEqual([call.wait(11, WAIT_OPTIONS), call.open(11, 0),
+                          call.send(70, 9, None, 0), call.wait(11, WAIT_OPTIONS),
+                          call.wait(12, WAIT_OPTIONS), call.close(70)], self.transport.mock_calls)
+        self.assertEqual([call.event_tid(11)], self.dispatch.wire.mock_calls)
+        self.assertEqual(((1, 2, 12),), tuple(owner.reaper.bound_creations))
+        self.assertEqual((before.attempts, 1, 0, before.wait_stops + 1, before.stopped),
+                         (self.ledger.totals.attempts, self.ledger.totals.live,
+                          self.ledger.totals.pending, self.ledger.totals.wait_stops,
+                          self.ledger.totals.stopped))
+
+    def test_bound_thread_before_parent_result_needs_no_extra_creation_wait(self):
+        owner = self.pending_thread()
+        self.transport.wait.return_value = (11, 0x3057f)
+        owner.reaper.bind_creation_events()
+        self.transport.reset_mock()
+        self.transport.wait.side_effect = [(11, 9), (12, 9)]
+        owner.run()
+        self.assertEqual([call(11, WAIT_OPTIONS), call(12, WAIT_OPTIONS)],
+                         self.transport.wait.call_args_list)
+        self.transport.open.assert_called_once_with(11, 0)
+
+    def test_child_first_reap_keeps_pending_until_real_parent_reap(self):
+        owner = self.pending_thread()
+        def wait(tid, options):
+            count = self.transport.wait.call_count
+            if count == 1:
+                return (11, 0x3057f)
+            if count == 2:
+                return (0, 0)
+            if count == 3:
+                return (12, 9)
+            self.assertEqual((2, 1), (self.ledger.totals.live, self.ledger.totals.pending))
+            return (11, 9)
+        self.transport.wait.side_effect = wait
+        result = owner.run()
+        self.assertEqual([2, 1], [birth for birth, _, _ in result])
+        self.assertEqual((1, 0), (self.ledger.totals.live, self.ledger.totals.pending))
+
+    def test_thread_wrong_creation_event_never_reads_or_pins(self):
+        for event in (0x1057f, 0x2057f, 0x4057f):
+            self.setUp()
+            owner = self.pending_thread()
+            self.transport.wait.return_value = (11, event)
+            with self.assertRaises(ValueError):
+                owner.run()
+            self.dispatch.wire.event_tid.assert_not_called()
+            self.transport.open.assert_not_called()
+            self.transport.send.assert_not_called()
+
+    def test_thread_binding_wire_failure_keeps_birth_without_pin_or_refund(self):
+        owner = self.pending_thread()
+        self.launch.dispatcher._factory = lambda: (_ for _ in ()).throw(OSError('wire failed'))
+        self.transport.wait.return_value = (11, 0x3057f)
+        with self.assertRaises(ValueError):
+            owner.run()
+        self.assertEqual((12, 1), (self.ledger.identity(2).tid,
+                                  self.ledger.identity(2).group_birth))
+        self.assertEqual((3, 3, 1), (self.ledger.totals.attempts,
+                                   self.ledger.totals.live, self.ledger.totals.pending))
+        self.transport.open.assert_not_called()
+
+    def test_thread_uncertain_event_read_cannot_retry_or_pin(self):
+        owner = self.pending_thread()
+        self.transport.wait.return_value = (11, 0x3057f)
+        self.dispatch.wire.event_tid.side_effect = OSError('uncertain read')
+        with self.assertRaises(OSError):
+            owner.run()
+        with self.assertRaises(CleanupReapError):
+            owner.run()
+        self.dispatch.wire.event_tid.assert_called_once_with(11)
+        self.assertIsNone(self.ledger.cleanup_pending()[0].child)
+        self.transport.open.assert_not_called()
+
+    def test_thread_pin_failure_preserves_event_binding_and_original_failure(self):
+        owner = self.pending_thread()
+        self.transport.wait.return_value = (11, 0x3057f)
+        self.transport.open.side_effect = OSError('pin failed')
+        with self.assertRaises(OSError):
+            owner.run()
+        self.assertEqual(2, self.ledger.cleanup_pending()[0].child)
+        self.assertEqual('original failure', self.launch.stopped)
+        self.assertEqual(3, self.ledger.totals.live)
+        self.transport.send.assert_not_called()
+
+    def test_bound_thread_without_original_native_obligation_rejected_before_pin(self):
+        owner = self.pending_thread()
+        self.transport.wait.return_value = (11, 0x3057f)
+        owner.reaper.bind_creation_events()
+        self.launch.dispatcher._sequence[1] = None
+        self.transport.reset_mock()
+        with self.assertRaisesRegex(ValueError, 'original native clone'):
+            owner.run()
+        self.assertEqual([], self.transport.mock_calls)
 
     def test_vfork_and_legacy_clone_process_event_mapping(self):
         for number, flags, raw in ((58, 0, 0x2057f),
