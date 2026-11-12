@@ -24,14 +24,14 @@ class FixedWitnessThreadCleanupTest {
     void syntheticThreadCleanupRunsInTheRegularSuite() throws Exception {
         var log = directory.resolve("thread-cleanup-tests.log");
         var process = new ProcessBuilder("python3", "-B", "-m", "unittest", "discover", "-v",
-                "-s", "scripts", "-p", "test_fixed_witness_replay_thread_cleanup.py")
+                "-s", "scripts", "-p", "test_fixed_witness_replay_*thread_cleanup.py")
                 .directory(Path.of("").toAbsolutePath().toFile())
                 .redirectErrorStream(true).redirectOutput(log.toFile()).start();
         try {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "synthetic cleanup tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 13 tests"), output);
+            assertTrue(output.contains("Ran 25 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {

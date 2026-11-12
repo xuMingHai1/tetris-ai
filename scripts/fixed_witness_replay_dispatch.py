@@ -432,7 +432,7 @@ class CreationSyscallDispatcher:
                 return True
         return False
 
-    def cleanup_stable_group(self, identities):
+    def cleanup_stable_group(self, identities, *, unbound_creations=()):
         """Validate a known group before TGID pinning, without clearing failure.
 
         An unmatched exec entry may already be running de_thread and silently
@@ -443,6 +443,10 @@ class CreationSyscallDispatcher:
         A bound legacy thread creation may await its parent's result: original
         native obligation and child/group birth must still match, and only the
         actual parent reap may close that pending obligation.
+        During creation binding, explicitly selected unbound legacy thread
+        reservations are checked against their original native obligations;
+        every existing sibling must still be bound and have no unmatched EXEC.
+        This exception never permits pinning until the child itself is bound.
         """
         if not identities or len({item.group_birth for item in identities}) != 1:
             self._fail('one original cleanup thread group required')
@@ -452,6 +456,10 @@ class CreationSyscallDispatcher:
         for pending in ledger.cleanup_pending():
             parent = ledger.identity(pending.parent)
             if parent.group_birth != identities[0].group_birth:
+                continue
+            if (pending in unbound_creations and pending.child is None
+                    and pending.thread and parent in identities):
+                self.cleanup_creation_binding(pending)
                 continue
             # A bound thread has its own original birth, even while the parent
             # is stopped before clone's result. Kill closes neither obligation;
