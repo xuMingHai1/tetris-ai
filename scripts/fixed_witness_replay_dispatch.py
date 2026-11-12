@@ -359,6 +359,41 @@ class CreationSyscallDispatcher:
         self._exec_exits.add(facts.birth)
         return facts.birth, access
 
+    def cleanup_inflight_exec_binding(self, executor, entry):
+        """Validate a resumed original nonleader ENTRY before TGID-only wait.
+
+        The caller additionally authenticates its completed owned wait receipt.
+        No unsettled creation, other live sibling, matched event or missing wire
+        can be turned into a pin allowance. No ledger credit changes here.
+        """
+        ledger = self.lifecycle.ledger
+        access = self._task(executor.birth, executor.tid)
+        if (ledger.identity(executor.birth) != executor or not executor.alive
+                or executor.tid == executor.tgid or access is None
+                or self._sequence.get(executor.birth) is not entry
+                or type(entry) is not SyscallInfo or entry.number not in (59, 322)):
+            self._fail('original in-flight nonleader exec entry required')
+        try:
+            entry.require_native(1)
+        except PtraceBoundaryError as error:
+            self._fail(str(error))
+        leader_birth, leader_access = self._stop_binding(executor.tgid)
+        leader = ledger.identity(leader_birth)
+        members = tuple(item for item in ledger.cleanup_identities()
+                        if item.group_birth == executor.group_birth)
+        if (not leader.alive or leader.group_birth != executor.group_birth
+                or leader.tid != leader.tgid or leader_access is None
+                or set(members) != {leader, executor}
+                or any(ledger.identity(item.parent).group_birth == executor.group_birth
+                       for item in ledger.cleanup_pending())
+                or any(item.birth in self._exec_events or item.birth in self._exec_exits
+                       for item in members)):
+            self._fail('in-flight exec requires settled original leader/executor group')
+        # A second running exec could retire the selected birth before its
+        # event. Only the selected executor may have an unmatched exec ENTRY.
+        self.cleanup_stable_group((leader,))
+        return leader, leader_access
+
     def cleanup_exec_event(self, old_tid, new_tid):
         """Install an original cleanup owner's authenticated EXEC without resume.
 
