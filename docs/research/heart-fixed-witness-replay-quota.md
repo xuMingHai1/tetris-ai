@@ -236,3 +236,32 @@ EOF/失败/不可重试及原 prepare 人工工具链。Linux 普通 CI 另经�
 EXITKILL负例；整体最终 Review/CI、compatibility/inputhash/唯一登记。原生/network/
 历史验收尚未完成，研究结果和用户可见功能本轮无新增。170A/174接受与所有停止门不变。
 本次只改变 test-only 研究调用链；生产 README/AGENTS/架构职责不变，无需 ADR。
+
+## 本次新增修改：同一 received writer 的 report/execution 模式
+
+`CoordinatorArtifacts.receive -> prepare` 后现在只能选择一次 `verify_only`、
+`report_only` 或 `execute`；三者共用 PREPARED 阶段，成功、错误和过期都不能换模式
+或重试。新增两个方法直接调用既有 `run_report_only` / `run_execution`，传递原
+OutputBudget、绝对 deadline 和独立 request receipt。原 report 的 H+R、execution
+的 H+J+D+R 在 spawn 前原子永久扣减，Java 的 READY、journal、declaration、report
+及终态 writer 继续绑定确切子额度；日志使用余量，读取不重复计费。新建 request
+副本仍必须由调用方用同一 received quota 写入，不能另外创建根预算。
+
+execution 失败可能已发生 ACK/动作，协调器终态因此记录 `execution_attempted=true`
+和未知的 `actions_started=null`，不能写成“没有执行”；仅已有最终核验成功时记录
+其 actions_started。此记录不提供 diagnostic/network 权限。原错误优先于终态写错误。
+
+新增7项人工回归覆盖互斥、原预算/deadline、真实预扣不足时禁止 spawn、启动失败
+后的永久扣费、owner/过期、未 prepare、终态双错误及未知执行状态。原 Linux 桥强制
+全部26项零跳过，并扩展实际 Python child 接收 grant 后的普通 report/execution JVM：
+request 副本同根计费，执行仅既有 seed71/O/HARD_DROP 人工单步，验证真实
+proc/READY/ACK/EOF 与 journal/declaration/report writer；build receipt 明确 mock。
+Windows 跳过 Linux 联调，不替代 Linux、native 或 network clean-build 验收。
+
+有限剩余清单：完整可信宿主 CLI/冻结 suite 调度、完整 source/import/stdlib/动态库/
+JDK/toolchain/manifest 与 task-fixture 冻结；完整 filter/external no-injection checker；
+未覆盖复杂 cleanup/job-control/fixture 与 EXITKILL 负例；整体最终独立 Review/CI、
+compatibility/inputhash/唯一登记。完整套件的所有调用方尚未接通，模式 wrapper 不代表
+完整宿主交付或历史执行授权。整体原生/network/历史验收尚未完成；研究结果和游戏
+功能本轮无新增。170A/174、10MiB、task/stop/时间预算、原 guard 与停止门均不变。
+仅研究设施接线，生产 README/AGENTS/架构职责无需修改。

@@ -106,7 +106,7 @@ class ExecutionTest(unittest.TestCase):
         self.assertFalse((self.output / 'journal.jsonl').exists())
 
 
-def artificial_execution_jvm(spec):
+def artificial_execution_jvm(spec, coordinator=None):
     """Cases 7 and 9, two direct JVMs, one actual placement in the second only."""
     from fixed_witness_replay_identity import classpath_identity, sha256
     from fixed_witness_replay_environment import controlled_environment
@@ -116,7 +116,7 @@ def artificial_execution_jvm(spec):
     home, tmp = base / 'home', base / 'tmp'
     home.mkdir()
     tmp.mkdir()
-    budget = OutputBudget()
+    budget = OutputBudget() if coordinator is None else coordinator.budget
     request = fixture(base / 'snapshot', budget.quota)
     version = next(json.loads(line.split('=', 1)[1]) for line in
                    (java / 'release').read_text().splitlines() if line.startswith('JAVA_VERSION='))
@@ -124,19 +124,24 @@ def artificial_execution_jvm(spec):
                                    jdk_files={'bin/java': sha256(java / 'bin/java')}),
                     environment=controlled_environment(java, home, tmp),
                     classpath=classpath_identity(root, spec['dependencies']))
-    deadline = time.monotonic() + 100
+    deadline = time.monotonic() + 100 if coordinator is None else coordinator.deadline
     # Case 7: real stdin EOF with no ACK. READY may exist; no action artifact may.
-    rejected = base / 'no-ack'
-    execution.reserve_execution(budget.quota, **ALLOWANCES)
-    command = execution.command_for(manifest, root, java, rejected, 'b'*64, request, **ALLOWANCES)
-    result = run_process(command, root, base, 'no-ack', budget, seconds=30,
-                         total_deadline=deadline, environment=manifest['environment'])
-    assert result['state'] == 'EXITED' and result['returncode'] != 0, result
-    assert {p.name for p in rejected.iterdir()} == {'ready.json'}
+    if coordinator is None:
+        rejected = base / 'no-ack'
+        execution.reserve_execution(budget.quota, **ALLOWANCES)
+        command = execution.command_for(manifest, root, java, rejected, 'b'*64, request, **ALLOWANCES)
+        result = run_process(command, root, base, 'no-ack', budget, seconds=30,
+                             total_deadline=deadline, environment=manifest['environment'])
+        assert result['state'] == 'EXITED' and result['returncode'] != 0, result
+        assert {p.name for p in rejected.iterdir()} == {'ready.json'}
     # Case 9: the real observation/proc/ACK/EOF/sole Replay.run/five-file path.
     with patch.object(execution, 'verify_prepared', return_value=manifest):
-        result = execution.run_execution(root, java, {'sha256': 'a'*64}, base / 'jvm', base, budget,
-                    nonce='b'*64, request=request, total_deadline=deadline, **ALLOWANCES)
+        if coordinator is None:
+            result = execution.run_execution(root, java, {'sha256': 'a'*64}, base / 'jvm', base, budget,
+                        nonce='b'*64, request=request, total_deadline=deadline, **ALLOWANCES)
+        else:
+            result = coordinator.execute(root, java, {'sha256': 'a'*64}, base / 'jvm', base,
+                        nonce='b'*64, request=request, **ALLOWANCES)
     assert result['state'] == execution.SUCCESS and result['returncode'] == 0 and result['ack_sent'], result
     verified = result['verification']
     assert verified['journal_state'] == 'COMPLETE' and verified['actions_started'] is True, result

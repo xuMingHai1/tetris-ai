@@ -288,6 +288,139 @@ class CoordinatorArtifactsTest(unittest.TestCase):
             path.stat().st_size for path in fixture.out.iterdir()), child.budget.quota.charged)
 
 
+class CoordinatorModesTest(unittest.TestCase):
+    setUp = CoordinatorArtifactsTest.setUp
+    pipe = CoordinatorArtifactsTest.pipe
+    raw = CoordinatorArtifactsTest.raw
+    receive = CoordinatorArtifactsTest.receive
+    def mode(self, child, execution):
+        function = child.execute if execution else child.report_only
+        limits = dict(handshake_bytes=100, report_bytes=200)
+        if execution:
+            limits.update(journal_bytes=300, declaration_bytes=400)
+        return function, limits
+
+    def prepared(self):
+        child = self.receive()
+        with patch('fixed_witness_replay_prepare.prepare', return_value={'sha256': 'a'*64}):
+            child.prepare('s', 'j', 'e', build_storage='b')
+        return child
+
+    def call(self, child, execution):
+        function, limits = self.mode(child, execution)
+        return function(self.directory, self.directory, {}, self.directory/'new', self.directory,
+                        nonce='a'*64, request=Mock(), **limits)
+
+    def test_modes_share_original_budget_and_are_mutually_exclusive(self):
+        for execution in (False, True):
+            with self.subTest(execution=execution), tempfile.TemporaryDirectory() as name:
+                self.directory = Path(name).resolve()
+                child = self.prepared()
+                before = child.budget.quota.charged
+                target = ('fixed_witness_replay_execution.run_execution' if execution
+                          else 'fixed_witness_report_pipe.run_report_only')
+                def run(*args, **kwargs):
+                    self.assertIs(child.budget, args[5])
+                    self.assertEqual(child.deadline, kwargs['total_deadline'])
+                    self.assertEqual('a'*64, kwargs['nonce'])
+                    args[5].quota.reserve(sum(self.mode(child, execution)[1].values()))
+                    return dict(state='REPLAY_REPORTED' if execution else 'REPORT_WRITTEN_NO_REPLAY',
+                                verification={'actions_started': True})
+                with patch(target, side_effect=run):
+                    self.call(child, execution)
+                self.assertEqual(before + (1000 if execution else 300), child.budget.quota.charged)
+                record = json.loads((self.directory/'coordinator-artifact-terminal.json').read_bytes())
+                if execution:
+                    self.assertTrue(record['actions_started'])
+                    self.assertNotIn('diagnostic_started', record)
+                    self.assertFalse(record['diagnostic_authorized'])
+                for other in (False, True):
+                    with self.assertRaisesRegex(ValueError, 'stage'):
+                        self.call(child, other)
+                with self.assertRaises(ValueError):
+                    child.verify_only('s', 'j', {}, 'o', 'l', nonce='a'*64, artifact_bytes=1)
+
+    def test_real_mode_reservations_reject_before_spawn_after_prepare_consumption(self):
+        for execution in (False, True):
+            with self.subTest(execution=execution), tempfile.TemporaryDirectory() as name:
+                self.directory = Path(name).resolve()
+                child = self.prepared()
+                need = 1000 if execution else 300
+                child.budget.quota.charge(child.budget.quota.remaining - need + 1)
+                module = 'fixed_witness_replay_execution' if execution else 'fixed_witness_report_pipe'
+                with patch(module+'.verify_prepared', return_value={'environment': {}}), \
+                        patch(module+'.command_for', return_value=['artificial']), \
+                        patch(module+'.run_process') as spawn:
+                    with self.assertRaises(OutputLimitError):
+                        self.call(child, execution)
+                    spawn.assert_not_called()
+                self.assertEqual(need-1, child.budget.quota.remaining)
+                with self.assertRaises(ValueError):
+                    self.call(child, not execution)
+
+    def test_real_mode_reservations_remain_spent_after_launch_failure(self):
+        for execution in (False, True):
+            with self.subTest(execution=execution), tempfile.TemporaryDirectory() as name:
+                self.directory = Path(name).resolve()
+                child = self.prepared()
+                before = child.budget.quota.charged
+                failure = OSError('after reservation')
+                module = 'fixed_witness_replay_execution' if execution else 'fixed_witness_report_pipe'
+                with patch(module+'.verify_prepared', return_value={'environment': {}}), \
+                        patch(module+'.command_for', return_value=['artificial']), \
+                        patch(module+'.run_process', side_effect=failure):
+                    with self.assertRaises(OSError) as raised:
+                        self.call(child, execution)
+                self.assertIs(failure, raised.exception)
+                self.assertEqual(before + (1000 if execution else 300), child.budget.quota.charged)
+                record = json.loads((self.directory/'coordinator-artifact-terminal.json').read_bytes())
+                self.assertEqual('EXECUTION_FAILED' if execution else 'REPORT_FAILED', record['state'])
+                if execution:
+                    self.assertIsNone(record['actions_started'])
+                    self.assertNotIn('diagnostic_started', record)
+
+    def test_owner_or_deadline_failure_consumes_mode_without_launch(self):
+        for execution in (False, True):
+            for invalid in ('owner', 'deadline'):
+                with self.subTest(execution=execution, invalid=invalid), tempfile.TemporaryDirectory() as name:
+                    self.directory = Path(name).resolve()
+                    child = self.prepared()
+                    if invalid == 'deadline':
+                        child.deadline = child.clock()
+                    with patch.object(artifacts.os, 'getpid', return_value=0 if invalid == 'owner' else child.pid):
+                        with self.assertRaisesRegex(ValueError, 'owner/deadline'):
+                            self.call(child, execution)
+                    with self.assertRaisesRegex(ValueError, 'stage'):
+                        self.call(child, not execution)
+
+    def test_unprepared_receiver_cannot_start_either_mode(self):
+        child = self.receive()
+        for execution in (False, True):
+            with self.assertRaisesRegex(ValueError, 'stage'):
+                self.call(child, execution)
+        self.assertEqual('RECEIVED', child.phase)
+
+    def test_execution_failure_terminal_error_never_masks_original(self):
+        child = self.prepared()
+        failure = OSError('original execution error')
+        with patch('fixed_witness_replay_execution.run_execution', side_effect=failure), \
+                patch.object(artifacts, 'write_exclusive', side_effect=OSError('terminal error')):
+            with self.assertRaises(OSError) as raised:
+                self.call(child, True)
+        self.assertIs(failure, raised.exception)
+        self.assertIsNotNone(child.terminal_error)
+        self.assertEqual('FINISHED', child.phase)
+
+    def test_non_success_execution_result_does_not_claim_no_actions(self):
+        child = self.prepared()
+        with patch('fixed_witness_replay_execution.run_execution', return_value={'state': 'TIMED_OUT'}):
+            self.call(child, True)
+        record = json.loads((self.directory/'coordinator-artifact-terminal.json').read_bytes())
+        self.assertEqual('TIMED_OUT', record['state'])
+        self.assertIsNone(record['actions_started'])
+        self.assertNotIn('diagnostic_started', record)
+
+
 def ordinary_jvm_fixture(spec):
     """Actual inherited grant -> actual verify-only JVM; build receipt mocked.
 
@@ -318,7 +451,13 @@ def ordinary_jvm_fixture(spec):
         assert child.returncode == 0, stderr.decode('utf-8', errors='replace')
         assert writers.coordinator.charged == 4*1024*1024
         record = json.loads((session / 'coordinator-artifact-terminal.json').read_bytes())
-        assert record['state'] == 'VERIFIED_NO_REPLAY' and not record['diagnostic_started']
+        mode = spec.get('mode', 'verify')
+        assert record['state'] == {'verify': 'VERIFIED_NO_REPLAY', 'report': 'REPORT_WRITTEN_NO_REPLAY',
+                                   'execute': 'REPLAY_REPORTED'}[mode], record
+        if mode == 'execute':
+            assert record['actions_started'] is True and not record['diagnostic_authorized'], record
+        else:
+            assert not record['diagnostic_started'], record
     finally:
         grant.close()
         if child is not None:
@@ -340,7 +479,17 @@ def ordinary_jvm_child(spec):
         return {'sha256': 'a'*64}
     with patch('fixed_witness_replay_prepare.prepare', side_effect=build):
         child.prepare(spec['root'], spec['java'], 'artificial', build_storage='artificial')
-    artificial_jvm(spec, child)
+    mode = spec.get('mode', 'verify')
+    if mode == 'verify':
+        artificial_jvm(spec, child)
+    elif mode == 'report':
+        from test_fixed_witness_report_pipe import artificial_report_jvm
+        artificial_report_jvm(spec, child)
+    elif mode == 'execute':
+        from test_fixed_witness_replay_execution import artificial_execution_jvm
+        artificial_execution_jvm(spec, child)
+    else:
+        raise ValueError('unknown artificial mode')
 
 
 if __name__ == '__main__':

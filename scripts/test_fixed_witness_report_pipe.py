@@ -153,7 +153,7 @@ class ReportTest(unittest.TestCase):
                         total_deadline=time.monotonic()+1, success_state='COMPLETE')
 
 
-def artificial_report_jvm(spec):
+def artificial_report_jvm(spec, coordinator=None):
     """Ninth Python case: real Linux JVM/ACK with explicitly MOCK build receipt.
 
     Uses existing compiled classes; no prepare/clean-build/network acceptance or actions.
@@ -166,7 +166,7 @@ def artificial_report_jvm(spec):
     home, tmp = base / 'home', base / 'tmp'
     home.mkdir()
     tmp.mkdir()
-    budget = OutputBudget()
+    budget = OutputBudget() if coordinator is None else coordinator.budget
     request = fixture(base / 'snapshot', budget.quota)
     version = next(json.loads(line.split('=', 1)[1]) for line in
                    (java / 'release').read_text().splitlines() if line.startswith('JAVA_VERSION='))
@@ -175,9 +175,13 @@ def artificial_report_jvm(spec):
                 'environment': controlled_environment(java, home, tmp),
                 'classpath': classpath_identity(root, spec['dependencies'])}
     with patch.object(report, 'verify_prepared', return_value=manifest):
-        result = report.run_report_only(root, java, {'sha256': 'a'*64}, base / 'jvm', base, budget,
-            nonce='b'*64, request=request, handshake_bytes=300_000, report_bytes=100_000,
-            total_deadline=time.monotonic()+60)
+        if coordinator is None:
+            result = report.run_report_only(root, java, {'sha256': 'a'*64}, base / 'jvm', base, budget,
+                nonce='b'*64, request=request, handshake_bytes=300_000, report_bytes=100_000,
+                total_deadline=time.monotonic()+60)
+        else:
+            result = coordinator.report_only(root, java, {'sha256': 'a'*64}, base / 'jvm', base,
+                nonce='b'*64, request=request, handshake_bytes=300_000, report_bytes=100_000)
     assert result['state'] == report.SUCCESS, result
     assert result['returncode'] == 0 and result['ack_sent'], result
     assert result['verification']['journal_state'] == 'INCOMPLETE', result

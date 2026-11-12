@@ -45,7 +45,7 @@ class FixedWitnessPipeTest {
         assertFalse(handshake.contains("skipped"), handshake);
         var artifacts = python(List.of("-B", "-m", "unittest", "discover", "-v", "-s", "scripts",
                 "-p", "test_fixed_witness_replay_coordinator_artifacts.py"), "coordinator-artifacts", 30);
-        assertTrue(artifacts.contains("Ran 19 tests") && artifacts.contains("\nOK\n"), artifacts);
+        assertTrue(artifacts.contains("Ran 26 tests") && artifacts.contains("\nOK\n"), artifacts);
         assertFalse(artifacts.contains("skipped"), artifacts);
         var registration = python(List.of("-m", "unittest", "discover", "-v", "-s", "scripts",
                 "-p", "test_fixed_witness_replay_registration.py"), "registration-suite", 30);
@@ -93,6 +93,28 @@ class FixedWitnessPipeTest {
         assertTrue(Files.readString(charged.resolve("coordinator-artifact-terminal.json"))
                 .contains("VERIFIED_NO_REPLAY"));
         assertFalse(Files.exists(charged.resolve("journal.jsonl")));
+        for (var mode : List.of("report", "execute")) {
+            var modeOutput = Files.createDirectory(directory.resolve("charged-" + mode));
+            var modeSpec = directory.resolve(mode + "-spec.json");
+            Files.writeString(modeSpec, JsonMapper.builder().build().writeValueAsString(Map.of(
+                    "root", root.toString(), "java", Path.of(System.getProperty("java.home")).toRealPath().toString(),
+                    "out", modeOutput.toString(), "dependencies", dependencies, "mode", mode)));
+            python(List.of("-B", "-c", "import json,sys; sys.path.insert(0,'scripts'); "
+                    + "from test_fixed_witness_replay_coordinator_artifacts import ordinary_jvm_fixture; "
+                    + "ordinary_jvm_fixture(json.load(open(sys.argv[1])))", modeSpec.toString()), "charged-" + mode, 110);
+            var terminal = JsonMapper.builder().build().readTree(
+                    Files.readString(modeOutput.resolve("coordinator-artifact-terminal.json")));
+            assertEquals(mode.equals("execute") ? "REPLAY_REPORTED" : "REPORT_WRITTEN_NO_REPLAY", terminal.get("state").asText());
+            if (mode.equals("execute")) {
+                assertTrue(terminal.get("actions_started").asBoolean());
+                assertFalse(terminal.get("diagnostic_authorized").asBoolean());
+                assertTrue(Files.isRegularFile(modeOutput.resolve("execution-mode/jvm/journal.jsonl")));
+            } else {
+                assertFalse(terminal.get("diagnostic_started").asBoolean());
+                assertTrue(Files.isRegularFile(modeOutput.resolve("report-mode/jvm/report.json")));
+                assertFalse(Files.exists(modeOutput.resolve("report-mode/jvm/journal.jsonl")));
+            }
+        }
     }
 
     private String python(List<String> args, String name, int seconds) throws Exception {
