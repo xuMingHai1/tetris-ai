@@ -84,6 +84,34 @@ native wire。领取或前缀写入失败不重试、不创建task；构造中�
 研究结果、用户可见功能本轮无新增。该接线仅为test-only设施，未改变生产API、
 冻结协议/guard/预算或正常运行方式；README/AGENTS无需同步。
 
+## 本次新增修改：Java宿主writer到tracer实际工厂（2026-11-12）
+
+`FixedWitnessWriterHost`在规范化session目录独占写入宿主INCOMPLETE前缀，
+仅持有32KiB宿主writer；`handoff(Process)`通过既存直接子进程stdin一次性发送
+固定10MiB分区grant并关闭管道。写入/flush失败不以close重试，也不重新发行；
+宿主writer的非法名、额度不足或I/O失败永久锁存，禁止后续写入与handoff；
+调用方必须在原硬deadline内终止并回收子进程。此类没有启动进程或执行诊断的入口。
+
+`HostWriterHandoff.receive`在原deadline内，以唯一线程非阻塞读完有界grant并要求EOF，
+核对当前parent/receiver PID和三个精确冻结额度，拒绝额外字节、超时和非管道。
+接收端只建立32KiB tracer与余下coordinator额度，`writers.host=None`，不复制Java
+ByteQuota或重建第二个宿主writer。独占claim文件先计入tracer额度；同目录重复交接失败。
+这依赖可信原始宿主、直接继承管道和无外部注入的前提，不将grant文本当作身份凭证。
+
+`prepare`一次性消费该grant，直接调用已有`TracerSupervisor.for_host`，保留原deadline、
+来源receipt、输出管道、tracer证据与真实reap接线；即使prepare失败也不允许重领。
+普通CI的Java/Python真实管道用例走这条调用链，fork/wait/ptrace/signal全部注入，
+不运行原生tracer、能力探针、network clean-build或历史输入。另有12项Python回归覆盖
+实际成功/失败清理、原异常、writer计费与重复/漂移/超时拒绝。
+
+有限剩余清单：本轮只接通writer发行/接收至实际supervisor工厂，不是完整可信宿主。
+仍需原Java宿主的来源/toolchain/manifest冻结、启动前计时与tracer槽预留、
+原硬deadline终态监督/取消，以及协调器全部artifact/JVM子预留的实际接线；
+完整filter/external no-injection checker、冻结task schedule/fixtures、剩余复杂cleanup
+与EXITKILL负例仍缺。整体最终revision Review/CI、compatibility/inputhash及唯一登记
+继续是原生验收前置。本轮没有研究结果或用户可见功能，未变更生产代码、冻结guard或预算。
+README/AGENTS的生产职责不变，无需同步。
+
 ## 既有组件与交接记录
 
 本组件落实[已接受设计](../design/heart-fixed-witness-replay.md)的固定10MiB输出上限，
