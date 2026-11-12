@@ -265,3 +265,33 @@ Linux普通JUnit bridge要求30秒内13项通过且零skip。旧pending线程负
 
 整体里程碑、整体原生验收尚未完成；研究结果与用户可见功能本轮无新增。生产API、
 冻结协议、guard、预算和运行方式不变，README/AGENTS无需同步。
+
+## 本次新增修改：失败后原 owner EXEC 记录接管到清理
+
+`SettledProcessCleanup.run()`在任何创建绑定和pidfd acquisition前，调用同一reaper的
+`bind_retained_exec()`。它只接管已注册`BoundedWaitOwner`实际消费的EXEC记录，核对
+原失败owner、TGID birth快照、空预留、未resume和terminal隔离；直接accept/raw tuple
+不能提供该来源。成功GETEVENTMSG复用，未尝试者只读一次，不确定读取永久失败。
+没有新wait、stop扣费、resume、预算或期限。已正常安装EXEC后才发生的失败跳过迁移。
+
+`CreationSyscallDispatcher`共享原native ENTRY/EXEC/group匹配及安装实现，
+`TaskLedger.cleanup_exec_identity()`共享原身份检查而保留所有失败锁存：其他siblings
+必须已真实reap，仅被替换的当前leader可按既有de_thread证明标记exec-replaced。
+随后沿用已交付的TGID pin、组SIGKILL和逐birth实际terminal reap。只更新清理身份，
+不生成正常EXEC generation、ABI observation、resume或能力证书；pin失败也保留迁移状态。
+
+20项fake-only测试覆盖execve/execveat、相同TID、失败前已匹配或已安装、原stop预算耗尽、
+不确定读取/一次性、跨期限/owner丢失、错误group/entry/birth、未reap sibling及未结算创建、
+terminal隔离和pin失败。Linux普通JUnit bridge要求30秒内20项/零skip。
+所有kernel/wait/pidfd/signal均注入；不是整体原生验收、研究结果或用户可见功能。
+
+有限剩余清单：
+1. 已消费且来源完整的EXEC记录可在失败后接通迁移到kill/reap；不重做稳定线程组路径。
+2. 尚未消费的in-flight EXEC、leader先退出、未绑定thread creation、复杂job-control/
+   ptrace-event及pin/binding失败的完整整树清理仍缺；不推断ECHILD、不扩大准入。
+3. trusted Java host/source freeze、filter/external no-injection checker、同根互斥writer
+   transport及完整frozen fixture/task reservation/EXITKILL负例仍须接通。
+4. 原整体最终revision独立Review/CI、compatibility/inputhash和唯一有界登记继续必需。
+
+整体里程碑仍未完成，未执行native/network clean-build/历史输入，生产API、冻结协议、
+guard、预算和运行方式均未变；README/AGENTS无需同步。

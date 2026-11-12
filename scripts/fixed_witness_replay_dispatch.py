@@ -32,7 +32,8 @@ class CreationSyscallDispatcher:
     Inputs must already be bound to real stopped/reaped birth identities by the
     caller. Successful return completes only this component's checks, never
     grants resume permission. access_factory supplies a NEW PtraceAccess for
-    each birth. After any error only authenticated reap remains usable.
+    each birth. After error only authenticated cleanup binding/reap is usable;
+    no failure latch is cleared and no normal work may resume.
     """
 
     def __init__(self, lifecycle, access_factory, coordinator_ticket, coordinator_tid):
@@ -107,6 +108,10 @@ class CreationSyscallDispatcher:
         event matching and installation must replace it before any resume.
         """
         self._running()
+        return self._stop_binding(tid)
+
+    def _stop_binding(self, tid):
+        """Identity lookup shared with authenticated failed-owner cleanup."""
         if type(tid) is int:
             for ticket, (bound_tid, access) in self._tasks.items():
                 if tid == bound_tid and access is not None:
@@ -223,10 +228,16 @@ class CreationSyscallDispatcher:
         without an intervening wait/resume under the original sole ownership.
         """
         self._running()
+        if self.lifecycle.ledger.totals.stopped is not None:
+            self._fail('task ledger stopped')
+        return self._match_exec_event(old_tid, new_tid)
+
+    def _match_exec_event(self, old_tid, new_tid):
+        """Shared matching only; cleanup must authenticate its retained wait first."""
         if (type(old_tid) is not int or not 0 < old_tid < 2**31
                 or type(new_tid) is not int or not 0 < new_tid < 2**31):
             self._fail('invalid exec event TIDs')
-        ticket, _ = self.stop_binding(old_tid)
+        ticket, _ = self._stop_binding(old_tid)
         previous = self._sequence[ticket]
         if (ticket in self._exec_events or ticket in self._exec_exits
                 or type(previous) is not SyscallInfo
@@ -238,12 +249,10 @@ class CreationSyscallDispatcher:
         except PtraceBoundaryError as error:
             self._fail(str(error))
         ledger = self.lifecycle.ledger
-        if ledger.totals.stopped is not None:
-            self._fail('task ledger stopped')
         identity = ledger.identity(ticket)
         if not identity.alive or identity.tid != old_tid or identity.tgid != new_tid:
             self._fail('exec event does not match live group identity')
-        target, _ = self.stop_binding(new_tid)
+        target, _ = self._stop_binding(new_tid)
         leader = ledger.identity(target)
         if not leader.alive or leader.group_birth != identity.group_birth:
             self._fail('exec event target is outside the birth group')
@@ -322,13 +331,19 @@ class CreationSyscallDispatcher:
         bindings remain, and the owner must stop the entire session.
         """
         self._running()
+        return self._install_exec_identity(facts, cleanup=False)
+
+    def _install_exec_identity(self, facts, *, cleanup):
+        """Share atomic validation/mutation; never clear the original failure."""
         if (type(facts) is not ExecEventFacts
                 or self._exec_events.get(facts.birth) is not facts):
             self._fail('unmatched exec transition facts')
         access = self._task(facts.birth, facts.old_tid)
-        leader, _ = self.stop_binding(facts.new_tid)
+        leader, _ = self._stop_binding(facts.new_tid)
         try:
-            self.lifecycle.ledger.exec_identity(facts.birth, facts.old_tid, facts.new_tid)
+            transition = (self.lifecycle.ledger.cleanup_exec_identity if cleanup
+                          else self.lifecycle.ledger.exec_identity)
+            transition(facts.birth, facts.old_tid, facts.new_tid)
         except TaskAccountingError as error:
             self._fail(str(error))
         if leader != facts.birth:
@@ -341,6 +356,22 @@ class CreationSyscallDispatcher:
         del self._exec_events[facts.birth]
         self._exec_exits.add(facts.birth)
         return facts.birth, access
+
+    def cleanup_exec_event(self, old_tid, new_tid):
+        """Install an original cleanup owner's authenticated EXEC without resume.
+
+        No new event read, failure reset, syscall exit or observation is emitted.
+        The caller must own the exact consumed wait and successful GETEVENTMSG.
+        A previously matched event may be reused only with its original entry.
+        """
+        ticket, _ = self._stop_binding(old_tid)
+        facts = self._exec_events.get(ticket)
+        if facts is None:
+            facts = self._match_exec_event(old_tid, new_tid)
+        elif (facts.old_tid != old_tid or facts.new_tid != new_tid
+              or facts.entry is not self._sequence.get(ticket)):
+            self._fail('retained cleanup exec transition mismatch')
+        return self._install_exec_identity(facts, cleanup=True)
 
     def awaiting_exec_migration(self, ticket, tid):
         """Permit bounded polling of the known TGID after old-TID ECHILD only.

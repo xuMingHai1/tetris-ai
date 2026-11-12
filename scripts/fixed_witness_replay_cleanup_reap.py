@@ -1,8 +1,9 @@
-"""Terminal-only cleanup waits; no kill, resume, probe or COMPLETE receipt.
+"""Owned event binding and terminal cleanup; no kill, resume or capability proof.
 
 This supports process births and pinned stable thread groups with no unknown
 children, including event-bound process creations awaiting parent results.
-The trusted host must still handle unbound threads and exec transitions.
+The trusted host must still handle unbound threads and unconsumed exec events;
+an original failed wait owner's consumed EXEC can be adopted before any pin.
 Stops are never resumed. Only known births successfully pidfd-SIGKILLed by
 the composing cleanup owner may drain queued signal/syscall stops.
 """
@@ -45,6 +46,9 @@ class CleanupReaper:
         self.bound_creations = []
         self.last_creation_event = None
         self.adopted_wait = None
+        self.exec_binding_started = False
+        self.adopted_exec_wait = None
+        self.bound_exec = None
         self._check()
         launch._cleanup_reap_claimed = True
         # Permanently revoke every normal wait/resume route. Keep an existing
@@ -119,6 +123,65 @@ class CleanupReaper:
             else:
                 dispatcher.cleanup_stable_group(tuple(members))
         return identities
+
+    def bind_retained_exec(self):
+        """Adopt only the failed normal wait owner's already consumed EXEC.
+
+        No new wait, debit or resume. A successful original GETEVENTMSG is
+        reused; a not-yet-attempted read is made once on the old TGID binding.
+        Unknown/uncertain events stay incomplete, never guessed via ECHILD.
+        """
+        if self.exec_binding_started or self.started or self._killed_births:
+            raise CleanupReapError('cleanup exec binding already attempted or too late')
+        self.exec_binding_started = True
+        try:
+            self._check()
+            post = getattr(self.launch, '_normal_wait_dispatcher', None)
+            owner = getattr(post, '_wait_owner', None)
+            if type(owner) is not BoundedWaitOwner or owner.last_wait is None:
+                return
+            receipt = owner.last_wait
+            if type(receipt) is not _OwnedWait:
+                raise CleanupReapError('original retained exec wait required')
+            status = decode_wait_status(receipt.raw)
+            if status.kind != 'ptrace-event' or status.event != 'EXEC':
+                return
+            if (owner.dispatcher is not post or post.launch is not self.launch
+                    or not owner.started or owner.stopped is None or post.stopped is None
+                    or receipt.adopted):
+                raise CleanupReapError('retained exec owner mismatch')
+            if receipt.exec_installed:
+                # Normal dispatch already installed the birth before a later
+                # observation/resume failure. Do not migrate or read twice.
+                return
+            parent = receipt.parent
+            dispatcher = self.launch.dispatcher
+            if (dispatcher is None or receipt.tid != parent.tid
+                    or self.ledger.identity(parent.birth) != parent
+                    or not parent.alive or parent.tid != parent.tgid
+                    or receipt.pending or receipt.resume_attempted
+                    or receipt.tid in self.launch.unsettled_terminal_waits):
+                raise CleanupReapError('retained exec birth mismatch')
+            wire = dispatcher._task(parent.birth, parent.tid)
+            if wire is None:
+                raise CleanupReapError('retained exec TGID wire required')
+            receipt.adopted = True
+            self.adopted_exec_wait = receipt
+            if receipt.event_attempted and not receipt.event_read:
+                raise CleanupReapError('retained exec event read was uncertain')
+            if not receipt.event_attempted:
+                receipt.event_attempted = True
+                receipt.event_tid = wire.event_tid(receipt.tid)
+                receipt.event_read = True
+            self._check()
+            # Match the native entry and original live group before mutation.
+            # Ledger checks still reject unresolved creations/unreaped siblings.
+            self.bound_exec = dispatcher.cleanup_exec_event(receipt.event_tid, receipt.tid)
+            receipt.exec_installed = True
+            self._check()
+        except BaseException:
+            self.stopped = 'cleanup exec binding incomplete; preserve identities'
+            raise
 
     def bind_creation_events(self):
         """Consume in-flight process events before pidfd inventory acquisition.

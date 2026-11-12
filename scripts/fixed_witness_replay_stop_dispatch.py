@@ -103,6 +103,8 @@ class PostHandshakeDispatcher:
             elif kind == 'ptrace-event' and facts.status.event == 'EXEC':
                 matched = self.launch.dispatcher.exec_event(facts.event_tid, tid)
                 ticket, wire = self.launch.dispatcher.install_exec_identity(matched)
+                if self._active_wait is not None:
+                    self._active_wait.exec_installed = True
                 # Count only installed successful EXECs; preserve the migrated
                 # cleanup binding even if generation/observation later fails.
                 generation = self._exec_generations.get(ticket, 0) + 1
