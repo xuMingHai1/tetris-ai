@@ -92,7 +92,9 @@ def write_exclusive(path, data, quota):
     if not isinstance(data, bytes) or not isinstance(quota, ByteQuota):
         raise ValueError('bytes and shared ByteQuota required')
     quota.charge(len(data))
-    with Path(path).open('xb') as stream:
+    # Closing a buffered stream after a failed flush could implicitly retry
+    # retained bytes. Raw FileIO closes without another write attempt.
+    with Path(path).open('xb', buffering=0) as stream:
         if stream.write(data) != len(data):
             raise OSError('short artifact write')
         stream.flush()

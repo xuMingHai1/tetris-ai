@@ -49,6 +49,41 @@ compatibility/inputhash、唯一登记和原执行前门。此接线没有完成
 没有native probe、network clean-build或历史22步执行；研究结果和用户可见功能无新增。
 仅test-only设施，生产架构/README/AGENTS、预算/guard及全部停止门不变。
 
+## 本次新增修改：原 tracer 生命周期接通有界证据 writer
+
+`TracerSupervisor.for_host()` 先唯一领取原 `writers.tracer` 的32KiB分区，
+以 `write_exclusive` 预扣并独占写入 `tracer-incomplete.txt`，再准备协调器管道及
+native wire。领取或前缀写入失败不重试、不创建task；构造中途失败保留前缀。
+同一分区不可再次创建证据writer，也不向host/coordinator借用余额。
+
+`run()` 的外层finally在原监督循环、既有kill/reap及协调器输出关闭全部返回后，
+一次性写 `tracer-lifecycle.json`。固定字段只记录原ledger累计计数、launch/握手、
+输出关闭和失败/cleanup状态，不转印异常、命令或trace。`DRAINED_OBSERVATION`仅是
+原账本排空观察，`suite_verified`永远false；immutable INCOMPLETE前缀不删除、不覆盖。
+此文件不是冻结人工套件receipt、完整report或外部checker证明。
+
+完整记录在打开前计费；写入失败保留charge，禁止重试。若已有原执行异常，报告错误
+单独留在 `evidence_error`，不遮蔽原错误与cleanup结果；若原循环已排空而证据失败，
+禁止成功返回并撤销drained。记录生成在output close之后，因此close错误不会留下
+虚假的排空记录。共享 `write_exclusive` 改用无缓冲FileIO，避免失败flush后的close
+隐式重写；这是同一证据失败语义所需的额外修改，既有调用方的预扣/独占语义不变。
+
+13项fake-only组合用例覆盖原实际监督/失败清理、deadline前失败、close错误、配额耗尽、
+文件碰撞、失败前缀、一次性领取、真实FileIO失败不重试及双重失败不遮蔽。新增Linux
+普通JUnit桥强制30秒内13项零skip；native fork/wait/ptrace/pidfd/signal均为注入。
+
+有限剩余集成清单：
+1. 本轮关闭原tracer生命周期到32KiB本地证据writer的实际接线缺口。
+2. 可信Java宿主的启动/终态观察、三个writer跨进程互斥交接、协调器全部artifact/JVM
+   enforcement、原source/manifest冻结及fullfilter/external no-injection checker仍缺。
+3. 未消费EXEC/de_thread、leader提前退出、复杂jobcontrol/ptrace/pin失败整树清理，以及
+   全部冻结fixture/task预留表和EXITKILL终末负例仍须完成。
+4. 原整体最终revision独立Review/CI、compatibility/inputhash、唯一登记及执行前门保留。
+
+整体里程碑及原生/network clean-build验收未完成；未执行历史22步或native probe。
+研究结果、用户可见功能本轮无新增。该接线仅为test-only设施，未改变生产API、
+冻结协议/guard/预算或正常运行方式；README/AGENTS无需同步。
+
 ## 既有组件与交接记录
 
 本组件落实[已接受设计](../design/heart-fixed-witness-replay.md)的固定10MiB输出上限，
