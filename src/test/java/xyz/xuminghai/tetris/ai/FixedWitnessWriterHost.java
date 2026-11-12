@@ -11,6 +11,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -22,7 +27,7 @@ import java.util.function.LongSupplier;
 
 /**
  * Trusted host writer allocation and one-shot direct-child pipe handoff. This
- * has no launch CLI, source authentication, execution permit or native probe.
+ * has no launch CLI, whole-toolchain certificate, execution permit or native probe.
  * Launch supervision retains the earlier host ceiling; direct-child terminal
  * observation is never evidence that all tracees or the whole suite completed.
  */
@@ -129,8 +134,96 @@ final class FixedWitnessWriterHost {
         return launchAndObserve(command::start);
     }
 
+    /**
+     * Bind a retained command to this session, with no ambient environment or
+     * caller-owned mutable ProcessBuilder. Hashes must be retained independently
+     * by the trusted caller, not collected from the child. Recheck selected bytes
+     * before start, before grant and after terminal observation, on the same
+     * bounded worker. This is cooperative continuity, not complete Python/JDK
+     * authentication or protection against concurrent change-and-restore.
+     */
+    int launchAndObserve(RetainedCommand command) throws IOException, InterruptedException {
+        return launchAndObserve(command, () -> {
+            var builder = new ProcessBuilder(command.arguments());
+            builder.directory(command.cwd().toFile());
+            builder.environment().clear();
+            builder.environment().putAll(command.environment());
+            builder.redirectOutput(ProcessBuilder.Redirect.DISCARD);
+            builder.redirectError(ProcessBuilder.Redirect.DISCARD);
+            return builder.start();
+        });
+    }
+
+    // Inject only process creation in synthetic continuity/cleanup tests.
+    int launchAndObserve(RetainedCommand command, Callable<Process> start) throws IOException, InterruptedException {
+        return launchAndObserve(() -> {
+            command.recheck(this);
+            return start.call();
+        }, () -> command.recheck(this));
+    }
+
+    /** Immutable caller receipt; selecting the complete trusted input set is still a prerequisite. */
+    record RetainedCommand(List<String> arguments, Path cwd, Map<String, String> environment,
+                           Map<Path, String> files) {
+        RetainedCommand {
+            arguments = List.copyOf(arguments);
+            environment = Map.copyOf(environment);
+            files = Map.copyOf(files);
+            if (arguments.size() != 5 || !arguments.get(1).equals("-I") || !arguments.get(2).equals("-B")
+                    || !cwd.isAbsolute() || !cwd.equals(cwd.normalize())
+                    || !files.containsKey(Path.of(arguments.getFirst()))
+                    || !files.containsKey(Path.of(arguments.get(3)))
+                    || arguments.stream().anyMatch(value -> value.isEmpty() || value.indexOf('\0') >= 0)
+                    || environment.keySet().stream().anyMatch(key -> !List.of("HOME", "TMPDIR", "LANG", "LC_ALL", "TZ").contains(key))
+                    || environment.entrySet().stream().anyMatch(entry -> entry.getValue().indexOf('\0') >= 0)
+                    || files.entrySet().stream().anyMatch(entry -> !entry.getKey().isAbsolute()
+                        || !entry.getValue().matches("[0-9a-f]{64}"))) {
+                throw new IllegalArgumentException("retained isolated Python argv/environment/file hashes required");
+            }
+        }
+
+        private void recheck(FixedWitnessWriterHost host) throws IOException {
+            host.remaining(CLEANUP_NANOS);
+            if (!arguments.getLast().equals(host.directory.toString())) {
+                throw new IOException("retained tracer session mismatch");
+            }
+            if (!cwd.equals(cwd.toRealPath()) || !Files.isDirectory(cwd)) {
+                throw new IOException("retained tracer cwd drift");
+            }
+            for (var entry : files.entrySet()) {
+                var path = entry.getKey();
+                if (!path.equals(path.toRealPath()) || !Files.isRegularFile(path)) {
+                    throw new IOException("retained tracer file drift");
+                }
+                MessageDigest digest;
+                try {
+                    digest = MessageDigest.getInstance("SHA-256");
+                } catch (NoSuchAlgorithmException error) {
+                    throw new IllegalStateException(error);
+                }
+                try (var input = Files.newInputStream(path)) {
+                    var buffer = new byte[8192];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) {
+                        host.remaining(CLEANUP_NANOS);
+                        digest.update(buffer, 0, count);
+                    }
+                }
+                host.remaining(CLEANUP_NANOS);
+                if (!entry.getValue().equals(HexFormat.of().formatHex(digest.digest()))) {
+                    throw new IOException("retained tracer bytes drift");
+                }
+            }
+            host.remaining(CLEANUP_NANOS);
+        }
+    }
+
     // Fake Process transports exercise failure ordering without native probes.
     int launchAndObserve(Callable<Process> start) throws IOException, InterruptedException {
+        return launchAndObserve(start, () -> { });
+    }
+
+    private int launchAndObserve(Callable<Process> start, CheckedContinuity continuity) throws IOException, InterruptedException {
         synchronized (this) {
             if (launchAttempted || issued || failed) {
                 throw new IllegalStateException("host tracer launch already consumed/unavailable");
@@ -162,11 +255,13 @@ final class FixedWitnessWriterHost {
                     throw new IOException("late tracer launch; terminal observation unavailable");
                 }
                 remaining(CLEANUP_NANOS);
+                continuity.recheck();
                 handoff(process, true);
                 if (!process.waitFor(remaining(CLEANUP_NANOS), TimeUnit.NANOSECONDS)) {
                     throw new IOException("host tracer active deadline exhausted");
                 }
                 remaining(CLEANUP_NANOS);
+                continuity.recheck();
                 finished.complete(process.exitValue());
             } catch (Throwable error) {
                 finished.completeExceptionally(error);
@@ -228,6 +323,11 @@ final class FixedWitnessWriterHost {
                 }
             }
         }
+    }
+
+    @FunctionalInterface
+    private interface CheckedContinuity {
+        void recheck() throws IOException;
     }
 
     private long remaining(long reserve) throws IOException {

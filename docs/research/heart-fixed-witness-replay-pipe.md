@@ -40,3 +40,33 @@ verify-only READY/实际proc/loaded-class/ACK/EOF联调；该测试明确mock pr
 #140/GoalWindow停止，#95/#96/reserved/provider/runtime不解锁。
 生产、构建、workflow、selector、原guard和冻结协议均不变。
 架构文档影响仅为研究入口，无需改README/AGENTS/ADR。
+
+## 本次新增修改：可信宿主的选定命令与来源连续性
+
+`FixedWitnessWriterHost.launchAndObserve(RetainedCommand)` 现在把调用方独立保留的
+argv、cwd、显式环境和文件 SHA-256 接到原启动路径；receipt 对集合做不可变复制，
+不再保留调用方可变的 `ProcessBuilder`。限定绝对 interpreter/入口文件、`-I -B`、
+唯一 session 参数；环境先清空，只接受 HOME/TMPDIR/LANG/LC_ALL/TZ，不继承 PATH、
+PYTHONPATH 或其他宿主变量。缺失/非 canonical 文件、哈希漂移、cwd/session 不符
+均拒绝。所选文件在启动前、原 PID 绑定 grant 前和直接子进程 terminal 后复核。
+所有读取在原有界 worker 中、逐块检查同一宿主 deadline，保留原3秒 cleanup 余量；
+不新增任务、计时窗口、重试或证据额度。失败永久消费本次启动，保留 INCOMPLETE，
+已启动子进程仍由原 kill/terminal 路径处理，不能写成功后缀。
+
+9项回归包含来源在三处边界漂移、依赖消失、外部集合修改、环境/命令拒绝、外来
+session 和原 deadline。Linux 用例以实际隔离 Python 命令、Java grant pipe、既有
+`HostWriterHandoff.prepare -> TracerSupervisor` 及 fake kernel 走到清理/reap 和
+计费日志；Windows 跳过该联调，不当作 Linux 成功。其他测试仅注入 Process。
+
+这仅认证调用方选定且独立保留的字节；调用方仍须冻结完整 source/toolchain/manifest
+与导入来源。Python stdlib、动态库、已缓存模块、完整任务/fixture 调度并未由本
+receipt 自动认证；合作式复核不抵御并发 change-and-restore 或内存替换。原
+`ProcessBuilder`/`Callable` 入口保留为既有组件和合成测试路径，不能作为来源证明。
+不会在未计时宿主内执行 checkout、build、identity 子进程或能力探针。
+
+有限剩余集成项仍为完整可信宿主/冻结调度、coordinator ALL-artifact/JVM 的同根互斥
+额度传输与实际 writer、完整 filter/external no-injection checker、未覆盖的复杂
+cleanup/job-control、冻结 fixtures/task 表及 EXITKILL 负例，随后满足整体最终
+Review/CI、compatibility/inputhash 和唯一登记。整体原生/network clean-build/历史
+验收尚未完成，研究结果和用户可见功能本轮无新增；170A/174 接受及原停止门不变。
+仅 test-only 入口接线，生产架构/README/AGENTS 和冻结协议/预算/guard 无需改动。
