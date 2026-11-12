@@ -142,6 +142,67 @@ class FixedWitnessHostLaunchTest {
     }
 
     @Test
+    void unobservedTerminalKeepsOriginalErrorAndNeverStartsAgain() throws Exception {
+        var host = host();
+        var process = new Child() {
+            @Override public OutputStream getOutputStream() { throw new IllegalStateException("original grant error"); }
+            @Override public boolean waitFor(long amount, TimeUnit unit) {
+                waitNanos = unit.toNanos(amount);
+                return false;
+            }
+        };
+        var error = assertThrows(IOException.class, () -> host.launchAndObserve(() -> process));
+        assertEquals("original grant error", error.getCause().getMessage());
+        assertEquals("direct tracer terminal cleanup unobserved", error.getSuppressed()[0].getMessage());
+        assertEquals(TimeUnit.SECONDS.toNanos(10), process.waitNanos);
+        assertThrows(IllegalStateException.class, () -> host.launchAndObserve(Child::new));
+        assertFalse(Files.exists(directory.resolve("host-tracer.txt")));
+    }
+
+    @Test
+    void blockedGrantDoesNotBlockHostDeadlineAndIsNeverClosedForRetry() throws Exception {
+        var host = new FixedWitnessWriterHost(directory.toRealPath(), System::nanoTime,
+                TimeUnit.SECONDS.toNanos(4));
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var finished = new CountDownLatch(1);
+        var closes = new AtomicInteger();
+        var process = new Child() {
+            @Override public OutputStream getOutputStream() {
+                return new ByteArrayOutputStream() {
+                    @Override public void flush() throws IOException {
+                        entered.countDown();
+                        try {
+                            release.await();
+                            throw new IOException("closed by original host timeout");
+                        } catch (InterruptedException error) {
+                            throw new IOException(error);
+                        } finally {
+                            finished.countDown();
+                        }
+                    }
+                    @Override public void close() { closes.incrementAndGet(); }
+                };
+            }
+            @Override public Process destroyForcibly() {
+                super.destroyForcibly();
+                release.countDown();
+                return this;
+            }
+        };
+        try {
+            assertThrows(IOException.class, () -> host.launchAndObserve(() -> process));
+            assertEquals(0, entered.getCount());
+            assertTrue(finished.await(2, TimeUnit.SECONDS));
+            assertEquals(1, process.kills);
+            assertFalse(process.isAlive());
+            assertEquals(0, closes.get());
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
     void nonzeroExitNeverWritesSuccessSuffix() throws Exception {
         var host = host();
         var process = new Child() { @Override public int exitValue() { return 125; } };
@@ -152,7 +213,7 @@ class FixedWitnessHostLaunchTest {
     @Test
     void startReturningAfterTimeoutIsStillKilledWithoutGrant() throws Exception {
         var host = new FixedWitnessWriterHost(directory.toRealPath(), System::nanoTime,
-                TimeUnit.SECONDS.toNanos(3) + TimeUnit.MILLISECONDS.toNanos(100));
+                TimeUnit.SECONDS.toNanos(4));
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
         var killed = new CountDownLatch(1);
