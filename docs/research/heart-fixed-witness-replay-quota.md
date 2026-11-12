@@ -101,8 +101,9 @@ ByteQuota或重建第二个宿主writer。独占claim文件先计入tracer额度
 `prepare`一次性消费该grant，直接调用已有`TracerSupervisor.for_host`，保留原deadline、
 来源receipt、输出管道、tracer证据与真实reap接线；即使prepare失败也不允许重领。
 普通CI的Java/Python真实管道用例走这条调用链，fork/wait/ptrace/signal全部注入，
-不运行原生tracer、能力探针、network clean-build或历史输入。另有12项Python回归覆盖
+不运行原生tracer、能力探针、network clean-build或历史输入。另有13项Python回归覆盖
 实际成功/失败清理、原异常、writer计费与重复/漂移/超时拒绝。
+grant与复用fake launch共用同一时钟；低uptime回归避免将固定夹具时间与真实deadline混用。
 
 有限剩余清单：本轮只接通writer发行/接收至实际supervisor工厂，不是完整可信宿主。
 仍需原Java宿主的来源/toolchain/manifest冻结、启动前计时与tracer槽预留、

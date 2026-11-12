@@ -31,6 +31,9 @@ def composed(handoff, *, failure=None):
     f.launch.owner = handoff.pid
     f.f.system.getpid.return_value = handoff.pid
     f.f.system.listdir.return_value = [str(handoff.pid)]
+    # The grant deadline and launch must use the SAME clock. The reused fake
+    # launch otherwise returns 90, which can exceed uptime on a fresh runner.
+    f.launch.clock = handoff.clock
 
     def launch(ledger, command, cwd, environment, stdio, deadline):
         f.launch.stdio, f.launch.deadline = stdio, deadline
@@ -106,6 +109,15 @@ class WriterHandoffTest(unittest.TestCase):
         self.assertEqual(7, h._writers.coordinator.charged)
         with self.assertRaisesRegex(ValueError, 'consumed'):
             h.prepare(f.ledger, [], '', {}, 999, prepared_probes=None)
+
+    def test_fresh_machine_clock_origin_shared_with_launch(self):
+        clock = Mock(return_value=1.)
+        h = HostWriterHandoff.receive(self.pipe(grant()), self.directory, 20., clock=clock)
+        owner, _ = composed(h)
+        self.assertIs(clock, owner.launch.clock)
+        owner.run()
+        self.assertTrue(owner.drained)
+        self.assertEqual(20., owner.launch.deadline)
 
     def test_wrong_parent_receiver_and_each_limit_rejected(self):
         fields = grant().split()
