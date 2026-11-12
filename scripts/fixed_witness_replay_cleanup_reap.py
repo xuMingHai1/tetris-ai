@@ -6,6 +6,8 @@ Unbound legacy thread events may join existing bound non-EXEC sibling groups
 through their original leader and native obligation before pinning. A completed original
 nonleader exec ENTRY may bind its pending TGID EXEC before any pin; an original
 failed wait owner's consumed EXEC can also be adopted.
+A retained native failed nonleader exec EXIT may settle its original ENTRY
+without resume before the unchanged group is pinned and killed.
 Stops are never resumed. Only known births successfully pidfd-SIGKILLed by
 the composing cleanup owner may drain queued signal/syscall stops.
 """
@@ -16,6 +18,7 @@ import time
 from fixed_witness_replay_launch import CoordinatorLaunch
 from fixed_witness_replay_wait import decode_wait_status
 from fixed_witness_replay_wait_owner import WAIT_OPTIONS, BoundedWaitOwner, _OwnedWait
+from fixed_witness_replay_stops import StopFacts
 
 
 class CleanupReapError(ValueError):
@@ -54,6 +57,8 @@ class CleanupReaper:
         self.bound_exec = None
         self.inflight_exec_started = False
         self.last_exec_event = None
+        self.failed_exec_exit_started = False
+        self.adopted_failed_exec_exit = None
         self._check()
         launch._cleanup_reap_claimed = True
         # Permanently revoke every normal wait/resume route. Keep an existing
@@ -193,6 +198,50 @@ class CleanupReaper:
             self._check()
         except BaseException:
             self.stopped = 'cleanup exec binding incomplete; preserve identities'
+            raise
+
+    def bind_failed_exec_exit(self):
+        """Use a failed normal owner's already-read native failed exec EXIT.
+
+        No wait, stop debit, ptrace read, normal dispatch or resume. A partial
+        read, completed receipt, uncertain resume or changed birth stays closed.
+        """
+        if self.failed_exec_exit_started or self.started or self._killed_births:
+            raise CleanupReapError('failed exec EXIT cleanup already attempted or too late')
+        self.failed_exec_exit_started = True
+        try:
+            self._check()
+            post = getattr(self.launch, '_normal_wait_dispatcher', None)
+            owner = getattr(post, '_wait_owner', None)
+            if type(owner) is not BoundedWaitOwner or owner.last_wait is None:
+                return
+            receipt = owner.last_wait
+            if type(receipt) is not _OwnedWait:
+                raise CleanupReapError('original failed exec EXIT wait required')
+            facts, executor = receipt.facts, receipt.parent
+            dispatcher = self.launch.dispatcher
+            entry = dispatcher._sequence.get(executor.birth) if dispatcher else None
+            if (receipt.completed or type(facts) is not StopFacts
+                    or facts.syscall is None or facts.syscall.operation != 2
+                    or entry is None or entry.number not in (59, 322)
+                    or executor.tid == executor.tgid):
+                return
+            if (owner.dispatcher is not post or post.launch is not self.launch
+                    or not owner.started or owner.stopped is None or post.stopped is None
+                    or receipt.adopted or receipt.resume_attempted or receipt.pending
+                    or receipt.event_attempted or receipt.exec_installed
+                    or receipt.tid != executor.tid or facts.tid != executor.tid
+                    or decode_wait_status(receipt.raw).kind != 'syscall-stop'
+                    or facts.status != decode_wait_status(receipt.raw)
+                    or any(item.tid in self.launch.unsettled_terminal_waits
+                           for item in self.ledger.cleanup_identities())):
+                raise CleanupReapError('original failed exec EXIT owner or birth mismatch')
+            receipt.adopted = True
+            self.adopted_failed_exec_exit = receipt
+            dispatcher.cleanup_failed_exec_exit(executor, facts.syscall)
+            self._check()
+        except BaseException:
+            self.stopped = 'failed exec EXIT cleanup incomplete; preserve identities'
             raise
 
     def bind_inflight_exec(self):

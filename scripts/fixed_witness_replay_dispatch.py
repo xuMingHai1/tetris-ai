@@ -394,6 +394,26 @@ class CreationSyscallDispatcher:
         self.cleanup_stable_group((leader,))
         return leader, leader_access
 
+    def cleanup_failed_exec_exit(self, executor, info):
+        """Settle an original owner's consumed failed native exec EXIT only.
+
+        The cleanup owner authenticates the retained wait and absence of any
+        resume attempt. Keep every failure latch; this clears only the original
+        unmatched ENTRY so the unchanged birth group can be pinned and killed.
+        No EXEC identity, normal observation, task credit or resume is produced.
+        """
+        entry = self._sequence.get(executor.birth)
+        self.cleanup_inflight_exec_binding(executor, entry)
+        if (type(info) is not SyscallInfo or info.operation != 2
+                or info.is_error is not True or type(info.result) is not int
+                or not -4095 <= info.result < 0):
+            self._fail('failed native exec EXIT required for cleanup')
+        try:
+            info.require_native(2)
+        except PtraceBoundaryError as error:
+            self._fail(str(error))
+        self._sequence[executor.birth] = None
+
     def cleanup_exec_event(self, old_tid, new_tid):
         """Install an original cleanup owner's authenticated EXEC without resume.
 

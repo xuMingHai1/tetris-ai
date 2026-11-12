@@ -393,3 +393,28 @@ in-flight EXEC/leader先退出/nonleader创建/复杂job-control与event及失�
 inputhash和唯一有界登记。整体原生/network clean-build/历史验收尚未完成；无研究
 结果或用户可见功能。原170A/174接受、guard/协议/预算及执行停止门不变。
 仅test-only调用关系扩展，README/AGENTS生产架构无需同步。
+
+## 本次新增修改：原 owner 已消费的失败 exec EXIT 到整组清理
+
+`TracerSupervisor.run -> BoundedWaitOwner` 已消费 nonleader 的原生失败 exec
+EXIT、读取事实后在正常分发前失败时，`SettledProcessCleanup.run` 先调用
+`CleanupReaper.bind_failed_exec_exit`，再进入既有库存、pidfd pin/SIGKILL 与逐 birth
+真实 reap。只采用原 registered owner 的未完成 receipt，核对相同 birth/TID、
+原 syscall-stop、完整 StopFacts、无 resume/event 尝试或 pending creation，
+并拒绝 terminal quarantine。`CreationSyscallDispatcher.cleanup_failed_exec_exit`
+复用原 live leader/executor 双成员组与 ENTRY/wire 校验，只接受 native EXIT 的
+真实负 errno；仅清除该原 ENTRY，不改变 birth、生成 EXEC epoch 或正常 observation。
+所有失败锁存、原 deadline 和共享计数保留；不执行额外 wait、ptrace 读取或 resume。
+
+15 项 fake-only 回归包括实际 supervisor/typed ptrace/假 kernel 的失败到整组
+kill/reap 组合；Linux 普通 JUnit bridge 强制 30 秒内零 skip。此处实际 reap 指
+原清理调用链消费注入的 terminal wait，并非已进行原生验收。
+
+有限剩余清单：未消费的失败 exec EXIT、最后完成 ENTRY 之外的复杂 EXEC/leader
+先退出/额外 siblings/复杂 job-control 或 pin/binding 失败；可信 Java host 的完整
+source/toolchain/manifest 与 task/deadline 监督；所有 artifact/JVM 互斥同根计费、
+完整 filter/external no-injection checker、冻结 fixtures/task 表和 EXITKILL 负例；
+整体最终 revision 独立 Review/CI、compatibility/inputhash 与唯一有界登记。
+本次不改变原 guard、冻结协议、预算或生产代码；170A/174 接受及执行停止门保持。
+整体里程碑、native/network clean-build/历史验收尚未完成，无新增研究结果或用户可见
+功能；无架构或正常运行方式变化，README/AGENTS 无需同步。
