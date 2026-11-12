@@ -3,8 +3,9 @@
 This supports process births and pinned stable thread groups with no unknown
 children, including event-bound process creations awaiting parent results.
 Unbound thread events require a process-only pre-binding inventory; existing
-multi-birth groups and unconsumed exec events still require further integration.
-an original failed wait owner's consumed EXEC can be adopted before any pin.
+multi-birth groups still require further integration. A completed original
+nonleader exec ENTRY may bind its pending TGID EXEC before any pin; an original
+failed wait owner's consumed EXEC can also be adopted.
 Stops are never resumed. Only known births successfully pidfd-SIGKILLed by
 the composing cleanup owner may drain queued signal/syscall stops.
 """
@@ -26,7 +27,8 @@ class CleanupReaper:
 
     No lookup/signalling by cleanup_tid, no wait(-1), no inferred ECHILD reap.
     Groups require a live original TGID and no unmatched exec entry before pin;
-    multi-birth groups require composing pidfd SIGKILL before any cleanup wait.
+    multi-birth groups require pidfd SIGKILL before terminal/draining waits;
+    exact original-owner event binding may precede pin acquisition.
     Successful return describes terminal accounting only, never suite success.
     """
 
@@ -50,6 +52,8 @@ class CleanupReaper:
         self.exec_binding_started = False
         self.adopted_exec_wait = None
         self.bound_exec = None
+        self.inflight_exec_started = False
+        self.last_exec_event = None
         self._check()
         launch._cleanup_reap_claimed = True
         # Permanently revoke every normal wait/resume route. Keep an existing
@@ -189,6 +193,94 @@ class CleanupReaper:
             self._check()
         except BaseException:
             self.stopped = 'cleanup exec binding incomplete; preserve identities'
+            raise
+
+    def bind_inflight_exec(self):
+        """Finish the original owner's last fully resumed nonleader exec ENTRY.
+
+        Poll only its still-bound TGID for the exact EXEC(old TID) event. Never
+        wait on the disappearing old TID, infer ECHILD, resume, retry an event
+        read, reset a failure/deadline or mint an EXEC observation/generation.
+        Other unmatched entries remain unsupported by the existing inventory.
+        """
+        if self.inflight_exec_started or self.started or self._killed_births:
+            raise CleanupReapError('in-flight cleanup exec already attempted or too late')
+        self.inflight_exec_started = True
+        try:
+            self._check()
+            post = getattr(self.launch, '_normal_wait_dispatcher', None)
+            owner = getattr(post, '_wait_owner', None)
+            if type(owner) is not BoundedWaitOwner or owner.last_wait is None:
+                return
+            receipt = owner.last_wait
+            if type(receipt) is not _OwnedWait:
+                raise CleanupReapError('original in-flight exec wait required')
+            if not receipt.completed:
+                return
+            facts = receipt.facts
+            entry = getattr(facts, 'syscall', None)
+            executor = receipt.parent
+            if (entry is None or entry.number not in (59, 322)
+                    or entry.operation != 1 or executor.tid == executor.tgid):
+                return
+            if (owner.dispatcher is not post or post.launch is not self.launch
+                    or not owner.started or owner.stopped is None or post.stopped is None
+                    or receipt.adopted
+                    or receipt.pending or receipt.tid != executor.tid
+                    or receipt.event_attempted or receipt.exec_installed
+                    or decode_wait_status(receipt.raw).kind != 'syscall-stop'
+                    or facts.tid != executor.tid):
+                raise CleanupReapError('in-flight exec owner or completed entry mismatch')
+            dispatcher = self.launch.dispatcher
+            leader, access = dispatcher.cleanup_inflight_exec_binding(executor, entry)
+            receipt.adopted = True
+            while True:
+                self._check()
+                if dispatcher.cleanup_inflight_exec_binding(executor, entry) != (leader, access):
+                    raise CleanupReapError('in-flight exec original binding changed')
+                if any(item.tid in self.launch.unsettled_terminal_waits
+                       for item in (leader, executor)):
+                    raise CleanupReapError('in-flight exec terminal identity quarantined')
+                try:
+                    result = self.waitpid(leader.tid, WAIT_OPTIONS)
+                except InterruptedError:
+                    continue
+                self.last_wait = (leader.birth, result)
+                if type(result) is not tuple or len(result) != 2:
+                    raise CleanupReapError('malformed in-flight exec wait')
+                tid, raw = result
+                self.launch.retain_terminal_wait(tid, raw)
+                if type(raw) is int and raw & 0xff == 0x7f:
+                    self.ledger.cleanup_wait_stop()
+                self._check()
+                if type(tid) is not int or type(raw) is not int:
+                    raise CleanupReapError('invalid in-flight exec wait tuple')
+                if tid == 0 and raw == 0:
+                    remaining = self.launch.deadline - self.launch.clock()
+                    if not math.isfinite(remaining) or remaining <= 0:
+                        raise CleanupReapError('original cleanup deadline exhausted')
+                    self.sleep(min(0.01, remaining))
+                    continue
+                if (tid != leader.tid or self.ledger.identity(leader.birth) != leader
+                        or self.ledger.identity(executor.birth) != executor):
+                    raise CleanupReapError('in-flight exec wait birth mismatch')
+                status = decode_wait_status(raw)
+                if status.kind != 'ptrace-event' or status.event != 'EXEC':
+                    raise CleanupReapError('matching in-flight EXEC event required')
+                # Keep consumed raw/event facts even if read or subsequent
+                # validation fails. The whole phase is permanently one-shot.
+                self.last_exec_event = (leader, executor, raw, None)
+                old_tid = access.event_tid(tid)
+                self.last_exec_event = (leader, executor, raw, old_tid)
+                self._check()
+                if type(old_tid) is not int or old_tid != executor.tid:
+                    raise CleanupReapError('in-flight EXEC old TID mismatch')
+                dispatcher.cleanup_inflight_exec_binding(executor, entry)
+                self.bound_exec = dispatcher.cleanup_exec_event(old_tid, tid)
+                self._check()
+                return
+        except BaseException:
+            self.stopped = 'in-flight cleanup exec incomplete; preserve identities'
             raise
 
     def bind_creation_events(self):

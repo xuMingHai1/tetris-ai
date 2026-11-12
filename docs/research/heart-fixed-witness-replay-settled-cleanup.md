@@ -335,3 +335,36 @@ cleanup的creation/EXEC接管跳过此完成记录，继续原有定向有界wai
 真实CoordinatorOutput额度耗尽的fake-only组合回归同时覆盖线程和process creation：
 原ENTRY完成后输出失败，消费后续准确事件，原group pin/kill并逐birth实际reap。
 本修改仍不证明native/network/history整体验收；原执行门、有限剩余清单和授权均不变。
+
+
+## 本次新增修改：已完成原 ENTRY 后的未消费 nonleader EXEC
+
+实际 `TracerSupervisor.run -> BoundedWaitOwner` 已成功完成 nonleader 的 native
+execve/execveat ENTRY 与 resume、随后在下一次 wait 前失败时，原 completed receipt
+可由 `SettledProcessCleanup.run -> CleanupReaper.bind_inflight_exec` 接续。
+`CreationSyscallDispatcher.cleanup_inflight_exec_binding` 核对相同 entry 对象、birth、
+wire、live leader/executor 双成员组、无组内 pending creation/第二个未完成 EXEC。
+只轮询原 TGID 的正数 targeted wait，消费准确 EXEC 后由原 leader wire 一次
+GETEVENTMSG 核对原 executor TID，再复用已有 cleanup identity 安装、一次组 pidfd
+pin/SIGKILL 与 executor 实际 terminal reap。旧 leader 按原 de_thread 模型标记
+exec-replaced，不伪造其 reap；失败及原计数不清除、不退款。
+
+原完成 receipt 不冒充 EXEC 来源；EXEC 是清理器实际消费的新 wait。未完成/不确定
+resume 不可用，direct accept 不可替代原 owner receipt；错误 stop（包括失败 exec 的
+syscall EXIT）、ECHILD、未知/未 reap sibling、未决 creation、已消费 terminal 隔离、
+事件读取不确定、owner/期限/预算失败均保留 INCOMPLETE。无 wait(-1)、旧 TID 轮询、
+新 resume、EXEC generation/ABI observation 或原生调用。一次性阶段不自动重试。
+
+24 项 fake-only 回归包含真实 supervisor/typed PtraceAccess/假 kernel 的完整组合路径，
+以及 execveat、idle/EINTR、错误事件/旧 TID、共享 stop ceiling、terminal 隔离、
+失败读取、过期/owner 变化、未结算组与 pin 失败；Linux 普通 JUnit bridge 要求
+30 秒内 24 项零 skip。组件合成验证不等于 native/network clean-build/历史验收。
+
+有限剩余清单收敛为：可信 Java host/source/manifest freeze 及完整 filter/external
+no-injection checker、互斥跨进程同根所有 artifact/JVM writer；除本条原最后 completed
+ENTRY 双成员路径以外的 in-flight EXEC（包括失败 exec EXIT、其他后续已完成停点）、
+leader 先退出、更多未 reap siblings/组内未绑定 creation、复杂 job-control/event 及
+失败 pin/binding 的整树清理；全部 frozen fixture/task reservation/EXITKILL 负例；
+整体最终 revision 独立 Review/CI、compatibility/inputhash 与唯一有界登记。
+不改原 guard/冻结协议/预算/生产代码；原 170A/174 接受及执行停止门保持，整体里程碑
+尚未完成，本轮无研究结果或用户可见游戏功能。README/AGENTS 无需调整。
