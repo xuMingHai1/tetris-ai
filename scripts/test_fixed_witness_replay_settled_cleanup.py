@@ -62,16 +62,21 @@ class SettledCleanupTest(unittest.TestCase):
                           call.close(71), call.close(70)], self.transport.mock_calls)
         self.assertEqual((3, 1), (self.ledger.totals.attempts, self.ledger.totals.live))
 
-    def test_partial_acquisition_failure_closes_prior_pin_without_kill_or_wait(self):
+    def test_partial_acquisition_failure_kills_and_reaps_prior_group_without_retry(self):
         self.tree()
         self.transport.open.side_effect = [70, ProcessLookupError('gone')]
         owner = self.owner()
         with self.assertRaises(ProcessLookupError):
             owner.run()
         self.assertEqual([call.open(11, 0), call.open(12, 0), call.close(70)],
-                         self.transport.mock_calls)
-        self.assertEqual(3, self.ledger.totals.live)
-        self.assertEqual([], owner.signalled)
+                         [c for c in self.transport.mock_calls if c[0] in ('open', 'close')])
+        self.transport.send.assert_called_once_with(70, 9, None, 0)
+        self.transport.wait.assert_called_once_with(11, WAIT_OPTIONS)
+        self.assertEqual(2, self.ledger.totals.live)
+        self.assertEqual([1], owner.signalled)
+        self.assertEqual([(1, 11)], [(b, tid) for b, tid, _ in owner.partial_reaped])
+        self.assertIsNone(owner.partial_error)
+        self.assertTrue(self.ledger.identity(2).alive)
 
     def test_signal_error_or_uncertain_result_never_retries_or_refunds(self):
         for failure in (ProcessLookupError('gone'), PermissionError('denied'),
