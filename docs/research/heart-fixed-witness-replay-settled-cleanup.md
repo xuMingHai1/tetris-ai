@@ -498,3 +498,34 @@ job-control/event 与 pin/binding 失败；全套冻结 fixtures/task表及 EXIT
 整体最终 Review/CI、compatibility/inputhash 与唯一登记。整体里程碑及原生/network/
 历史验收尚未完成，研究结果和游戏功能本轮无新增。170A/174 接受与全部原预算、
 guard/协议/停止门不变；仅 test-only 清理行为变化，README/AGENTS 无需修改。
+
+## 本次新增修改：其他 birth 的 completed stop 后保留原 exec ENTRY
+
+`TracerSupervisor -> BoundedWaitOwner` 现在只保留每个 live nonleader birth
+尚未匹配的原 native execve/execveat ENTRY receipt 与原 wire，而非完整 wait
+历史。只有成功 dispatch/resume 后才保留；正常 failed EXIT、EXEC 身份迁移
+（包括旧 leader 退休）及 terminal reap 使原 receipt 失效。其他 birth 的正常
+stop 不再覆盖该凭据，空间受原 live-task cap 约束，不新增任务或预算。
+
+错误后 `SettledProcessCleanup -> CleanupReaper.bind_inflight_exec` 从原 registered
+wait owner 取唯一保留 ENTRY，复核原 completed receipt、birth、同一 ENTRY 对象、
+wire 和双成员组，再走原 leader-first targeted wait：EXEC 安装身份后 pin/kill/reap，
+或 executor failed native EXIT 结算 ENTRY 后原组 kill/逐 birth reap。没有新增
+resume、stop 重复计费、正常 EXEC generation、probe observation 或成功证书。
+后续 stop 未完成/不确定 resume、多个待决 executor、原 wire/ENTRY 改变、未知
+创建、额外 siblings、terminal quarantine、原 deadline/stop budget 耗尽仍拒绝。
+
+Linux JUnit bridge 强制47项 fake-only 回归零skip（新增9项），包括实际 supervisor
+与 typed PtraceAccess 在中间 leader syscall-stop 后的成功 EXEC/失败 EXIT 两条
+清理链、连续20次其他 birth signal-stop、execveat、正常 EXIT/EXEC 凭据撤销，
+以及不确定 resume 与 wire/ENTRY 漂移。Windows bridge 仍为平台 skip。
+所有 kernel transport 均注入；没有原生探针、network clean-build 或历史22步执行。
+
+有限剩余项为可信 host 的完整 source/toolchain/import/manifest/task-fixture 冻结、
+实际 suite/CLI 调度和 traced prepare receipt 的停点交接、完整 filter/external
+no-injection checker、leader已reap/nonleader创建/复杂 job-control/event 清理、
+完整 frozen fixtures/task表与 EXITKILL 负例，再满足整体最终 Review/CI、
+compatibility/inputhash 和唯一登记。现有 artifact/report/execution/JVM 同根
+writer 已接线，仍须在完整入口中验证。整体里程碑与原生/network/history验收
+尚未完成，研究和游戏功能本轮无新增。170A/174 接受、冻结协议/guard/预算与
+其他停止门不变；仅研究清理集成，README/AGENTS/ADR 无需修改。
