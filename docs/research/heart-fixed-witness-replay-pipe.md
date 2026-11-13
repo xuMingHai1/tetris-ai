@@ -70,3 +70,29 @@ cleanup/job-control、冻结 fixtures/task 表及 EXITKILL 负例，随后满足
 Review/CI、compatibility/inputhash 和唯一登记。整体原生/network clean-build/历史
 验收尚未完成，研究结果和用户可见功能本轮无新增；170A/174 接受及原停止门不变。
 仅 test-only 入口接线，生产架构/README/AGENTS 和冻结协议/预算/guard 无需改动。
+
+## 本次新增修改：prepared 仓库 Python 来源接入原监督生命周期
+
+`HostWriterHandoff.prepare -> TracerSupervisor.for_host -> PreparedProbeSources`
+现在从独立保留的 prepare manifest 选取 `scripts/(test_)?fixed_witness*.py`，
+逐文件认证原 SHA-256，并要求 probe、launcher、supervisor、writer handoff 与
+coordinator artifact 五个来源根齐备。对已认证字节仅做 AST 静态检查，不 import
+或执行代码；顶层和函数内的仓库同名前缀 import 都必须存在于原 inventory，
+相对 import 拒绝，循环 import 不会递归执行或重新冻结当前文件。
+所有选定文件的原 digest 接入已有启动前和 reap 后复核；漂移沿用共享失败锁存、
+原 deadline、ABI 撤销和 INCOMPLETE 证据，不能 fork 或生成成功观察。
+
+28项人工回归（新增7项）覆盖 deferred import 缺项、每个必要根缺项、循环与间接
+依赖、不执行来源字节、实际 supervisor 启动前拒绝与真实模拟 reap 后证据拒绝，
+并以当前仓库 Python 源码验证静态清单闭合。全部 native/file transport 注入；
+没有执行能力探针、clean build、network 套件或历史输入。Linux JUnit 强制这些
+回归零跳过，Windows 的该桥接仍为平台 skip，不宣称 Linux 能力通过。
+
+这是 prepared 仓库来源连续性，不是完整 Python 导入认证：stdlib、动态库、缓存
+模块实际 origin、动态 import/字符串代码、工具链和完整 suite/task 调度仍须由
+可信 host 冻结。当前仍没有完整 manual CLI；prepare receipt 的产生必须保留在
+受跟踪协调器内，不能为提前拿到 manifest 而移到未计费宿主。此先后接线仍待完成。
+其余有限剩余项为完整 filter/external no-injection checker、复杂 cleanup/job-control、
+冻结 fixtures/task 表及 EXITKILL 负例，随后整体最终 Review/CI、compatibility/inputhash
+与唯一登记。整体原生/network clean-build/历史验收尚未完成；研究和用户功能无新增。
+170A/174 的接受及原执行停止门不变。此次仅研究实现，无生产架构文档改动。

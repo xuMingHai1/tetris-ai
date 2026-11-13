@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 
 from fixed_witness_replay_abi_observation import AbiObservationError
 from fixed_witness_replay_network import policy_hash
-from fixed_witness_replay_probe_sources import PreparedProbeSources, PROBE, LAUNCHER
+from fixed_witness_replay_probe_sources import PreparedProbeSources, PROBE, LAUNCHER, SOURCE_ROOTS
 from fixed_witness_replay_supervisor import TracerSupervisor, SupervisorError
 from fixed_witness_replay_stdio import CoordinatorOutput
 from fixed_witness_replay_tracer_evidence import TracerEvidence
@@ -35,8 +35,8 @@ class ProbeSourcesTest(unittest.TestCase):
         self.launcher = self.root + '/' + LAUNCHER
         self.python = fixture.record.interpreter
         self.library = '/usr/lib/libseccomp.so.2'
-        for path, data in ((self.source, b'artificial probe bytes'),
-                           (self.launcher, b'artificial launcher bytes'),
+        for path, data in ((self.source, b'# artificial probe bytes\n'),
+                           (self.launcher, b'# artificial launcher bytes\n'),
                            (self.library, b'artificial library bytes')):
             self.put(path, data)
         self.files.canon[self.root] = self.root
@@ -45,6 +45,10 @@ class ProbeSourcesTest(unittest.TestCase):
                              PROBE: digest(self.files.data[self.source]),
                              LAUNCHER: digest(self.files.data[self.launcher])}},
                          'classpath': {'classpath': ['/frozen/target/classes', '/frozen/target/test-classes']}}
+        for name in SOURCE_ROOTS:
+            if name not in self.manifest['source']['source_files']:
+                self.put(self.root + '/' + name, b'# artificial supervisor source\n')
+                self.manifest['source']['source_files'][name] = digest(self.files.data[self.root + '/' + name])
         self.receipt = {'manifest': '/evidence/manifest.json', 'sha256': ''}
         self.retain_manifest()
         self.networks = tuple({
@@ -72,6 +76,84 @@ class ProbeSourcesTest(unittest.TestCase):
         return PreparedProbeSources(self.root, self.receipt, kwargs.pop('births', (2, 3)),
                                     kwargs.pop('networks', self.networks), self.check,
                                     files=self.files, **kwargs)
+
+    def python_source(self, name, raw):
+        self.put(self.root + '/' + name, raw)
+        self.manifest['source']['source_files'][name] = digest(raw)
+        self.retain_manifest()
+
+    def test_deferred_import_missing_from_original_manifest_is_rejected(self):
+        self.python_source(SOURCE_ROOTS[-1], b'def later():\n    from fixed_witness_missing import writer\n')
+        with self.assertRaisesRegex(AbiObservationError, 'import missing'):
+            self.sources()
+
+    def test_each_required_root_must_be_in_independent_inventory(self):
+        original = dict(self.manifest['source']['source_files'])
+        for name in SOURCE_ROOTS:
+            with self.subTest(name=name):
+                self.manifest['source']['source_files'] = dict(original)
+                del self.manifest['source']['source_files'][name]
+                self.retain_manifest()
+                with self.assertRaisesRegex(AbiObservationError, 'source roots'):
+                    self.sources()
+
+    def test_indirect_import_and_cycle_are_checked_without_execution(self):
+        first = 'scripts/fixed_witness_first.py'
+        second = 'scripts/fixed_witness_second.py'
+        self.python_source(first, b'import fixed_witness_second\nraise AssertionError("must not execute")\n')
+        self.python_source(second, b'import fixed_witness_first\n')
+        sources = self.sources()
+        self.assertIn((self.root+'/'+second, self.manifest['source']['source_files'][second],
+                       1024*1024), sources._expected)
+        self.put(self.root+'/'+second, b'import fixed_witness_first\n# drift\n')
+        with self.assertRaises(AbiObservationError):
+            sources.revalidate()
+        self.assertIsNotNone(sources.observations.stopped)
+
+    def test_supervisor_source_drift_prevents_actual_fork(self):
+        sources = self.sources()
+        f, owner = self.owner(sources)
+        self.put(self.root+'/'+SOURCE_ROOTS[-1], b'# drift\n')
+        with self.assertRaises(AbiObservationError):
+            owner.run()
+        f.f.system.fork.assert_not_called()
+        self.assertEqual(1, f.ledger.totals.attempts)
+
+    def test_supervisor_source_drift_after_reap_denies_drained_evidence(self):
+        sources = self.sources()
+        f, owner, path = self.evidenced_owner(sources)
+        original = f.io.wait.side_effect
+        def waited(*args):
+            result = next(original)
+            if result == (11, 0):
+                self.put(self.root+'/'+SOURCE_ROOTS[-1], b'# terminal drift\n')
+            return result
+        # The normal fixture terminates with (11, 0); use its exact wait stream.
+        f.io.wait.side_effect = waited
+        with self.assertRaises(SupervisorError):
+            owner.run()
+        self.assertEqual(1, f.ledger.totals.live)
+        self.assertFalse(owner.drained)
+        self.assertFalse(json.loads((path/'tracer-lifecycle.json').read_bytes())['suite_verified'])
+        self.assertIsNotNone(owner.source_error)
+
+    def test_malformed_python_or_relative_import_never_becomes_selection(self):
+        for raw in (b'not python !!!', b'from . import fixed_witness_replay_tasks\n'):
+            with self.subTest(raw=raw):
+                self.python_source(SOURCE_ROOTS[-1], raw)
+                with self.assertRaises((AbiObservationError, SyntaxError)):
+                    self.sources()
+
+    def test_current_repository_static_inventory_is_closed(self):
+        # Source bytes only: no module import, Git, native call or historical input.
+        scripts = Path(__file__).resolve().parent
+        for path in scripts.glob('*fixed_witness*.py'):
+            self.python_source('scripts/'+path.name, path.read_bytes())
+        for network in self.networks:
+            network['launcher_sha256'] = self.manifest['source']['source_files'][LAUNCHER]
+        sources = self.sources()
+        names = {name for name, _, _ in sources._expected}
+        self.assertTrue(all(self.root+'/'+name in names for name in SOURCE_ROOTS))
 
     def owner(self, sources):
         f = supervisor_fixture.SupervisorTest()

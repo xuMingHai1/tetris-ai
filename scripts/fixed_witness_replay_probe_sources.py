@@ -1,10 +1,11 @@
-"""Join the original prepared receipt to the two frozen ABI launch records.
+"""Join prepared repository Python sources to the two frozen ABI records.
 
 Readonly cooperative file observations, not a Java host or filter certificate.
 No Git, helper process, library load, filter installation or native probe runs.
 The trusted host retains the receipt independently and excludes concurrent
 writers; these checks cannot prevent malicious change-and-restore attacks.
 """
+import ast
 import hashlib
 import json
 import stat
@@ -22,6 +23,9 @@ from fixed_witness_replay_quota import OUTPUT_BYTES
 
 PROBE = 'scripts/test_fixed_witness_replay_network.py'
 LAUNCHER = 'scripts/fixed_witness_replay_network.py'
+SOURCE_ROOTS = (PROBE, LAUNCHER, 'scripts/fixed_witness_replay_supervisor.py',
+                'scripts/fixed_witness_replay_writer_handoff.py',
+                'scripts/fixed_witness_replay_coordinator_artifacts.py')
 
 
 class PreparedProbeSources:
@@ -29,6 +33,8 @@ class PreparedProbeSources:
 
     Expected hashes come from the independently retained prepare receipt and
     its original manifest, not from the probe or current file observations.
+    Repository Python sources are checked before selection and retained for
+    the original supervisor's pre-fork and post-reap continuity checks.
     Births must already be selected by the host's frozen task schedule. This
     adapter does not allocate tasks or establish that still-missing schedule.
     """
@@ -64,9 +70,8 @@ class PreparedProbeSources:
             source = root + '/' + PROBE
             launcher = root + '/' + LAUNCHER
             inventory = manifest['source']['source_files']
-            expected = [(receipt['manifest'], receipt['sha256'], OUTPUT_BYTES),
-                        (source, inventory[PROBE], SOURCE_LIMIT),
-                        (launcher, inventory[LAUNCHER], SOURCE_LIMIT)]
+            expected = [(receipt['manifest'], receipt['sha256'], OUTPUT_BYTES)]
+            expected.extend(self._python_sources(root, inventory))
             records, launches = [], []
             for birth, mode, network in zip(births, ('x32', 'compat'), networks):
                 # Canonical JSON is copied before retaining any caller data.
@@ -99,6 +104,49 @@ class PreparedProbeSources:
                 raise AbiObservationError('duplicate prepared manifest key')
             result[key] = value
         return result
+
+    def _python_sources(self, root, inventory):
+        """Freeze prepared repository Python bytes, including deferred imports.
+
+        Parse authenticated bytes without importing/executing them. This checks
+        the repository's static import inventory only: Python stdlib, loaded
+        module origins, dynamic imports and toolchain libraries still require
+        the trusted host's independent certificate.
+        """
+        if type(inventory) is not dict:
+            raise AbiObservationError('prepared Python source inventory required')
+        pattern = r'scripts/(?:test_)?fixed_witness[a-z0-9_]*\.py'
+        selected = {name: value for name, value in inventory.items()
+                    if type(name) is str and re.fullmatch(pattern, name)}
+        if not set(SOURCE_ROOTS) <= selected.keys():
+            raise AbiObservationError('prepared supervisor source roots required')
+        expected = []
+        for name, digest in sorted(selected.items()):
+            if not ProbeLaunch._hash(digest):
+                raise AbiObservationError('prepared Python source digest required')
+            path = root + '/' + name
+            raw = self._read(path, SOURCE_LIMIT, content=True)
+            if hashlib.sha256(raw).hexdigest() != digest:
+                raise AbiObservationError('original frozen Python source bytes changed')
+            self._gate()
+            tree = ast.parse(raw, filename=name)
+            self._gate()
+            for node in ast.walk(tree):
+                self._gate()
+                if isinstance(node, ast.Import):
+                    modules = tuple(alias.name for alias in node.names)
+                elif isinstance(node, ast.ImportFrom):
+                    if node.level:
+                        raise AbiObservationError('relative prepared Python import unsupported')
+                    modules = (node.module or '',)
+                else:
+                    continue
+                for module in modules:
+                    if module.startswith(('fixed_witness', 'test_fixed_witness')):
+                        if 'scripts/' + module + '.py' not in selected:
+                            raise AbiObservationError('prepared Python import missing from inventory')
+            expected.append((path, digest, SOURCE_LIMIT))
+        return expected
 
     def _call(self, operation, *args):
         self._gate()

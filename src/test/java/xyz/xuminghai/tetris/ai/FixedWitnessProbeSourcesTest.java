@@ -31,7 +31,7 @@ class FixedWitnessProbeSourcesTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "synthetic source composition timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 21 tests"), output);
+            assertTrue(output.contains("Ran 28 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {
