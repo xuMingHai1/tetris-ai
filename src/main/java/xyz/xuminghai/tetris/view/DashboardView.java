@@ -593,7 +593,7 @@ public final class DashboardView extends BorderPane {
                 : phase.equals("failed") ? (zh ? "暂时无法决策，可接管游戏。" : "Unable to decide. You can take over.")
                 : phase.equals("completed") ? (zh ? "方块已落地，等待下一块。" : "Piece landed. Waiting for the next one.")
                 : (zh ? "随时可接管游戏，切回手动操作。" : "Take over at any time to play manually."));
-        if (coaching) {
+        if (coaching && !over) {
             goal.setText(zh ? "本地生存建议 · 由你控制" : "Local survival hints · you control");
             aiStatus.setText(!active ? (zh ? "建议已暂停" : "Hints paused")
                     : advice != null ? (zh ? "建议已就绪" : "Hint ready")
