@@ -95,6 +95,8 @@ public final class DashboardView extends BorderPane {
     private final Button aiButton = button("mode-button");
     private final Button startButton = button("primary-button");
     private final Button takeoverButton = button("takeover-button");
+    private final Button coachButton = button("quiet-button");
+    private final Button placeAdviceButton = button("takeover-button");
     private final Button languageButton = button("quiet-button");
     private final Tooltip startTooltip = new Tooltip();
     private final Tooltip takeoverTooltip = new Tooltip();
@@ -203,6 +205,8 @@ public final class DashboardView extends BorderPane {
             refresh();
         });
         world.aiDisplayProperty().addListener((_, _, _) -> refresh());
+        world.coachEnabledProperty().addListener((_, _, _) -> refresh());
+        world.coachAdviceProperty().addListener((_, _, _) -> refresh());
         world.settledCellsProperty().addListener((_, _, _) -> refresh());
         world.languageProperty().addListener((_, _, _) -> refresh());
         refresh();
@@ -390,13 +394,26 @@ public final class DashboardView extends BorderPane {
             requestGameFocus();
         });
         takeoverButton.setMaxWidth(Double.MAX_VALUE);
+        takeoverButton.setId("auto-play-toggle");
+        coachButton.setId("coach-toggle");
+        placeAdviceButton.setId("coach-place");
+        coachButton.setMaxWidth(Double.MAX_VALUE);
+        placeAdviceButton.setMaxWidth(Double.MAX_VALUE);
+        coachButton.setOnAction(_ -> {
+            world.toggleCoach();
+            requestGameFocus();
+        });
+        placeAdviceButton.setOnAction(_ -> {
+            world.executeCoachAdvice();
+            requestGameFocus();
+        });
         Circle statusDot = new Circle(3);
         statusDot.getStyleClass().add("status-dot");
         HBox status = new HBox(7, statusDot, aiStatus);
         status.setAlignment(Pos.CENTER_LEFT);
         aiStatus.setWrapText(true);
         VBox body = new VBox(12, status, aiMessage, goalSection,
-                actionSection, takeoverButton);
+                actionSection, coachButton, placeAdviceButton, takeoverButton);
         body.getStyleClass().add("cockpit-body");
         aiMessage.setWrapText(true);
         aiMessage.setMinHeight(42);
@@ -491,6 +508,8 @@ public final class DashboardView extends BorderPane {
         boolean zh = world.languageProperty().get().getLanguage().equals("zh");
         useSystemFont(zh);
         boolean enabled = world.aiEnabledProperty().get();
+        boolean coaching = world.coachEnabledProperty().get();
+        GameWorld.CoachAdvice advice = world.coachAdviceProperty().get();
         boolean active = world.activeDisplayProperty().get();
         boolean over = world.gameOverDisplayProperty().get();
         GameWorld.AiDisplay display = world.aiDisplayProperty().get();
@@ -534,6 +553,10 @@ public final class DashboardView extends BorderPane {
                 : everStarted ? (zh ? "继续" : "Resume") : (zh ? "开始游戏" : "Start game"));
         takeoverButton.setText(enabled ? (zh ? "接管游戏 · 手动" : "Take over · manual")
                 : (zh ? "交给 AI 操作" : "Let AI play"));
+        coachButton.setText(coaching ? (zh ? "关闭 AI 建议" : "Turn off AI hints")
+                : (zh ? "开启 AI 建议" : "Turn on AI hints"));
+        placeAdviceButton.setText(zh ? "按建议放这一块" : "Place this piece as suggested");
+        placeAdviceButton.setDisable(advice == null || !active);
 
         overlay.setVisible(!active);
         overlayTitle.setText(over ? (zh ? "游戏结束" : "Game over")
@@ -570,6 +593,19 @@ public final class DashboardView extends BorderPane {
                 : phase.equals("failed") ? (zh ? "暂时无法决策，可接管游戏。" : "Unable to decide. You can take over.")
                 : phase.equals("completed") ? (zh ? "方块已落地，等待下一块。" : "Piece landed. Waiting for the next one.")
                 : (zh ? "随时可接管游戏，切回手动操作。" : "Take over at any time to play manually."));
+        if (coaching && !over) {
+            goal.setText(zh ? "本地生存建议 · 由你控制" : "Local survival hints · you control");
+            aiStatus.setText(!active ? (zh ? "建议已暂停" : "Hints paused")
+                    : advice != null ? (zh ? "建议已就绪" : "Hint ready")
+                    : phase.equals("executing") ? (zh ? "只执行当前块" : "Playing this piece only")
+                    : phase.equals("failed") ? (zh ? "建议暂不可用" : "Hint unavailable")
+                    : (zh ? "正在更新建议" : "Updating hint"));
+            aiMessage.setText(advice != null
+                    ? (zh ? "靛蓝虚线为推荐落点 · 预计消行 " : "Indigo dashed hint · expected lines: ")
+                            + advice.clearedLines()
+                    : (zh ? "灰蓝细框为直落投影；你始终可以手动操作。"
+                            : "Thin blue outlines show a straight drop. Manual input takes priority."));
+        }
         keys.setText(zh
                 ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
                 : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space / Esc  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");

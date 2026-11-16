@@ -44,6 +44,17 @@ public final class ActionPlanSimulator {
      * @throws IllegalStateException when an action is not legal for the supplied snapshot
      */
     public static PlacementCandidate requireTerminalPlacement(GameSnapshot snapshot, AiPlan plan) {
+        List<BoardPosition> positions = terminalCells(snapshot, plan);
+        boolean[][] board = snapshot.occupied();
+        for (BoardPosition cell : positions) {
+            board[cell.row()][cell.col()] = true;
+        }
+        int clearedLines = BoardRules.clearFullRows(board);
+        return BoardSimulator.describeForPlan(board, clearedLines);
+    }
+
+    /** Returns the validated landing before row clearing, for live recommendation overlays. */
+    public static List<BoardPosition> terminalCells(GameSnapshot snapshot, AiPlan plan) {
         Objects.requireNonNull(snapshot, "snapshot");
         AiPlan validated = AiPlanValidator.requireValid(plan);
         List<AiAction> actions = validated.actions();
@@ -68,11 +79,7 @@ public final class ActionPlanSimulator {
             throw new IllegalStateException("AI plan hard-drops to a top-out position");
         }
 
-        for (BoardPosition cell : positions) {
-            board[cell.row()][cell.col()] = true;
-        }
-        int clearedLines = BoardRules.clearFullRows(board);
-        return BoardSimulator.describeForPlan(board, clearedLines);
+        return List.copyOf(positions);
     }
 
     private static List<BoardPosition> down(List<BoardPosition> cells) {

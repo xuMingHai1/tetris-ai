@@ -34,6 +34,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 /** Bounded check of actual control skins, scene key dispatch and live dashboard layout. */
 public final class UiInteractionApplication extends Application {
@@ -166,13 +167,13 @@ public final class UiInteractionApplication extends Application {
         view.requestGameFocus();
         world.aiDisplayProperty().addListener((_, _, display) -> {
             layout();
-            double y = scene.lookup(".takeover-button").localToScene(0, 0).getY();
+            double y = scene.lookup("#auto-play-toggle").localToScene(0, 0).getY();
             minimumY = Math.min(minimumY, y);
             maximumY = Math.max(maximumY, y);
             if (!display.actions().isEmpty()) observedPlans++;
         });
         layout();
-        takeoverY = scene.lookup(".takeover-button").localToScene(0, 0).getY();
+        takeoverY = scene.lookup("#auto-play-toggle").localToScene(0, 0).getY();
         world.toggleAi();
         world.startOrPauseGame();
         later(4000, () -> {
@@ -186,11 +187,94 @@ public final class UiInteractionApplication extends Application {
             check(label(".ai-status").equals("Manual control"), "English manual status is truthful");
             world.toggleAi();
             check(label(".ai-status").equals("AI paused"), "English paused AI status is truthful");
+            verifyCoaching(stage);
+        });
+    }
+
+    private void verifyCoaching(Stage stage) {
+        world.toggleAi();
+        Button hints = (Button) scene.lookup("#coach-toggle");
+        Button place = (Button) scene.lookup("#coach-place");
+        hints.fire();
+        check(world.coachEnabledProperty().get() && !world.aiEnabledProperty().get()
+                && place.isDisabled(), "coaching stays manual and cannot execute while paused");
+        world.startOrPauseGame();
+        await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
+            GameWorld.CoachAdvice original = world.coachAdviceProperty().get();
+            check(original.landing().size() == 4 && !place.isDisabled(),
+                    "coaching publishes a four-cell landing and enables one-piece execution");
+            press(KeyCode.A);
+            check(world.coachAdviceProperty().get() == null && place.isDisabled(),
+                    "manual movement immediately invalidates advice and its execute button");
+            await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
+                check(world.coachAdviceProperty().get() != original, "movement obtains fresh advice");
+                world.startOrPauseGame();
+                check(world.coachAdviceProperty().get() == null && place.isDisabled(),
+                        "pause clears advice and disables execution");
+                world.startOrPauseGame();
+                hints.fire();
+                later(150, () -> {
+                    check(world.coachAdviceProperty().get() == null,
+                            "disabled hints reject an in-flight completion");
+                    hints.fire();
+                    await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
+                        place.fire();
+                        check(!world.aiEnabledProperty().get() && world.coachAdviceProperty().get() == null,
+                                "one-piece execution consumes advice without enabling auto-play");
+                        press(KeyCode.D);
+                        check(!world.aiDisplayProperty().get().phase().equals("executing"),
+                                "manual input interrupts coached playback immediately");
+                        await(() -> world.coachAdviceProperty().get() != null, 100,
+                                () -> verifyCoachedLanding(stage, place));
+                    });
+                });
+            });
+        });
+    }
+
+    private void verifyCoachedLanding(Stage stage, Button place) {
+        boolean[] locked = {false};
+        GameWorld.CoachAdvice advice = world.coachAdviceProperty().get();
+        int initialLines = world.linesProperty().get();
+        world.currentCellsProperty().addListener((_, previous, cells) -> {
+            if (cells == null && !locked[0]) {
+                locked[0] = true;
+                List<BoardPosition> landed = Arrays.stream(previous)
+                        .map(cell -> new BoardPosition(cell.getRow(), cell.getCol())).toList();
+                check(new java.util.HashSet<>(landed).equals(new java.util.HashSet<>(advice.landing())),
+                        "actual coached landing matches the displayed recommendation");
+            }
+        });
+        place.fire();
+        await(() -> locked[0] && world.currentCellsProperty().get() != null, 160, () -> {
+            check(world.linesProperty().get() - initialLines == advice.clearedLines(),
+                    "actual cleared lines match the displayed simulation");
+            check(!world.aiEnabledProperty().get() && world.coachEnabledProperty().get()
+                            && !world.aiDisplayProperty().get().phase().equals("executing"),
+                    "coached piece locks normally and the next piece returns to manual control");
+            world.toggleAi();
+            check(!world.coachEnabledProperty().get() && world.coachAdviceProperty().get() == null,
+                    "switching to auto-play clears coaching");
+            world.startOrPauseGame();
             System.out.printf(Locale.ROOT, "UI_INTERACTION_RESULT failures=%d plan_updates=%d%n",
                     FAILURES.get(), observedPlans);
             stage.close();
             Platform.exit();
         });
+    }
+
+    /** Poll asynchronous FX completions with a fixed deadline; a timeout fails the capture. */
+    private void await(BooleanSupplier condition, int remaining, Runnable action) {
+        if (condition.getAsBoolean()) {
+            action.run();
+        }
+        else if (remaining == 0) {
+            check(false, "timed out waiting for coaching state");
+            Platform.exit();
+        }
+        else {
+            later(25, () -> await(condition, remaining - 1, action));
+        }
     }
 
     private int[] columns() {
