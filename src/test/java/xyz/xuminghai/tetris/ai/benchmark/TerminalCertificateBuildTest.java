@@ -25,22 +25,10 @@ class TerminalCertificateBuildTest {
 
     @Test
     void cleanBuildAuthenticatesPreflightAndRejectsChangedCompiledBytes() throws Exception {
-        var checkout = directory.resolve("checkout");
-        var sha = run(source, List.of("git", "rev-parse", "HEAD"), "sha").trim();
-        run(source, List.of("git", "clone", "--quiet", "--no-hardlinks", "--no-checkout",
-                source.toString(), checkout.toString()), "clone");
-        run(checkout, List.of("git", "checkout", "--quiet", "--detach", sha), "checkout");
+        var fixture = new FrozenResearchCheckout(directory).create(source, directory.resolve("checkout"));
+        var checkout = fixture.checkout();
+        var sha = fixture.sha();
         var mapper = new ObjectMapper();
-        var protocol = mapper.readTree(Files.readString(checkout.resolve("docs/research/heart-acceptance-v1.json")));
-        var base = protocol.get("production_base_sha").asText();
-        var probe = new ProcessBuilder("git", "cat-file", "-e", base + "^{commit}")
-                .directory(checkout.toFile()).redirectErrorStream(true)
-                .redirectOutput(directory.resolve("base-probe.log").toFile()).start();
-        assertTrue(probe.waitFor(10, TimeUnit.SECONDS), "base probe timed out");
-        if (probe.exitValue() != 0) {
-            run(checkout, List.of("git", "fetch", "--no-tags", "--depth=1",
-                    "https://github.com/xuMingHai1/tetris-ai.git", base), "base-fetch");
-        }
         var evidence = directory.resolve("evidence");
         var supervised = mapper.readTree(run(checkout, List.of("python3", "scripts/supervise_terminal_certificate.py",
                 "--root", checkout.toString(), "--output", evidence.toString()), "supervised"));
@@ -51,6 +39,7 @@ class TerminalCertificateBuildTest {
         assertEquals(2, supervision.get("processes").size());
         var prepared = supervision.get("build");
         assertEquals(sha, prepared.get("source_sha").asText());
+        assertNotEquals(fixture.originSha(), sha, "A fixture must not certify the product SHA");
         var manifest = evidence.resolve("build/build-manifest.json");
         var verify = List.of("python3", "scripts/prepare_terminal_certificate_build.py", "--verify",
                 manifest.toString(), "--manifest-sha256", prepared.get("manifest_sha256").asText());
