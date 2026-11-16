@@ -47,6 +47,7 @@ final class GhostLandingView extends Canvas {
         this.reducedMotion = reducedMotion;
         setMouseTransparent(true);
         world.ghostCellsProperty().addListener((_, _, _) -> redraw());
+        world.coachAdviceProperty().addListener((_, _, _) -> redraw());
         world.currentCellsProperty().addListener((_, oldCells, newCells) -> {
             if (newCells != null && oldCells != null
                     && isHardDropInProgress() && !reducedMotion.getAsBoolean()) {
@@ -121,6 +122,20 @@ final class GhostLandingView extends Canvas {
             double x = 1 + cell.col() * cellSize;
             double y = 1 + cell.row() * cellSize;
             graphics.strokeRoundRect(x + 2, y + 2, cellSize - 5, cellSize - 5, 2, 2);
+        }
+        GameWorld.CoachAdvice advice = world.coachAdviceProperty().get();
+        if (advice != null) {
+            graphics.setFill(Color.web("#6366f1", 0.28));
+            graphics.setStroke(Color.web("#4f46e5"));
+            graphics.setLineWidth(2.5);
+            graphics.setLineDashes(4, 2);
+            for (BoardPosition cell : advice.landing()) {
+                double x = 3 + cell.col() * cellSize;
+                double y = 3 + cell.row() * cellSize;
+                graphics.fillRoundRect(x, y, cellSize - 5, cellSize - 5, 3, 3);
+                graphics.strokeRoundRect(x, y, cellSize - 5, cellSize - 5, 3, 3);
+            }
+            graphics.setLineDashes();
         }
     }
 }

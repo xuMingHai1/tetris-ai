@@ -634,6 +634,7 @@ import javafx.scene.robot.Robot;
 import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.AiDecisionExecutor;
 import xyz.xuminghai.tetris.ai.AiPlan;
+import xyz.xuminghai.tetris.ai.ActionPlanSimulator;
 import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.GameSnapshot;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
@@ -669,6 +670,24 @@ public final class GameWorld {
     private final PieceGenerator pieceGenerator;
 
     private final AiDecisionExecutor aiDecisionExecutor;
+    // Coaching always uses the local survival heuristic, independently of configured auto-play.
+    private final AiDecisionExecutor coachExecutor = new AiDecisionExecutor(
+            AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()),
+            AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()));
+    private final BooleanProperty coachEnabled = new SimpleBooleanProperty(this, "coachEnabled");
+    private final ObjectProperty<CoachAdvice> coachAdvice = new SimpleObjectProperty<>(this, "coachAdvice");
+    private AiDecisionExecutor.AiDecision coachDecision;
+    private GameSnapshot coachSnapshot;
+    private Tetris coachPiece;
+    private boolean coachPlayback;
+    private List<BoardPosition> coachLanding = List.of();
+
+    /** Simulation facts for exactly one unchanged falling-piece snapshot. */
+    public record CoachAdvice(AiPlan plan, List<BoardPosition> landing, int clearedLines) {
+        public CoachAdvice {
+            landing = List.copyOf(landing);
+        }
+    }
     private final boolean audioEnabled;
     private final boolean traceAiDecisions = Boolean.parseBoolean(
             System.getenv().getOrDefault("TETRIS_AI_DECISION_TRACE", "false"));
@@ -752,7 +771,11 @@ public final class GameWorld {
                 aiAgent, AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()));
         // The injected generator must be assigned before consuming the initial preview piece.
         nextTetris.set(this.pieceGenerator.next());
-        currentCells.addListener((_, _, _) -> updateGhostCells());
+        currentCells.addListener((_, _, _) -> {
+            updateGhostCells();
+            if (currentTetris.get() == null) cancelAiPlayback("piece-changed");
+            refreshCoachAdvice();
+        });
     }
 
     /**
@@ -860,6 +883,7 @@ public final class GameWorld {
         @Override
         public void run() {
             // A remote decision is valid only until this tick is about to mutate the falling piece.
+            invalidateCoachAdvice();
             resolvePendingAiBeforeAutomaticMove();
 
             // 初始化当前方块
@@ -1062,6 +1086,8 @@ public final class GameWorld {
      * 切换自动 AI。新状态会从下一次新方块生成开始生效。
      */
     public void toggleAi() {
+        coachEnabled.set(false);
+        invalidateCoachAdvice();
         cancelPendingAiDecision();
         cancelAiPlayback("ai-off");
         aiEnabled.set(!aiEnabled.get());
@@ -1108,6 +1134,7 @@ public final class GameWorld {
      * 启动或暂停游戏
      */
     public void startOrPauseGame() {
+        invalidateCoachAdvice();
         final Optional<Boolean> keyLocked = Platform.isKeyLocked(KeyCode.CAPS);
         if (gameActive) {
             cancelPendingAiDecision();
@@ -1142,10 +1169,13 @@ public final class GameWorld {
         if (gameActive && aiEnabled.get() && currentTetris.get() != null) {
             requestAiMove(currentTetris.get());
         }
+        refreshCoachAdvice();
     }
 
     /** Stops the live timeline and invalidates work that must not update a closed view. */
     public void shutdown() {
+        coachEnabled.set(false);
+        invalidateCoachAdvice();
         if (gameActive) {
             startOrPauseGame();
         }
@@ -1179,6 +1209,7 @@ public final class GameWorld {
     private boolean tetrisAction(ActionEnum action, Function<Tetris, Cell[]> function,
             InputOrigin origin) {
         if (origin == InputOrigin.PLAYER) {
+            invalidateCoachAdvice();
             // Manual input wins over an in-flight remote decision for the same piece.
             cancelPendingAiDecision();
             cancelAiPlayback("manual");
@@ -1188,6 +1219,7 @@ public final class GameWorld {
             final Cell[] copyCells = tetris.copy();
             final Cell[] cells = gameGrid.checkCells(function.apply(tetris));
             if (Arrays.equals(copyCells, cells)) {
+                if (origin == InputOrigin.PLAYER) refreshCoachAdvice();
                 return false;
             }
 
@@ -1226,6 +1258,7 @@ public final class GameWorld {
                 gameGrid.saveCellsData(previousCells);
             }
         }
+        if (origin == InputOrigin.PLAYER) refreshCoachAdvice();
         return false;
     }
 
@@ -1465,11 +1498,19 @@ public final class GameWorld {
 
     /** Plays controls on the FX thread at a visible pace while regular gravity remains active. */
     private void playAiPlan(AiPlan plan) {
+        playAiPlan(plan, false);
+    }
+
+    private void playAiPlan(AiPlan plan, boolean coaching) {
         cancelAiPlayback("superseded");
         if (plan.actions().isEmpty() || currentTetris.get() == null) {
             return;
         }
         aiPlaybackActions = plan.actions();
+        coachPlayback = coaching;
+        if (coaching) {
+            coachLanding = ActionPlanSimulator.terminalCells(createAiSnapshot(), plan);
+        }
         aiPlaybackPiece = currentTetris.get();
         aiPlaybackIndex = 0;
         aiPlaybackStartedAt = traceAiDecisions ? System.nanoTime() : 0L;
@@ -1500,10 +1541,29 @@ public final class GameWorld {
     }
 
     private void advanceAiPlayback() {
-        if (!gameActive || !aiEnabled.get() || currentTetris.get() != aiPlaybackPiece) {
+        if (!gameActive || !(aiEnabled.get() || coachPlayback) || currentTetris.get() != aiPlaybackPiece) {
             cancelAiPlayback(!gameActive ? "paused"
                     : !aiEnabled.get() ? "ai-off" : "piece-changed");
             return;
+        }
+
+        // Gravity remains live during playback. Abort if the remaining controls no longer
+        // reach the displayed recommendation; never silently place a coached piece elsewhere.
+        if (coachPlayback) {
+            try {
+                List<BoardPosition> landing = ActionPlanSimulator.terminalCells(createAiSnapshot(),
+                        new AiPlan(aiPlaybackActions.subList(aiPlaybackIndex, aiPlaybackActions.size())));
+                if (!new java.util.HashSet<>(landing).equals(new java.util.HashSet<>(coachLanding))) {
+                    cancelAiPlayback("stale-advice");
+                    refreshCoachAdvice();
+                    return;
+                }
+            }
+            catch (IllegalArgumentException | IllegalStateException invalid) {
+                cancelAiPlayback("stale-advice");
+                refreshCoachAdvice();
+                return;
+            }
         }
 
         AiAction action = aiPlaybackActions.get(aiPlaybackIndex);
@@ -1617,6 +1677,81 @@ public final class GameWorld {
         aiPlaybackStartedAt = 0L;
         aiPlaybackExecutedControls = 0;
         aiPlaybackDropRows = 0;
+        coachPlayback = false;
+        coachLanding = List.of();
+    }
+
+    public ReadOnlyBooleanProperty coachEnabledProperty() {
+        return coachEnabled;
+    }
+
+    public ReadOnlyObjectProperty<CoachAdvice> coachAdviceProperty() {
+        return coachAdvice;
+    }
+
+    /** Enables optional local hints while keeping control with the player. FX thread only. */
+    public void toggleCoach() {
+        cancelPendingAiDecision();
+        cancelAiPlayback("coach-toggle");
+        aiEnabled.set(false);
+        coachEnabled.set(!coachEnabled.get());
+        aiDisplay.set(new AiDisplay("manual", List.of(), 0));
+        refreshCoachAdvice();
+    }
+
+    private void invalidateCoachAdvice() {
+        coachExecutor.invalidate();
+        coachDecision = null;
+        coachSnapshot = null;
+        coachPiece = null;
+        coachAdvice.set(null);
+    }
+
+    private void refreshCoachAdvice() {
+        invalidateCoachAdvice();
+        if (!coachEnabled.get() || aiEnabled.get() || !gameActive
+                || aiPlaybackPiece != null || currentTetris.get() == null || currentCells.get() == null) {
+            return;
+        }
+        GameSnapshot snapshot = createAiSnapshot();
+        Tetris piece = currentTetris.get();
+        var decision = coachExecutor.submit(snapshot);
+        coachDecision = decision;
+        coachSnapshot = snapshot;
+        coachPiece = piece;
+        aiDisplay.set(new AiDisplay("thinking", List.of(), 0));
+        decision.result().whenComplete((plan, failure) -> Platform.runLater(() -> {
+            if (coachDecision != decision || !coachExecutor.isCurrent(decision)
+                    || !isCoachStateValid(snapshot, piece)) return;
+            coachDecision = null;
+            try {
+                if (failure != null) throw new IllegalStateException("local advice unavailable", failure);
+                CoachAdvice advice = new CoachAdvice(plan,
+                        ActionPlanSimulator.terminalCells(snapshot, plan),
+                        ActionPlanSimulator.requireTerminalPlacement(snapshot, plan).clearedLines());
+                coachAdvice.set(advice);
+                aiDisplay.set(new AiDisplay("advice", plan.actions(), 0));
+            }
+            catch (IllegalArgumentException | IllegalStateException invalid) {
+                coachAdvice.set(null);
+                aiDisplay.set(new AiDisplay("failed", List.of(), 0));
+            }
+        }));
+    }
+
+    private boolean isCoachStateValid(GameSnapshot snapshot, Tetris piece) {
+        return coachEnabled.get() && !aiEnabled.get() && gameActive && aiPlaybackPiece == null
+                && piece != null && currentTetris.get() == piece
+                && snapshot.currentRotation() == piece.rotationState()
+                && matchesSnapshotCells(snapshot, piece.getCells());
+    }
+
+    /** Plays only the currently displayed recommendation; auto-play stays disabled. */
+    public void executeCoachAdvice() {
+        CoachAdvice advice = coachAdvice.get();
+        if (advice == null || !isCoachStateValid(coachSnapshot, coachPiece)) return;
+        invalidateCoachAdvice();
+        playAiPlan(advice.plan(), true);
     }
 
     private boolean applyAiAction(AiAction action) {
