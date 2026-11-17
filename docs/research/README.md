@@ -2,6 +2,10 @@
 
 本页整理 Issue [#86](https://github.com/xuMingHai1/tetris-ai/issues/86) 的研究导航。基线为 `main@6090420`（PR #89 后）；运行时事实以源码为准。[运行指南](../../README.md) / [架构契约](../architecture/ai-engine.md) / [详细实验记录](ai-experiment-history.md)。
 
+本地 AI 生存增强 V1 的当前提案独立记录于[唯一候选配对设计](../design/survival-ai-v1-comparison.md)：
+仅比较现有 heuristic 与未调参 lookahead，固定公开开发 seed 1000–1019、两臂各 20×500、一次正式采集。
+尚未执行或证明收益；设计与最小比较实现各经独立 Review / CI / 合并后才可采集，不恢复以下旧研究。
+
 ## 当前生产能力
 
 | 配置 | 实际策略与限制 |
