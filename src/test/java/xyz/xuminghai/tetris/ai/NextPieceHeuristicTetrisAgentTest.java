@@ -9,12 +9,44 @@ import org.junit.jupiter.api.Test;
 import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.TetrominoType;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class NextPieceHeuristicTetrisAgentTest {
+
+    @Test
+    void returnsNoneWhenNoCurrentPlacementIsLegalEvenWithKnownPreview() {
+        boolean[][] occupied = new boolean[20][10];
+        for (boolean[] row : occupied) Arrays.fill(row, true);
+        GameSnapshot snapshot = new GameSnapshot(20, 10, occupied, TetrominoType.I,
+                List.of(new BoardPosition(-1, 3), new BoardPosition(-1, 4),
+                        new BoardPosition(-1, 5), new BoardPosition(-1, 6)), TetrominoType.O);
+
+        assertTrue(HeuristicTetrisAgent.rankCandidates(snapshot).isEmpty());
+        assertEquals(AiMove.NONE, new NextPieceHeuristicTetrisAgent().decide(snapshot));
+    }
+
+    @Test
+    void fallsBackToCurrentTopChoiceWhenEveryKnownPreviewResponseIsBlocked() {
+        boolean[][] occupied = new boolean[20][10];
+        Arrays.fill(occupied[0], true);
+        Arrays.fill(occupied[1], true);
+        occupied[0][0] = false;
+        occupied[1][1] = false;
+        GameSnapshot snapshot = new GameSnapshot(20, 10, occupied, TetrominoType.I,
+                List.of(new BoardPosition(18, 3), new BoardPosition(18, 4),
+                        new BoardPosition(18, 5), new BoardPosition(18, 6)), TetrominoType.O);
+        List<PlacementCandidate> shortlist = HeuristicTetrisAgent.shortlist(
+                snapshot, NextPieceHeuristicTetrisAgent.MAX_CURRENT_CANDIDATES);
+
+        assertEquals(5, shortlist.size());
+        assertTrue(shortlist.stream().allMatch(candidate ->
+                !NextPieceOutlook.evaluate(candidate, TetrominoType.O).canPlace()));
+        assertEquals(shortlist.getFirst().move(), new NextPieceHeuristicTetrisAgent().decide(snapshot));
+    }
 
     @Test
     void fallsBackToOnePlyHeuristicWhenPreviewPieceIsUnknown() {
