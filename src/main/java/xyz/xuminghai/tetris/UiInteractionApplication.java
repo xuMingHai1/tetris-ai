@@ -195,9 +195,14 @@ public final class UiInteractionApplication extends Application {
         world.toggleAi();
         Button hints = (Button) scene.lookup("#coach-toggle");
         Button place = (Button) scene.lookup("#coach-place");
+        String autoPlayBadge = label(".agent-badge");
         hints.fire();
         check(world.coachEnabledProperty().get() && !world.aiEnabledProperty().get()
                 && place.isDisabled(), "coaching stays manual and cannot execute while paused");
+        check(label(".agent-badge").equals("LOCAL"), "coaching identifies its local strategy");
+        world.switchLanguage();
+        check(label(".agent-badge").equals("本地"), "the local strategy badge switches to Chinese");
+        world.switchLanguage();
         world.startOrPauseGame();
         await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
             GameWorld.CoachAdvice original = world.coachAdviceProperty().get();
@@ -216,6 +221,8 @@ public final class UiInteractionApplication extends Application {
                 later(150, () -> {
                     check(world.coachAdviceProperty().get() == null,
                             "disabled hints reject an in-flight completion");
+                    check(label(".agent-badge").equals(autoPlayBadge),
+                            "turning off coaching restores the configured auto-play badge");
                     hints.fire();
                     await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
                         place.fire();

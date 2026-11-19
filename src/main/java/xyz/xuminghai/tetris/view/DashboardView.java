@@ -87,6 +87,7 @@ public final class DashboardView extends BorderPane {
     private final Label agentTitle = label("cockpit-title");
     private final Label goalTitle = label("section-heading");
     private final Label goal = label("goal-text");
+    private final Label agentBadge = label("agent-badge");
     private final Label actionsTitle = label("section-heading");
     private final Label keys = label("keyboard-note");
     private final Label shapeProgress = label("shape-progress");
@@ -364,9 +365,7 @@ public final class DashboardView extends BorderPane {
     }
 
     private VBox cockpit(HostServices hostServices) {
-        Label badge = label("agent-badge");
-        badge.setText(agent.toUpperCase(Locale.ROOT));
-        HBox heading = new HBox(agentTitle, new Region(), badge);
+        HBox heading = new HBox(agentTitle, new Region(), agentBadge);
         heading.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(heading.getChildren().get(1), Priority.ALWAYS);
         heading.getStyleClass().add("cockpit-head");
@@ -523,6 +522,7 @@ public final class DashboardView extends BorderPane {
         durationTitle.setText(zh ? "游戏时长" : "DURATION");
         nextTitle.setText(zh ? "下一块" : "NEXT PIECE");
         agentTitle.setText(zh ? "AI 驾驶舱" : "AI cockpit");
+        agentBadge.setText(coaching && !over ? (zh ? "本地" : "LOCAL") : agent.toUpperCase(Locale.ROOT));
         goalTitle.setText(zh ? "当前目标" : "Objective");
         actionsTitle.setText(zh ? "本次动作" : "Current plan");
         languageButton.setText(zh ? "EN" : "中文");
