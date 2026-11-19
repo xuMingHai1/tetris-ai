@@ -678,6 +678,9 @@ public final class DashboardView extends BorderPane {
         if (activeIndex >= 0 && (activeIndex != followedActionRow || planChanged)) {
             showActiveAction(actionRows.get(activeIndex).container());
         }
+        else if (planChanged && display.phase().equals("advice")) {
+            actionScroll.setVvalue(actionScroll.getVmin());
+        }
         followedActionRow = activeIndex;
     }
 

@@ -333,6 +333,25 @@ public final class UiInteractionApplication extends Application {
                         && activeBounds.getMinY() >= viewportBounds.getMinY() - 1
                         && activeBounds.getMaxY() <= viewportBounds.getMaxY() + 1,
                 "entering a different action row scrolls it into view");
+        display.set(new GameWorld.AiDisplay("advice", plan, 0));
+        actions.setVvalue(0.7);
+        display.set(new GameWorld.AiDisplay("thinking", List.of(), 0));
+        layout();
+        check(Math.abs(actions.getVvalue() - 0.7) < 1e-6,
+                "waiting for a new decision preserves the previous plan scroll");
+        display.set(new GameWorld.AiDisplay("advice", plan, 0));
+        layout();
+        check(Math.abs(actions.getVvalue() - 0.7) < 1e-6,
+                "receiving the same advice preserves its scroll");
+        display.set(new GameWorld.AiDisplay("thinking", List.of(), 0));
+        List<AiAction> nextAdvice = List.of(AiAction.ROTATE_COUNTER_CLOCKWISE, AiAction.RIGHT, AiAction.LEFT,
+                AiAction.ROTATE_CLOCKWISE, AiAction.RIGHT, AiAction.HARD_DROP);
+        display.set(new GameWorld.AiDisplay("advice", nextAdvice, 0));
+        layout();
+        check(actions.getContent().lookupAll(".action-row").size() == nextAdvice.size()
+                        && actions.getContent().getLayoutBounds().getHeight() > actions.getViewportBounds().getHeight()
+                        && Math.abs(actions.getVvalue() - actions.getVmin()) < 1e-6,
+                "different advice after waiting starts at the top of the overflowing list");
         display.set(new GameWorld.AiDisplay("executing", List.of(AiAction.HARD_DROP), 0));
         layout();
         check(actions.getContent().lookupAll(".action-row").size() == 1
