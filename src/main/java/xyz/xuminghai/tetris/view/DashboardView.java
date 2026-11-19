@@ -548,8 +548,11 @@ public final class DashboardView extends BorderPane {
                     : "Coverage " + progress.matchedRequiredCells() + "/" + progress.requiredCells()
                             + " · Intrusions " + progress.forbiddenOccupiedCells());
         }
-        startButton.setText(active ? (zh ? "暂停" : "Pause")
+        boolean finishing = over && active;
+        startButton.setDisable(finishing);
+        startButton.setText(finishing ? (zh ? "游戏结束" : "Game over")
                 : over ? (zh ? "重新开始" : "Restart")
+                : active ? (zh ? "暂停" : "Pause")
                 : everStarted ? (zh ? "继续" : "Resume") : (zh ? "开始游戏" : "Start game"));
         takeoverButton.setText(enabled ? (zh ? "接管游戏 · 手动" : "Take over · manual")
                 : (zh ? "交给 AI 操作" : "Let AI play"));
@@ -610,8 +613,10 @@ public final class DashboardView extends BorderPane {
                 ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
                 : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space / Esc  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
         reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
-        boardHint.setText(zh ? "Space / Esc · 开始或暂停" : "Space / Esc · start or pause");
-        startTooltip.setText(zh ? "Space / Esc：开始或暂停" : "Space / Esc: start or pause");
+        boardHint.setText(finishing ? (zh ? "正在播放结束动画" : "Playing the end animation")
+                : over ? (zh ? "Space / Esc · 重新开始" : "Space / Esc · restart")
+                : (zh ? "Space / Esc · 开始或暂停" : "Space / Esc · start or pause"));
+        startTooltip.setText(boardHint.getText());
         takeoverTooltip.setText(zh ? "F2：切换 AI / 手动控制" : "F2: toggle AI / manual control");
         refreshActions(display, zh);
     }
