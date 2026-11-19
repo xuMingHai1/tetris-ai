@@ -610,7 +610,7 @@ public final class DashboardView extends BorderPane {
     }
 
     private void updateHintButton(boolean replacingHint, boolean canPlace) {
-        if (replacingHint && !waitingForReplacementHint) {
+        if (replacingHint && !placeAdviceButton.isDisabled()) {
             // Keep quick recomputations from flashing while the action itself is already disabled.
             placeAdviceButton.pseudoClassStateChanged(REFRESHING_HINT, true);
             hintRefreshFeedback.playFromStart();

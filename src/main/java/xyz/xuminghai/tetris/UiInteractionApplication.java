@@ -275,6 +275,7 @@ public final class UiInteractionApplication extends Application {
 
     private void verifyCoachedLanding(Stage stage, Button place) {
         boolean[] locked = {false};
+        boolean[] checkedNextHint = {false};
         GameWorld.CoachAdvice advice = world.coachAdviceProperty().get();
         int initialLines = world.linesProperty().get();
         world.currentCellsProperty().addListener((_, previous, cells) -> {
@@ -286,8 +287,17 @@ public final class UiInteractionApplication extends Application {
                         "actual coached landing matches the displayed recommendation");
             }
         });
+        world.aiDisplayProperty().addListener((_, _, display) -> {
+            if (locked[0] && !checkedNextHint[0] && display.phase().equals("thinking")) {
+                checkedNextHint[0] = true;
+                place.applyCss();
+                check(place.isDisabled() && place.getOpacity() < 1,
+                        "waiting for the next piece's first hint keeps the disabled button dim");
+            }
+        });
         place.fire();
         await(() -> locked[0] && world.currentCellsProperty().get() != null, 160, () -> {
+            check(checkedNextHint[0], "observed the next piece waiting for its first hint");
             check(world.linesProperty().get() - initialLines == advice.clearedLines(),
                     "actual cleared lines match the displayed simulation");
             check(!world.aiEnabledProperty().get() && world.coachEnabledProperty().get()
