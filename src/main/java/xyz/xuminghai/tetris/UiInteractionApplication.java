@@ -8,19 +8,26 @@ package xyz.xuminghai.tetris;
 import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.beans.property.ObjectProperty;
 import javafx.event.Event;
 import javafx.event.EventType;
+import javafx.geometry.Bounds;
 import javafx.scene.Node;
+import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TitledPane;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.PickResult;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.text.Font;
 import javafx.stage.Stage;
 import javafx.util.Duration;
+import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
@@ -195,6 +202,8 @@ public final class UiInteractionApplication extends Application {
         world.toggleAi();
         Button hints = (Button) scene.lookup("#coach-toggle");
         Button place = (Button) scene.lookup("#coach-place");
+        ScrollPane actions = (ScrollPane) scene.lookup(".action-scroll");
+        Label actionHeading = (Label) actions.getParent().lookup(".section-heading");
         String autoPlayBadge = label(".agent-badge");
         hints.fire();
         check(world.coachEnabledProperty().get() && !world.aiEnabledProperty().get()
@@ -208,14 +217,25 @@ public final class UiInteractionApplication extends Application {
             GameWorld.CoachAdvice original = world.coachAdviceProperty().get();
             check(original.landing().size() == 4 && !place.isDisabled(),
                     "coaching publishes a four-cell landing and enables one-piece execution");
+            layout();
+            Node adviceRow = actions.getContent().lookup(".action-row");
+            double actionViewportWidth = actions.getViewportBounds().getWidth();
             press(KeyCode.A);
             check(world.coachAdviceProperty().get() == null && place.isDisabled(),
                     "manual movement immediately invalidates advice and its execute button");
+            layout();
+            check(adviceRow != null && actions.getContent().lookup(".action-row") == adviceRow
+                            && actionHeading.getText().equals("Previous plan")
+                            && Math.abs(actions.getViewportBounds().getWidth() - actionViewportWidth) < 1,
+                    "short coaching refresh keeps the rows labeled Previous plan and the viewport width");
             await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
                 check(world.coachAdviceProperty().get() != original, "movement obtains fresh advice");
+                check(actionHeading.getText().equals("Current plan"), "fresh advice restores the Current plan heading");
                 world.startOrPauseGame();
                 check(world.coachAdviceProperty().get() == null && place.isDisabled(),
                         "pause clears advice and disables execution");
+                check(actions.getContent().lookup(".action-row") == null,
+                        "pause clears the previous coaching actions");
                 world.startOrPauseGame();
                 hints.fire();
                 later(150, () -> {
@@ -262,12 +282,73 @@ public final class UiInteractionApplication extends Application {
             world.toggleAi();
             check(!world.coachEnabledProperty().get() && world.coachAdviceProperty().get() == null,
                     "switching to auto-play clears coaching");
+            verifyActionScroll();
             world.startOrPauseGame();
             System.out.printf(Locale.ROOT, "UI_INTERACTION_RESULT failures=%d plan_updates=%d%n",
                     FAILURES.get(), observedPlans);
             stage.close();
             Platform.exit();
         });
+    }
+
+    private void verifyActionScroll() {
+        ScrollPane actions = (ScrollPane) scene.lookup(".action-scroll");
+        // Drive several display updates synchronously so gravity and a changing real plan
+        // cannot invalidate the scrolling assertions between observations.
+        var display = (ObjectProperty<GameWorld.AiDisplay>) world.aiDisplayProperty();
+        display.set(new GameWorld.AiDisplay("thinking", List.of(), 0));
+        layout();
+        double emptyWidth = actions.getViewportBounds().getWidth();
+        if (scene.getWidth() < 820) {
+            verifyCompactWheelChaining(actions);
+        }
+        List<AiAction> plan = List.of(AiAction.LEFT, AiAction.LEFT, AiAction.ROTATE_CLOCKWISE,
+                AiAction.RIGHT, AiAction.ROTATE_COUNTER_CLOCKWISE, AiAction.HARD_DROP);
+        display.set(new GameWorld.AiDisplay("executing", plan, 0));
+        layout();
+        Node firstRow = actions.getContent().lookup(".action-row");
+        check(firstRow != null
+                        && actions.getContent().getLayoutBounds().getHeight() > actions.getViewportBounds().getHeight()
+                        && Math.abs(actions.getViewportBounds().getWidth() - emptyWidth) < 1,
+                "an overflowing action plan keeps the same viewport width as the empty state");
+        actions.setVvalue(0.7);
+        world.switchLanguage();
+        layout();
+        check(actions.getContent().lookup(".action-row") == firstRow
+                        && Math.abs(actions.getVvalue() - 0.7) < 1e-6,
+                "language refresh reuses action rows and keeps manual scrolling");
+        display.set(new GameWorld.AiDisplay("executing", plan, 1));
+        layout();
+        Label actionText = firstRow == null ? null : (Label) firstRow.lookup(".action-text");
+        check(actionText != null && actionText.getText().contains("1/2") && Math.abs(actions.getVvalue() - 0.7) < 1e-6,
+                "progress within the same action row updates text without overriding manual scrolling");
+        actions.setVvalue(actions.getVmin());
+        display.set(new GameWorld.AiDisplay("executing", plan, plan.size() - 1));
+        layout();
+        Node viewport = actions.lookup(".viewport");
+        Node activeRow = ((Parent) actions.getContent()).getChildrenUnmodifiable().getLast();
+        Bounds viewportBounds = viewport.localToScene(viewport.getBoundsInLocal());
+        Bounds activeBounds = activeRow.localToScene(activeRow.getBoundsInLocal());
+        check(actions.getVvalue() > actions.getVmin()
+                        && activeBounds.getMinY() >= viewportBounds.getMinY() - 1
+                        && activeBounds.getMaxY() <= viewportBounds.getMaxY() + 1,
+                "entering a different action row scrolls it into view");
+        display.set(new GameWorld.AiDisplay("executing", List.of(AiAction.HARD_DROP), 0));
+        layout();
+        check(actions.getContent().lookupAll(".action-row").size() == 1
+                        && Math.abs(actions.getViewportBounds().getWidth() - emptyWidth) < 1,
+                "a shorter new plan replaces the previous actions without changing the viewport width");
+    }
+
+    private void verifyCompactWheelChaining(ScrollPane actions) {
+        ScrollPane main = (ScrollPane) scene.lookup(".main-scroll");
+        Node viewport = actions.lookup(".viewport");
+        main.setVvalue(0.5);
+        Event.fireEvent(viewport, new ScrollEvent(ScrollEvent.SCROLL, 0, 0, 0, 0,
+                false, false, false, false, false, false, 0, -120, 0, -120,
+                ScrollEvent.HorizontalTextScrollUnits.NONE, 0,
+                ScrollEvent.VerticalTextScrollUnits.NONE, 0, 0, new PickResult(viewport, 0, 0)));
+        check(main.getVvalue() > 0.5, "scrolling over an empty compact action list scrolls the outer panel");
     }
 
     /** Poll asynchronous FX completions with a fixed deadline; a timeout fails the capture. */
