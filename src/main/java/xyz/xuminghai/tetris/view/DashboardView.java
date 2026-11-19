@@ -1,6 +1,7 @@
 package xyz.xuminghai.tetris.view;
 
 import javafx.animation.FadeTransition;
+import javafx.animation.PauseTransition;
 import javafx.animation.ParallelTransition;
 import javafx.animation.ScaleTransition;
 import javafx.animation.TranslateTransition;
@@ -47,6 +48,7 @@ import java.util.ArrayList;
 public final class DashboardView extends BorderPane {
 
     private static final PseudoClass SELECTED = PseudoClass.getPseudoClass("selected");
+    private static final PseudoClass REFRESHING_HINT = PseudoClass.getPseudoClass("refreshing-hint");
 
     private final GameWorld world;
     private final String agent;
@@ -98,6 +100,7 @@ public final class DashboardView extends BorderPane {
     private final Button takeoverButton = button("takeover-button");
     private final Button coachButton = button("quiet-button");
     private final Button placeAdviceButton = button("takeover-button");
+    private final PauseTransition hintRefreshFeedback = new PauseTransition(Duration.millis(150));
     private final Button languageButton = button("quiet-button");
     private final Tooltip startTooltip = new Tooltip();
     private final Tooltip takeoverTooltip = new Tooltip();
@@ -112,6 +115,7 @@ public final class DashboardView extends BorderPane {
     private List<ActionGroup> actionGroups = List.of();
     private final List<ActionRow> actionRows = new ArrayList<>();
     private int followedActionRow = -1;
+    private boolean waitingForReplacementHint;
     private boolean everStarted;
     private Boolean chineseFont;
 
@@ -398,6 +402,8 @@ public final class DashboardView extends BorderPane {
         takeoverButton.setId("auto-play-toggle");
         coachButton.setId("coach-toggle");
         placeAdviceButton.setId("coach-place");
+        hintRefreshFeedback.setOnFinished(_ ->
+                placeAdviceButton.pseudoClassStateChanged(REFRESHING_HINT, false));
         coachButton.setMaxWidth(Double.MAX_VALUE);
         placeAdviceButton.setMaxWidth(Double.MAX_VALUE);
         coachButton.setOnAction(_ -> {
@@ -531,7 +537,7 @@ public final class DashboardView extends BorderPane {
         agentTitle.setText(zh ? "AI 驾驶舱" : "AI cockpit");
         agentBadge.setText(showCoach ? (zh ? "本地" : "LOCAL") : agent.toUpperCase(Locale.ROOT));
         goalTitle.setText(zh ? "当前目标" : "Objective");
-        actionsTitle.setText(previousPlan ? (zh ? "上次动作" : "Previous plan") : (zh ? "本次动作" : "Current plan"));
+        actionsTitle.setText(zh ? "动作计划" : "Action plan");
         languageButton.setText(zh ? "EN" : "中文");
         manualButton.setText(zh ? "手动" : "Manual");
         aiButton.setText(agent);
@@ -563,7 +569,7 @@ public final class DashboardView extends BorderPane {
         coachButton.setText(coaching ? (zh ? "关闭 AI 建议" : "Turn off AI hints")
                 : (zh ? "开启 AI 建议" : "Turn on AI hints"));
         placeAdviceButton.setText(zh ? "按建议放这一块" : "Place this piece as suggested");
-        placeAdviceButton.setDisable(advice == null || !active);
+        updateHintButton(showCoach && previousPlan && advice == null, showCoach && active && advice != null);
 
         overlay.setVisible(!active);
         overlayTitle.setText(over ? (zh ? "游戏结束" : "Game over")
@@ -586,11 +592,12 @@ public final class DashboardView extends BorderPane {
             aiMessage.setText(advice != null
                     ? (zh ? "靛蓝虚线为推荐落点 · 预计消行 " : "Indigo dashed hint · expected lines: ")
                             + advice.clearedLines()
+                    : previousPlan ? (zh ? "下方是上次建议，新的落点正在计算。" : "Previous hint below. Finding a new placement.")
                     : (zh ? "灰蓝细框为直落投影；你始终可以手动操作。"
                             : "Thin blue outlines show a straight drop. Manual input takes priority."));
         }
         else {
-            refreshAiMessage(phase, zh, active, over, enabled);
+            refreshAiMessage(phase, zh, active, over, enabled, previousPlan);
         }
         keys.setText(zh
                 ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
@@ -602,7 +609,22 @@ public final class DashboardView extends BorderPane {
         refreshActions(display, zh, previousPlan, active && !over && (enabled || coaching));
     }
 
-    private void refreshAiMessage(String phase, boolean zh, boolean active, boolean over, boolean enabled) {
+    private void updateHintButton(boolean replacingHint, boolean canPlace) {
+        if (replacingHint && !waitingForReplacementHint) {
+            // Keep quick recomputations from flashing while the action itself is already disabled.
+            placeAdviceButton.pseudoClassStateChanged(REFRESHING_HINT, true);
+            hintRefreshFeedback.playFromStart();
+        }
+        else if (!replacingHint && waitingForReplacementHint) {
+            hintRefreshFeedback.stop();
+            placeAdviceButton.pseudoClassStateChanged(REFRESHING_HINT, false);
+        }
+        waitingForReplacementHint = replacingHint;
+        placeAdviceButton.setDisable(!canPlace);
+    }
+
+    private void refreshAiMessage(String phase, boolean zh, boolean active, boolean over,
+                                  boolean enabled, boolean previousPlan) {
         aiStatus.setText(over ? (zh ? "对局结束" : "Game over")
                 : !enabled ? (zh ? "手动控制" : "Manual control")
                 : !active ? (everStarted ? (zh ? "AI 已暂停" : "AI paused")
@@ -619,7 +641,9 @@ public final class DashboardView extends BorderPane {
                 : !enabled ? (zh ? "使用 A / D 移动，← / → 旋转。" : "Use A / D to move and ← / → to rotate.")
                 : !active ? (everStarted ? (zh ? "继续对局后，AI 将重新选择落点。" : "Resume to let AI choose a new placement.")
                         : (zh ? "开始对局后，AI 将自动操作。" : "Start the game to let AI play."))
-                : phase.equals("thinking") ? (zh ? "正在为当前方块寻找落点。" : "Finding a placement for this piece.")
+                : phase.equals("thinking") ? (previousPlan
+                        ? (zh ? "下方是上次动作，新的落点正在计算。" : "Previous plan below. Finding a new placement.")
+                        : (zh ? "正在为当前方块寻找落点。" : "Finding a placement for this piece."))
                 : phase.equals("next-piece") ? (zh ? "当前方块仍可手动操作。" : "You still control the current piece.")
                 : phase.equals("fallback") ? (zh ? "本步使用本地策略继续。" : "Continuing with the local strategy.")
                 : phase.equals("failed") ? (zh ? "暂时无法决策，可接管游戏。" : "Unable to decide. You can take over.")

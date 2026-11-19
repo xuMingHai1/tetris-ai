@@ -209,8 +209,10 @@ public final class UiInteractionApplication extends Application {
         check(world.coachEnabledProperty().get() && !world.aiEnabledProperty().get()
                 && place.isDisabled(), "coaching stays manual and cannot execute while paused");
         check(label(".agent-badge").equals("LOCAL"), "coaching identifies its local strategy");
+        check(actionHeading.getText().equals("Action plan"), "English cockpit uses a fixed action heading");
         world.switchLanguage();
         check(label(".agent-badge").equals("本地"), "the local strategy badge switches to Chinese");
+        check(actionHeading.getText().equals("动作计划"), "Chinese cockpit uses a fixed action heading");
         world.switchLanguage();
         world.startOrPauseGame();
         await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
@@ -220,20 +222,32 @@ public final class UiInteractionApplication extends Application {
             layout();
             Node adviceRow = actions.getContent().lookup(".action-row");
             double actionViewportWidth = actions.getViewportBounds().getWidth();
+            Bounds headingBounds = actionHeading.localToScene(actionHeading.getLayoutBounds());
+            Bounds placeBounds = place.localToScene(place.getLayoutBounds());
+            double readyOpacity = place.getOpacity();
             press(KeyCode.A);
             check(world.coachAdviceProperty().get() == null && place.isDisabled(),
                     "manual movement immediately invalidates advice and its execute button");
             layout();
             check(adviceRow != null && actions.getContent().lookup(".action-row") == adviceRow
-                            && actionHeading.getText().equals("Previous plan")
+                            && actionHeading.getText().equals("Action plan")
                             && Math.abs(actions.getViewportBounds().getWidth() - actionViewportWidth) < 1,
-                    "short coaching refresh keeps the rows labeled Previous plan and the viewport width");
+                    "short coaching refresh retains the rows, heading and viewport width");
+            check(hasSceneBounds(actionHeading, headingBounds) && hasSceneBounds(place, placeBounds)
+                            && Math.abs(place.getOpacity() - readyOpacity) < 1e-6,
+                    "invalidating advice keeps the action heading and button in place without dimming");
             await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
                 check(world.coachAdviceProperty().get() != original, "movement obtains fresh advice");
-                check(actionHeading.getText().equals("Current plan"), "fresh advice restores the Current plan heading");
+                layout();
+                check(actionHeading.getText().equals("Action plan") && hasSceneBounds(actionHeading, headingBounds)
+                                && hasSceneBounds(place, placeBounds) && !place.isDisabled()
+                                && Math.abs(place.getOpacity() - readyOpacity) < 1e-6,
+                        "fresh advice enables the same button without moving the heading or button");
                 world.startOrPauseGame();
-                check(world.coachAdviceProperty().get() == null && place.isDisabled(),
-                        "pause clears advice and disables execution");
+                layout();
+                check(world.coachAdviceProperty().get() == null && place.isDisabled()
+                                && place.getOpacity() < readyOpacity,
+                        "pause clears advice and immediately disables and dims execution");
                 check(actions.getContent().lookup(".action-row") == null,
                         "pause clears the previous coaching actions");
                 world.startOrPauseGame();
@@ -293,6 +307,7 @@ public final class UiInteractionApplication extends Application {
 
     private void verifyActionScroll() {
         ScrollPane actions = (ScrollPane) scene.lookup(".action-scroll");
+        Label actionHeading = (Label) actions.getParent().lookup(".section-heading");
         // Drive several display updates synchronously so gravity and a changing real plan
         // cannot invalidate the scrolling assertions between observations.
         var display = (ObjectProperty<GameWorld.AiDisplay>) world.aiDisplayProperty();
@@ -339,6 +354,7 @@ public final class UiInteractionApplication extends Application {
         layout();
         check(Math.abs(actions.getVvalue() - 0.7) < 1e-6,
                 "waiting for a new decision preserves the previous plan scroll");
+        check(actionHeading.getText().equals("动作计划"), "auto-play keeps the action heading while waiting");
         display.set(new GameWorld.AiDisplay("advice", plan, 0));
         layout();
         check(Math.abs(actions.getVvalue() - 0.7) < 1e-6,
@@ -427,6 +443,14 @@ public final class UiInteractionApplication extends Application {
     private void layout() {
         scene.getRoot().applyCss();
         scene.getRoot().layout();
+    }
+
+    private static boolean hasSceneBounds(Node node, Bounds expected) {
+        Bounds actual = node.localToScene(node.getLayoutBounds());
+        return Math.abs(actual.getMinX() - expected.getMinX()) < 1
+                && Math.abs(actual.getMinY() - expected.getMinY()) < 1
+                && Math.abs(actual.getWidth() - expected.getWidth()) < 1
+                && Math.abs(actual.getHeight() - expected.getHeight()) < 1;
     }
 
     private static void later(int milliseconds, Runnable action) {
