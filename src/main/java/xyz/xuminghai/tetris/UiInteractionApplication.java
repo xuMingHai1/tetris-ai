@@ -9,6 +9,7 @@ import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.beans.property.ObjectProperty;
+import javafx.beans.value.ChangeListener;
 import javafx.event.Event;
 import javafx.event.EventType;
 import javafx.geometry.Bounds;
@@ -49,6 +50,7 @@ public final class UiInteractionApplication extends Application {
     private Scene scene;
     private GameKeyCodeAction input;
     private static final AtomicInteger FAILURES = new AtomicInteger();
+    private static final String HINT_DESCRIPTION = "Dashed outline marks the hint\nLatest hint · expected lines: ";
     private double takeoverY;
     private double minimumY = Double.POSITIVE_INFINITY;
     private double maximumY = Double.NEGATIVE_INFINITY;
@@ -204,6 +206,7 @@ public final class UiInteractionApplication extends Application {
         Button place = (Button) scene.lookup("#coach-place");
         ScrollPane actions = (ScrollPane) scene.lookup(".action-scroll");
         Label actionHeading = (Label) actions.getParent().lookup(".section-heading");
+        Label hintMessage = (Label) scene.lookup(".ai-message");
         String autoPlayBadge = label(".agent-badge");
         hints.fire();
         check(world.coachEnabledProperty().get() && !world.aiEnabledProperty().get()
@@ -215,25 +218,42 @@ public final class UiInteractionApplication extends Application {
         check(actionHeading.getText().equals("动作计划"), "Chinese cockpit uses a fixed action heading");
         world.switchLanguage();
         world.startOrPauseGame();
+        check(hintMessage.getText().equals(HINT_DESCRIPTION + "—"),
+                "coaching shows a placeholder before its first estimate");
         await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
             GameWorld.CoachAdvice original = world.coachAdviceProperty().get();
             check(original.landing().size() == 4 && !place.isDisabled(),
                     "coaching publishes a four-cell landing and enables one-piece execution");
             check(label(".ai-status").equals("AI hints on"), "active coaching shows a stable mode status");
+            String originalMessage = HINT_DESCRIPTION + original.clearedLines();
+            check(hintMessage.getText().equals(originalMessage), "the estimate describes the latest hint");
             world.switchLanguage();
             check(label(".ai-status").equals("AI 建议已开启"), "the coaching mode status is localized");
+            layout();
+            check(hintMessage.getText().equals("虚线标出推荐落点\n最近建议 · 预计消行 " + original.clearedLines())
+                            && !hintMessage.isTextTruncated(),
+                    "the Chinese hint description and estimate fit in the cockpit");
             world.switchLanguage();
             layout();
             Node adviceRow = actions.getContent().lookup(".action-row");
             double actionViewportWidth = actions.getViewportBounds().getWidth();
             Bounds headingBounds = actionHeading.localToScene(actionHeading.getLayoutBounds());
+            Bounds messageBounds = hintMessage.localToScene(hintMessage.getLayoutBounds());
             Bounds placeBounds = place.localToScene(place.getLayoutBounds());
             double readyOpacity = place.getOpacity();
+            ChangeListener<String> messageChange = (_, _, text) -> {
+                GameWorld.CoachAdvice liveAdvice = world.coachAdviceProperty().get();
+                check(liveAdvice != null && text.equals(HINT_DESCRIPTION + liveAdvice.clearedLines()),
+                        "only a new estimate changes the hint description during a refresh");
+            };
+            hintMessage.textProperty().addListener(messageChange);
             press(KeyCode.A);
             check(world.coachAdviceProperty().get() == null && place.isDisabled(),
                     "manual movement immediately invalidates advice and its execute button");
             check(label(".ai-status").equals("AI hints on"), "invalidating advice keeps the coaching mode status");
             layout();
+            check(hintMessage.getText().equals(originalMessage) && hasSceneBounds(hintMessage, messageBounds),
+                    "invalidating advice preserves the latest estimate and the description bounds");
             check(adviceRow != null && actions.getContent().lookup(".action-row") == adviceRow
                             && actionHeading.getText().equals("Action plan")
                             && Math.abs(actions.getViewportBounds().getWidth() - actionViewportWidth) < 1,
@@ -242,40 +262,59 @@ public final class UiInteractionApplication extends Application {
                             && Math.abs(place.getOpacity() - readyOpacity) < 1e-6,
                     "invalidating advice keeps the action heading and button in place without dimming");
             await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
-                check(world.coachAdviceProperty().get() != original, "movement obtains fresh advice");
+                GameWorld.CoachAdvice replacement = world.coachAdviceProperty().get();
+                check(replacement != original, "movement obtains fresh advice");
                 check(label(".ai-status").equals("AI hints on"), "replacing advice keeps the coaching mode status");
                 layout();
+                check(hintMessage.getText().equals(HINT_DESCRIPTION + replacement.clearedLines())
+                                && hasSceneBounds(hintMessage, messageBounds) && !hintMessage.isTextTruncated(),
+                        "fresh advice fits its English estimate in the same description bounds");
                 check(actionHeading.getText().equals("Action plan") && hasSceneBounds(actionHeading, headingBounds)
                                 && hasSceneBounds(place, placeBounds) && !place.isDisabled()
                                 && Math.abs(place.getOpacity() - readyOpacity) < 1e-6,
                         "fresh advice enables the same button without moving the heading or button");
-                world.startOrPauseGame();
-                layout();
-                check(world.coachAdviceProperty().get() == null && place.isDisabled()
-                                && place.getOpacity() < readyOpacity,
-                        "pause clears advice and immediately disables and dims execution");
-                check(label(".ai-status").equals("Hints paused"), "pausing still changes the coaching status");
-                check(actions.getContent().lookup(".action-row") == null,
-                        "pause clears the previous coaching actions");
-                world.startOrPauseGame();
-                hints.fire();
-                later(150, () -> {
-                    check(world.coachAdviceProperty().get() == null,
-                            "disabled hints reject an in-flight completion");
-                    check(label(".agent-badge").equals(autoPlayBadge),
-                            "turning off coaching restores the configured auto-play badge");
-                    hints.fire();
-                    await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
-                        place.fire();
-                        check(!world.aiEnabledProperty().get() && world.coachAdviceProperty().get() == null,
-                                "one-piece execution consumes advice without enabling auto-play");
-                        press(KeyCode.D);
-                        check(!world.aiDisplayProperty().get().phase().equals("executing"),
-                                "manual input interrupts coached playback immediately");
-                        await(() -> world.coachAdviceProperty().get() != null, 100,
-                                () -> verifyCoachedLanding(stage, place));
-                    });
+                int beforeGravity = positions().getFirst().row();
+                await(() -> {
+                    GameWorld.CoachAdvice next = world.coachAdviceProperty().get();
+                    return next != null && next != replacement;
+                }, 120, () -> {
+                    hintMessage.textProperty().removeListener(messageChange);
+                    layout();
+                    check(positions().getFirst().row() > beforeGravity
+                                    && hintMessage.getText().equals(HINT_DESCRIPTION
+                                            + world.coachAdviceProperty().get().clearedLines())
+                                    && hasSceneBounds(hintMessage, messageBounds),
+                            "an automatic gravity refresh keeps the hint description in place");
+                    verifyCoachingPause(stage, hints, place, actions, autoPlayBadge);
                 });
+            });
+        });
+    }
+
+    private void verifyCoachingPause(Stage stage, Button hints, Button place, ScrollPane actions, String autoPlayBadge) {
+        double readyOpacity = place.getOpacity();
+        world.startOrPauseGame();
+        layout();
+        check(world.coachAdviceProperty().get() == null && place.isDisabled() && place.getOpacity() < readyOpacity,
+                "pause clears advice and immediately disables and dims execution");
+        check(label(".ai-status").equals("Hints paused"), "pausing still changes the coaching status");
+        check(label(".ai-message").equals(HINT_DESCRIPTION + "—"), "pause clears the previous estimate");
+        check(actions.getContent().lookup(".action-row") == null, "pause clears the previous coaching actions");
+        world.startOrPauseGame();
+        hints.fire();
+        later(150, () -> {
+            check(world.coachAdviceProperty().get() == null, "disabled hints reject an in-flight completion");
+            check(label(".agent-badge").equals(autoPlayBadge),
+                    "turning off coaching restores the configured auto-play badge");
+            hints.fire();
+            await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
+                place.fire();
+                check(!world.aiEnabledProperty().get() && world.coachAdviceProperty().get() == null,
+                        "one-piece execution consumes advice without enabling auto-play");
+                press(KeyCode.D);
+                check(!world.aiDisplayProperty().get().phase().equals("executing"),
+                        "manual input interrupts coached playback immediately");
+                await(() -> world.coachAdviceProperty().get() != null, 100, () -> verifyCoachedLanding(stage, place));
             });
         });
     }
