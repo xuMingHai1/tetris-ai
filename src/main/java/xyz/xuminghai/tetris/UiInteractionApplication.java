@@ -16,6 +16,8 @@ import javafx.geometry.Bounds;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.SnapshotParameters;
+import javafx.scene.canvas.Canvas;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
@@ -25,6 +27,7 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.PickResult;
 import javafx.scene.input.ScrollEvent;
+import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.stage.Stage;
 import javafx.util.Duration;
@@ -33,6 +36,7 @@ import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.game.GameKeyCodeAction;
 import xyz.xuminghai.tetris.game.GameWorld;
 import xyz.xuminghai.tetris.view.DashboardView;
@@ -40,6 +44,8 @@ import xyz.xuminghai.tetris.view.DashboardView;
 import java.util.Locale;
 import java.util.Arrays;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
@@ -224,6 +230,8 @@ public final class UiInteractionApplication extends Application {
             GameWorld.CoachAdvice original = world.coachAdviceProperty().get();
             check(original.landing().size() == 4 && !place.isDisabled(),
                     "coaching publishes a four-cell landing and enables one-piece execution");
+            Set<BoardPosition> originalLanding = Set.copyOf(original.landing());
+            check(paintedCoachLanding().equals(originalLanding), "the board paints exactly the four suggested cells");
             check(label(".ai-status").equals("AI hints on"), "active coaching shows a stable mode status");
             String originalMessage = HINT_DESCRIPTION + original.clearedLines();
             check(hintMessage.getText().equals(originalMessage), "the estimate describes the latest hint");
@@ -250,6 +258,8 @@ public final class UiInteractionApplication extends Application {
             press(KeyCode.A);
             check(world.coachAdviceProperty().get() == null && place.isDisabled(),
                     "manual movement immediately invalidates advice and its execute button");
+            check(paintedCoachLanding().equals(originalLanding),
+                    "manual movement keeps the board hint visible while the replacement is pending");
             check(label(".ai-status").equals("AI hints on"), "invalidating advice keeps the coaching mode status");
             layout();
             check(hintMessage.getText().equals(originalMessage) && hasSceneBounds(hintMessage, messageBounds),
@@ -264,6 +274,8 @@ public final class UiInteractionApplication extends Application {
             await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
                 GameWorld.CoachAdvice replacement = world.coachAdviceProperty().get();
                 check(replacement != original, "movement obtains fresh advice");
+                Set<BoardPosition> replacementLanding = Set.copyOf(replacement.landing());
+                check(paintedCoachLanding().equals(replacementLanding), "the board switches to the replacement landing");
                 check(label(".ai-status").equals("AI hints on"), "replacing advice keeps the coaching mode status");
                 layout();
                 check(hintMessage.getText().equals(HINT_DESCRIPTION + replacement.clearedLines())
@@ -274,12 +286,19 @@ public final class UiInteractionApplication extends Application {
                                 && Math.abs(place.getOpacity() - readyOpacity) < 1e-6,
                         "fresh advice enables the same button without moving the heading or button");
                 int beforeGravity = positions().getFirst().row();
+                ChangeListener<Cell[]> gravityStep = (_, _, _) -> check(world.coachAdviceProperty().get() == null
+                                && place.isDisabled() && paintedCoachLanding().equals(replacementLanding),
+                        "gravity keeps the board hint visible while the replacement is pending");
+                world.currentCellsProperty().addListener(gravityStep);
                 await(() -> {
                     GameWorld.CoachAdvice next = world.coachAdviceProperty().get();
                     return next != null && next != replacement;
                 }, 120, () -> {
+                    world.currentCellsProperty().removeListener(gravityStep);
                     hintMessage.textProperty().removeListener(messageChange);
                     layout();
+                    check(paintedCoachLanding().equals(Set.copyOf(world.coachAdviceProperty().get().landing())),
+                            "the board shows only the newly published gravity hint");
                     check(positions().getFirst().row() > beforeGravity
                                     && hintMessage.getText().equals(HINT_DESCRIPTION
                                             + world.coachAdviceProperty().get().clearedLines())
@@ -299,6 +318,7 @@ public final class UiInteractionApplication extends Application {
                 "pause clears advice and immediately disables and dims execution");
         check(label(".ai-status").equals("Hints paused"), "pausing still changes the coaching status");
         check(label(".ai-message").equals(HINT_DESCRIPTION + "—"), "pause clears the previous estimate");
+        check(paintedCoachLanding().isEmpty(), "pause clears the board hint immediately");
         check(actions.getContent().lookup(".action-row") == null, "pause clears the previous coaching actions");
         world.startOrPauseGame();
         hints.fire();
@@ -311,6 +331,7 @@ public final class UiInteractionApplication extends Application {
                 place.fire();
                 check(!world.aiEnabledProperty().get() && world.coachAdviceProperty().get() == null,
                         "one-piece execution consumes advice without enabling auto-play");
+                check(paintedCoachLanding().isEmpty(), "starting coached playback clears the board hint immediately");
                 press(KeyCode.D);
                 check(!world.aiDisplayProperty().get().phase().equals("executing"),
                         "manual input interrupts coached playback immediately");
@@ -339,6 +360,7 @@ public final class UiInteractionApplication extends Application {
                 place.applyCss();
                 check(place.isDisabled() && place.getOpacity() < 1,
                         "waiting for the next piece's first hint keeps the disabled button dim");
+                check(paintedCoachLanding().isEmpty(), "the next piece does not inherit the previous board hint");
             }
         });
         place.fire();
@@ -359,6 +381,25 @@ public final class UiInteractionApplication extends Application {
             stage.close();
             Platform.exit();
         });
+    }
+
+    /** Sample cell interiors so the straight-drop outline cannot be mistaken for a filled coaching hint. */
+    private Set<BoardPosition> paintedCoachLanding() {
+        Canvas overlay = (Canvas) scene.lookup("#landing-overlay");
+        SnapshotParameters parameters = new SnapshotParameters();
+        parameters.setFill(Color.TRANSPARENT);
+        var pixels = overlay.snapshot(parameters, null).getPixelReader();
+        double pitch = (overlay.getWidth() - 1) / world.getCols();
+        Set<BoardPosition> painted = new HashSet<>();
+        for (int row = 0; row < world.getRows(); row++) {
+            for (int col = 0; col < world.getCols(); col++) {
+                Color color = pixels.getColor((int) (1 + (col + 0.5) * pitch), (int) (1 + (row + 0.5) * pitch));
+                if (color.getOpacity() > 0.2 && color.getBlue() - color.getRed() > 0.4) {
+                    painted.add(new BoardPosition(row, col));
+                }
+            }
+        }
+        return painted;
     }
 
     private void verifyActionScroll() {
