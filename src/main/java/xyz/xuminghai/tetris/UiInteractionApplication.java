@@ -219,6 +219,10 @@ public final class UiInteractionApplication extends Application {
             GameWorld.CoachAdvice original = world.coachAdviceProperty().get();
             check(original.landing().size() == 4 && !place.isDisabled(),
                     "coaching publishes a four-cell landing and enables one-piece execution");
+            check(label(".ai-status").equals("AI hints on"), "active coaching shows a stable mode status");
+            world.switchLanguage();
+            check(label(".ai-status").equals("AI 建议已开启"), "the coaching mode status is localized");
+            world.switchLanguage();
             layout();
             Node adviceRow = actions.getContent().lookup(".action-row");
             double actionViewportWidth = actions.getViewportBounds().getWidth();
@@ -228,6 +232,7 @@ public final class UiInteractionApplication extends Application {
             press(KeyCode.A);
             check(world.coachAdviceProperty().get() == null && place.isDisabled(),
                     "manual movement immediately invalidates advice and its execute button");
+            check(label(".ai-status").equals("AI hints on"), "invalidating advice keeps the coaching mode status");
             layout();
             check(adviceRow != null && actions.getContent().lookup(".action-row") == adviceRow
                             && actionHeading.getText().equals("Action plan")
@@ -238,6 +243,7 @@ public final class UiInteractionApplication extends Application {
                     "invalidating advice keeps the action heading and button in place without dimming");
             await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
                 check(world.coachAdviceProperty().get() != original, "movement obtains fresh advice");
+                check(label(".ai-status").equals("AI hints on"), "replacing advice keeps the coaching mode status");
                 layout();
                 check(actionHeading.getText().equals("Action plan") && hasSceneBounds(actionHeading, headingBounds)
                                 && hasSceneBounds(place, placeBounds) && !place.isDisabled()
@@ -248,6 +254,7 @@ public final class UiInteractionApplication extends Application {
                 check(world.coachAdviceProperty().get() == null && place.isDisabled()
                                 && place.getOpacity() < readyOpacity,
                         "pause clears advice and immediately disables and dims execution");
+                check(label(".ai-status").equals("Hints paused"), "pausing still changes the coaching status");
                 check(actions.getContent().lookup(".action-row") == null,
                         "pause clears the previous coaching actions");
                 world.startOrPauseGame();

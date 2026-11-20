@@ -585,10 +585,9 @@ public final class DashboardView extends BorderPane {
 
         if (showCoach) {
             aiStatus.setText(!active ? (zh ? "建议已暂停" : "Hints paused")
-                    : advice != null ? (zh ? "建议已就绪" : "Hint ready")
                     : phase.equals("executing") ? (zh ? "只执行当前块" : "Playing this piece only")
                     : phase.equals("failed") ? (zh ? "建议暂不可用" : "Hint unavailable")
-                    : (zh ? "正在更新建议" : "Updating hint"));
+                    : (zh ? "AI 建议已开启" : "AI hints on"));
             aiMessage.setText(advice != null
                     ? (zh ? "靛蓝虚线为推荐落点 · 预计消行 " : "Indigo dashed hint · expected lines: ")
                             + advice.clearedLines()
