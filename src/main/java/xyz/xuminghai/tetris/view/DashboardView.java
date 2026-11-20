@@ -116,6 +116,7 @@ public final class DashboardView extends BorderPane {
     private final List<ActionRow> actionRows = new ArrayList<>();
     private int followedActionRow = -1;
     private boolean waitingForReplacementHint;
+    private Integer lastHintClearedLines;
     private boolean everStarted;
     private Boolean chineseFont;
 
@@ -583,17 +584,17 @@ public final class DashboardView extends BorderPane {
                 : everStarted ? (zh ? "已暂停" : "Paused")
                 : (zh ? "准备就绪" : "Ready"));
 
+        // Keep the last published estimate readable while this coaching session recalculates.
+        if (!showCoach || !active) lastHintClearedLines = null;
+        else if (advice != null) lastHintClearedLines = advice.clearedLines();
         if (showCoach) {
             aiStatus.setText(!active ? (zh ? "建议已暂停" : "Hints paused")
                     : phase.equals("executing") ? (zh ? "只执行当前块" : "Playing this piece only")
                     : phase.equals("failed") ? (zh ? "建议暂不可用" : "Hint unavailable")
                     : (zh ? "AI 建议已开启" : "AI hints on"));
-            aiMessage.setText(advice != null
-                    ? (zh ? "靛蓝虚线为推荐落点 · 预计消行 " : "Indigo dashed hint · expected lines: ")
-                            + advice.clearedLines()
-                    : previousPlan ? (zh ? "下方是上次建议，新的落点正在计算。" : "Previous hint below. Finding a new placement.")
-                    : (zh ? "灰蓝细框为直落投影；你始终可以手动操作。"
-                            : "Thin blue outlines show a straight drop. Manual input takes priority."));
+            aiMessage.setText((zh ? "虚线标出推荐落点\n最近建议 · 预计消行 "
+                    : "Dashed outline marks the hint\nLatest hint · expected lines: ")
+                    + (lastHintClearedLines == null ? "—" : lastHintClearedLines.toString()));
         }
         else {
             refreshAiMessage(phase, zh, active, over, enabled, previousPlan);
