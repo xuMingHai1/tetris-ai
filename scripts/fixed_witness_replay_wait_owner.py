@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 
 from fixed_witness_replay_abi_model import ExecIdentity
+from fixed_witness_replay_ptrace import SyscallInfo
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
 from fixed_witness_replay_tasks import LIVE_TASKS, TASK_ATTEMPTS
 from fixed_witness_replay_wait import decode_wait_status
@@ -94,6 +95,10 @@ class BoundedWaitOwner:
         self.stopped = None
         self.last_wait = None
         self._settled_reaps = {}
+        # One original completed native exec ENTRY per live nonleader birth,
+        # not an unbounded wait history. Other births may stop before this
+        # executor's EXEC/failed EXIT; last_wait alone loses that provenance.
+        self._resumed_exec_entries = {}
         dispatcher._wait_owner = self
 
     def _check(self):
@@ -250,6 +255,7 @@ class BoundedWaitOwner:
             # this receipt. A later pre-wait failure must poll a new event; an
             # uncertain resume or partial observation retains the original stop.
             self.last_wait.completed = True
+            self._retain_exec_entry(self.last_wait, wire)
             self._last_birth = ticket
             return 'event'
         self._check()
@@ -259,6 +265,30 @@ class BoundedWaitOwner:
         self.sleep(min(0.01, remaining))
         self._check()
         return 'idle'
+
+    def _retain_exec_entry(self, receipt, wire):
+        """Keep only still-unmatched original entries after successful dispatch.
+
+        Failed/uncertain resumes never enter this set. EXIT, EXEC (including
+        leader retirement) and actual reap remove obsolete receipts; a later
+        failure preserves the remaining originals for the sole cleanup owner.
+        """
+        creation = self.launch.dispatcher
+        for birth, (previous, _) in tuple(self._resumed_exec_entries.items()):
+            if (creation._sequence.get(birth) is not previous.facts.syscall
+                    or self.launch.ledger.identity(birth) != previous.parent):
+                del self._resumed_exec_entries[birth]
+        entry = receipt.facts.syscall
+        parent = receipt.parent
+        if (type(entry) is SyscallInfo and entry.operation == 1
+                and entry.number in (59, 322) and parent.tid != parent.tgid):
+            entry.require_native(1)
+            if (creation._sequence.get(parent.birth) is not entry
+                    or self.launch.ledger.identity(parent.birth) != parent
+                    or creation._task(parent.birth, parent.tid) is not wire
+                    or len(self._resumed_exec_entries) >= LIVE_TASKS - 1):
+                raise WaitOwnerError('original completed exec ENTRY binding mismatch')
+            self._resumed_exec_entries[parent.birth] = (receipt, wire)
 
     def run(self):
         """Run once to drained bookkeeping or fail closed, without cleanup retry."""
