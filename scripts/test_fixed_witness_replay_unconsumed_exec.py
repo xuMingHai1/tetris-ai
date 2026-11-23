@@ -739,6 +739,51 @@ class UnconsumedExecTest(unittest.TestCase):
     def test_two_groups_one_ineligible_executor_reject_before_first_cleanup_wait(self):
         self.two_group_pending(reap_sibling=False)
 
+    def test_independent_single_thread_execs_without_candidate_keep_original_process_cleanup(self):
+        for first, second in ((59, 59), (59, 322), (322, 59), (322, 322)):
+            with self.subTest(first=first, second=second):
+                f = fixture.ThreadCleanupTest()
+                f.setUp()
+                # Reap the fixture's thread before constructing two independent
+                # single-thread process groups through the original dispatcher.
+                f.f.owner.accept(12, 0)
+                f.launch.dispatcher._factory = lambda: Mock()
+                f.f.syscall(entry(57))
+                f.f.wire.event_tid.return_value = 13
+                f.f.owner.accept(11, 0x1057f)
+                f.f.syscall(exit_info(13, 0))
+                child = f.launch.dispatcher.stop_binding(13)[1]
+                child.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
+                f.f.owner.accept(13, 0x137f)
+                f.f.wire.syscall_info.return_value = decode_syscall_info(*entry(first))
+                child.syscall_info.return_value = decode_syscall_info(*entry(second))
+                original = OSError('normal owner fails with two process exec entries')
+                normal = BoundedWaitOwner(f.f.owner, waitpid=Mock(side_effect=[
+                    (11, 0x857f), (13, 0x857f), original]))
+                with self.assertRaises(OSError) as raised:
+                    normal.run()
+                self.assertIs(original, raised.exception)
+                self.assertEqual({}, normal._resumed_exec_entries)
+                self.assertEqual({1, 3}, {birth for birth, info in f.launch.dispatcher._sequence.items()
+                                 if getattr(info, 'number', None) in (59, 322)})
+                before, failure = f.ledger.totals, f.launch.stopped
+                f.f.wire.reset_mock()
+                child.reset_mock()
+                f.transport.wait.side_effect = [(11, 9), (13, 9)]
+                owner = f.owner()
+                result = owner.run()
+                self.assertEqual([call.open(11, 0), call.open(13, 0),
+                                  call.send(70, 9, None, 0), call.send(71, 9, None, 0),
+                                  call.wait(11, WAIT_OPTIONS), call.wait(13, WAIT_OPTIONS),
+                                  call.close(71), call.close(70)], f.transport.mock_calls)
+                self.assertEqual([(1, 11), (3, 13)], [(birth, tid) for birth, tid, _ in result])
+                self.assertEqual((before.attempts, before.wait_stops, 1, before.pending, before.stopped),
+                                 (f.ledger.totals.attempts, f.ledger.totals.wait_stops,
+                                  f.ledger.totals.live, f.ledger.totals.pending, f.ledger.totals.stopped))
+                self.assertEqual(failure, f.launch.stopped)
+                self.assertFalse(normal.last_wait.adopted)
+                self.assertEqual([], f.f.wire.mock_calls + child.mock_calls)
+
     def test_two_groups_ineligible_executor_sibling_reaped_still_reject_before_wait(self):
         self.two_group_pending(reap_sibling=True)
 

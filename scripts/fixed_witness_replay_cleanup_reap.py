@@ -275,6 +275,12 @@ class CleanupReaper:
                 raise CleanupReapError('original in-flight exec wait required')
             if not owner.last_wait.completed:
                 return
+            retained = tuple(owner._resumed_exec_entries.values())
+            if not retained:
+                # No nonleader receipt is being taken over. Leave ordinary
+                # process-only pin/kill/reap eligibility to the original path;
+                # independent single-thread execs need no unique takeover.
+                return
             dispatcher = self.launch.dispatcher
             # Eligibility retention is deliberately narrower than the complete
             # native dispatch inventory. An ineligible executor in ANOTHER
@@ -284,9 +290,6 @@ class CleanupReaper:
                               and info.number in (59, 322) and birth not in dispatcher._exec_exits)
             if len(unmatched) > 1:
                 raise CleanupReapError('one globally unmatched exec ENTRY required')
-            retained = tuple(owner._resumed_exec_entries.values())
-            if not retained:
-                return
             if len(retained) != 1:
                 raise CleanupReapError('one original in-flight exec ENTRY required')
             receipt, executor_wire = retained[0]

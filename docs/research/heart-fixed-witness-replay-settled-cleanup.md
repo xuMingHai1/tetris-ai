@@ -560,3 +560,19 @@ cleanup wait、event read、receipt adoption、stop debit 或 pidfd 操作之前
 存活或在清理前正常 reap，交叉覆盖59/322。两者均只保留第一组 receipt，但
 必须在首次 cleanup wait 前拒绝，且无 pin/signal、无预算变化、无 receipt adoption。
 Linux bridge 现强制53项零skip。整体原生/网络/历史门禁继续保持。
+
+### 本次新增修改：P2 无接管候选时保留原进程清理路径
+
+全局未配对 exec 的唯一性约束只适用于需要接管 nonleader ENTRY 的分支。
+`bind_inflight_exec` 现在先确认原 wait owner 是否有保留候选；无候选则返回，
+继续原 `_inventory -> pidfd pin/SIGKILL -> terminal reap`，不把多个独立单线程
+进程的 exec ENTRY 当作 nonleader 接管冲突。存在候选时仍先扫描完整 dispatcher
+未配对集合，再独立核验唯一候选资格；前两项 P2 的拒绝条件保持。
+
+新增对照回归通过原 dispatcher/ledger/wait-owner 建立两个独立单线程进程，
+同时处于59/322 ENTRY（四种交叉组合），无保留候选，正常 owner 失败后均应
+先取得两个 pidfd，再分别发送 SIGKILL 并完成两次真实模拟 terminal reap。
+该用例在213f969上四种组合均于首个 pidfd 前失败，修复后 pins=2/reaped=2；
+验证原失败、deadline、累计任务和stop预算不变，无额外 ptrace/read/resume。
+原两个跨组待决 nonleader（仅一组具资格）用例仍须在首次 cleanup wait 前拒绝。
+Linux bridge 现强制54项零skip；所有内核transport注入，整体原生验收未执行。
