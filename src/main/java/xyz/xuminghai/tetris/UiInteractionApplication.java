@@ -33,7 +33,10 @@ import javafx.stage.Stage;
 import javafx.util.Duration;
 import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.AiPlanningAgent;
+import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
+import xyz.xuminghai.tetris.ai.ShapeProgress;
+import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.Cell;
@@ -83,6 +86,8 @@ public final class UiInteractionApplication extends Application {
         stage.show();
         view.requestGameFocus();
         later(300, () -> {
+            check(label(".page-title").equals("自由对局"), "the dashboard initializes its Chinese title");
+            verifyHeartProgress();
             pressHeld(KeyCode.SPACE, false);
             check(world.getGameActive(), "held Space starts once without immediately pausing");
             press(KeyCode.SPACE);
@@ -186,6 +191,7 @@ public final class UiInteractionApplication extends Application {
         key(KeyEvent.KEY_PRESSED, KeyCode.TAB, false, true);
         key(KeyEvent.KEY_RELEASED, KeyCode.TAB, false, true);
         check(world.languageProperty().get().equals(Locale.ENGLISH), "held Ctrl + Tab switches language once");
+        check(label(".page-title").equals("Free play"), "the dashboard title follows the language shortcut");
         world.switchLanguage();
         view.requestGameFocus();
         world.aiDisplayProperty().addListener((_, _, display) -> {
@@ -212,6 +218,32 @@ public final class UiInteractionApplication extends Application {
             check(label(".ai-status").equals("AI paused"), "English paused AI status is truthful");
             verifyCoaching(stage);
         });
+    }
+
+    private void verifyHeartProgress() {
+        if (!"build-shape".equalsIgnoreCase(
+                System.getenv().getOrDefault(AiPlanningAgentFactory.OBJECTIVE_ENV, "").trim())) return;
+        TitledPane pane = (TitledPane) scene.lookup(".creative-pane");
+        check(pane != null, "the build-shape dashboard includes the HEART panel");
+        if (pane == null) return;
+        Label progressLabel = (Label) pane.getContent().lookup(".shape-progress");
+        int required = ShapeTarget.HEART.requiredCells();
+        check(progressLabel.getText().equals("目标覆盖 0/" + required + " · 背景侵入 0"),
+                "HEART initializes the empty board in Chinese");
+        world.settledCellsProperty().addListener((_, _, _) ->
+                checkHeartCounts(progressLabel, "HEART displays the progress of the newly settled board"));
+        world.languageProperty().addListener((_, _, _) ->
+                checkHeartCounts(progressLabel, "switching language preserves HEART progress"));
+    }
+
+    private void checkHeartCounts(Label label, String message) {
+        boolean[][] board = new boolean[world.getRows()][world.getCols()];
+        world.settledCellsProperty().get().forEach(cell -> board[cell.row()][cell.col()] = true);
+        ShapeProgress progress = ShapeTarget.HEART.progress(board);
+        String counts = progress.matchedRequiredCells() + "/" + progress.requiredCells();
+        String expected = world.languageProperty().get().equals(Locale.ENGLISH)
+                ? "Coverage " + counts + " · Intrusions " : "目标覆盖 " + counts + " · 背景侵入 ";
+        check(label.getText().equals(expected + progress.forbiddenOccupiedCells()), message);
     }
 
     private void verifyCoaching(Stage stage) {
