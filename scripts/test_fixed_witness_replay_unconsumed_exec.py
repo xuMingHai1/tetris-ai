@@ -225,7 +225,7 @@ class UnconsumedExecTest(unittest.TestCase):
 
     def test_second_exec_entry_in_leader_blocks_before_wait(self):
         self.launch.dispatcher._sequence[1] = decode_syscall_info(*entry(59))
-        with self.assertRaisesRegex(ValueError, 'thread/exec'):
+        with self.assertRaisesRegex(ValueError, 'globally unmatched'):
             self.f.owner().run()
         self.f.transport.wait.assert_not_called()
         self.assert_no_pin()
@@ -735,6 +735,67 @@ class UnconsumedExecTest(unittest.TestCase):
         f.transport.wait.assert_not_called()
         f.transport.open.assert_not_called()
         f.transport.send.assert_not_called()
+
+    def test_two_groups_one_ineligible_executor_reject_before_first_cleanup_wait(self):
+        self.two_group_pending(reap_sibling=False)
+
+    def test_two_groups_ineligible_executor_sibling_reaped_still_reject_before_wait(self):
+        self.two_group_pending(reap_sibling=True)
+
+    def two_group_pending(self, *, reap_sibling):
+        for first, second in ((59, 322), (322, 59)):
+            with self.subTest(first=first, second=second):
+                f = fixture.ThreadCleanupTest()
+                f.setUp()
+                f.launch.dispatcher._factory = lambda: Mock()
+                def create(parent_tid, child_tid, thread):
+                    wire = f.launch.dispatcher.stop_binding(parent_tid)[1]
+                    raw, size = entry(56 if thread else 57)
+                    if thread:
+                        raw = bytearray(raw)
+                        struct.pack_into('<Q', raw, 32, 0x10000 | 0x800 | 0x100)
+                        raw = bytes(raw)
+                    wire.syscall_info.return_value = decode_syscall_info(raw, size)
+                    f.f.owner.accept(parent_tid, 0x857f)
+                    wire.event_tid.return_value = child_tid
+                    f.f.owner.accept(parent_tid, 0x3057f if thread else 0x1057f)
+                    wire.syscall_info.return_value = decode_syscall_info(*exit_info(child_tid, 0))
+                    f.f.owner.accept(parent_tid, 0x857f)
+                    child = f.launch.dispatcher.stop_binding(child_tid)[1]
+                    child.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
+                    f.f.owner.accept(child_tid, 0x137f)
+                    return child
+                create(11, 13, False)
+                other = create(13, 14, True)
+                sibling = create(13, 15, True)
+                f.child.syscall_info.return_value = decode_syscall_info(*entry(first))
+                other.syscall_info.return_value = decode_syscall_info(*entry(second))
+                sibling.signal_info.return_value = SignalInfo(10, 0, -6, 10, 1000)
+                original = OSError('two groups have outstanding exec entries')
+                events = [(0, 0), (12, 0x857f), (0, 0), (14, 0x857f),
+                          (15, 0 if reap_sibling else 0xa7f), original]
+                def wait(tid, options):
+                    event = events.pop(0)
+                    if isinstance(event, BaseException):
+                        raise event
+                    self.assertIn(event[0], (0, tid))
+                    return event
+                normal = BoundedWaitOwner(f.f.owner, waitpid=wait)
+                with self.assertRaises(OSError) as raised:
+                    normal.run()
+                self.assertIs(original, raised.exception)
+                self.assertEqual({2}, set(normal._resumed_exec_entries))
+                self.assertEqual({2, 4}, {birth for birth, info in f.launch.dispatcher._sequence.items()
+                                 if getattr(info, 'number', None) in (59, 322)})
+                before = f.ledger.totals
+                owner = f.owner()
+                with self.assertRaisesRegex(CleanupReapError, 'globally unmatched'):
+                    owner.run()
+                f.transport.wait.assert_not_called()
+                f.transport.open.assert_not_called()
+                f.transport.send.assert_not_called()
+                self.assertEqual(before, f.ledger.totals)
+                self.assertFalse(normal._resumed_exec_entries[2][0].adopted)
 
 
 if __name__ == '__main__':

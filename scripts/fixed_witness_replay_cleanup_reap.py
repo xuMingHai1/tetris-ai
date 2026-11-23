@@ -21,6 +21,7 @@ from fixed_witness_replay_launch import CoordinatorLaunch
 from fixed_witness_replay_wait import decode_wait_status
 from fixed_witness_replay_wait_owner import WAIT_OPTIONS, BoundedWaitOwner, _OwnedWait
 from fixed_witness_replay_stops import StopFacts
+from fixed_witness_replay_ptrace import SyscallInfo
 
 
 class CleanupReapError(ValueError):
@@ -274,6 +275,15 @@ class CleanupReaper:
                 raise CleanupReapError('original in-flight exec wait required')
             if not owner.last_wait.completed:
                 return
+            dispatcher = self.launch.dispatcher
+            # Eligibility retention is deliberately narrower than the complete
+            # native dispatch inventory. An ineligible executor in ANOTHER
+            # group still prevents a unique in-flight exec cleanup selection.
+            unmatched = tuple((birth, info) for birth, info in dispatcher._sequence.items()
+                              if type(info) is SyscallInfo and info.operation == 1
+                              and info.number in (59, 322) and birth not in dispatcher._exec_exits)
+            if len(unmatched) > 1:
+                raise CleanupReapError('one globally unmatched exec ENTRY required')
             retained = tuple(owner._resumed_exec_entries.values())
             if not retained:
                 return
@@ -296,7 +306,9 @@ class CleanupReaper:
                     or decode_wait_status(receipt.raw).kind != 'syscall-stop'
                     or facts.tid != executor.tid):
                 raise CleanupReapError('in-flight exec owner or completed entry mismatch')
-            dispatcher = self.launch.dispatcher
+            if (len(unmatched) != 1 or unmatched[0][0] != executor.birth
+                    or unmatched[0][1] is not entry):
+                raise CleanupReapError('original globally unmatched exec ENTRY required')
             if dispatcher._task(executor.birth, executor.tid) is not executor_wire:
                 raise CleanupReapError('in-flight exec original executor wire changed')
             leader, access = dispatcher.cleanup_inflight_exec_binding(executor, entry)

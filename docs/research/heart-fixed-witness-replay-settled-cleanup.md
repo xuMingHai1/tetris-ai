@@ -544,3 +544,19 @@ ENTRY 后创建再退出的成员也撤销凭据；ENTRY 时的 pending group cr
 退出后不能使旧凭据变得有效。第三成员在 ENTRY 前已正常 reap 的独立用例仍
 允许新双成员凭据走原 EXEC/kill/reap。Linux bridge 现强制51项、零skip。
 修复仅研究监督器的凭据收紧，整体原生/网络/历史输入门禁及未完成项保持。
+
+### 本次新增修改：P2 全局待决 exec 与清理资格分开核验
+
+保留集合只表示符合双成员/连续性条件的 ENTRY，不能用于证明全局唯一。
+`CleanupReaper.bind_inflight_exec` 现在先遍历原 creation dispatcher 的完整
+syscall sequence，统计所有组尚未配对的 execve/execveat ENTRY（已安装成功 EXEC
+且等待 EXIT 的原 `_exec_exits` 不属于尚未决出的 exec）。多于一个即在首次
+cleanup wait、event read、receipt adoption、stop debit 或 pidfd 操作之前拒绝。
+随后独立检查唯一候选与保留 receipt 的 birth 和 ENTRY 对象相同，再使用既有
+清理资格、成员连续性及精确 wire 检查；没有从较窄的保留集合推导唯一性。
+
+新增2项 fake-only 用例用原 dispatcher/ledger/wait-owner 建立两个不同线程组，
+每组均有未结束 nonleader exec，第二组因第三成员不具资格；分别保持第三成员
+存活或在清理前正常 reap，交叉覆盖59/322。两者均只保留第一组 receipt，但
+必须在首次 cleanup wait 前拒绝，且无 pin/signal、无预算变化、无 receipt adoption。
+Linux bridge 现强制53项零skip。整体原生/网络/历史门禁继续保持。
