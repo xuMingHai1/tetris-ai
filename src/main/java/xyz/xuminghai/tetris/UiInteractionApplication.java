@@ -8,23 +8,38 @@ package xyz.xuminghai.tetris;
 import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.value.ChangeListener;
 import javafx.event.Event;
 import javafx.event.EventType;
+import javafx.geometry.Bounds;
 import javafx.scene.Node;
+import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.SnapshotParameters;
+import javafx.scene.canvas.Canvas;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TitledPane;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.PickResult;
+import javafx.scene.input.ScrollEvent;
+import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.stage.Stage;
 import javafx.util.Duration;
+import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.BoardPosition;
+import xyz.xuminghai.tetris.core.Cell;
+import xyz.xuminghai.tetris.core.PieceGenerator;
+import xyz.xuminghai.tetris.core.TetrisFactory;
+import xyz.xuminghai.tetris.core.TetrominoType;
 import xyz.xuminghai.tetris.game.GameKeyCodeAction;
 import xyz.xuminghai.tetris.game.GameWorld;
 import xyz.xuminghai.tetris.view.DashboardView;
@@ -32,8 +47,11 @@ import xyz.xuminghai.tetris.view.DashboardView;
 import java.util.Locale;
 import java.util.Arrays;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 /** Bounded check of actual control skins, scene key dispatch and live dashboard layout. */
 public final class UiInteractionApplication extends Application {
@@ -41,6 +59,7 @@ public final class UiInteractionApplication extends Application {
     private Scene scene;
     private GameKeyCodeAction input;
     private static final AtomicInteger FAILURES = new AtomicInteger();
+    private static final String HINT_DESCRIPTION = "Dashed outline marks the hint\nLatest hint · expected lines: ";
     private double takeoverY;
     private double minimumY = Double.POSITIVE_INFINITY;
     private double maximumY = Double.NEGATIVE_INFINITY;
@@ -58,14 +77,9 @@ public final class UiInteractionApplication extends Application {
                 && Font.loadFont(Path.of(captureFont).toUri().toString(), 14) == null) {
             throw new IllegalArgumentException("Unable to load TETRIS_UI_CAPTURE_FONT");
         }
-        world = new GameWorld(AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()),
-                false, new BagPieceGenerator(1000));
-        input = new GameKeyCodeAction(world);
         int width = Integer.parseInt(System.getenv().getOrDefault("TETRIS_UI_CAPTURE_WIDTH", "950"));
         int height = Integer.parseInt(System.getenv().getOrDefault("TETRIS_UI_CAPTURE_HEIGHT", "850"));
-        DashboardView view = DashboardView.fromEnvironment(world, getHostServices(), width, height);
-        scene = GameInputBindings.install(new Scene(view, width, height), world, input);
-        stage.setScene(scene);
+        DashboardView view = showWorld(stage, new BagPieceGenerator(1000), width, height);
         stage.show();
         view.requestGameFocus();
         later(300, () -> {
@@ -122,6 +136,16 @@ public final class UiInteractionApplication extends Application {
         });
     }
 
+    private DashboardView showWorld(Stage stage, PieceGenerator pieces, int width, int height) {
+        world = new GameWorld(AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()),
+                false, pieces);
+        input = new GameKeyCodeAction(world);
+        DashboardView view = DashboardView.fromEnvironment(world, getHostServices(), width, height);
+        scene = GameInputBindings.install(new Scene(view, width, height), world, input);
+        stage.setScene(scene);
+        return view;
+    }
+
     private void verifyLiveMovement(Stage stage, DashboardView view) {
         check(world.currentCellsProperty().get() != null, "manual game spawned a live piece");
         int[] columns = columns();
@@ -166,13 +190,13 @@ public final class UiInteractionApplication extends Application {
         view.requestGameFocus();
         world.aiDisplayProperty().addListener((_, _, display) -> {
             layout();
-            double y = scene.lookup(".takeover-button").localToScene(0, 0).getY();
+            double y = scene.lookup("#auto-play-toggle").localToScene(0, 0).getY();
             minimumY = Math.min(minimumY, y);
             maximumY = Math.max(maximumY, y);
             if (!display.actions().isEmpty()) observedPlans++;
         });
         layout();
-        takeoverY = scene.lookup(".takeover-button").localToScene(0, 0).getY();
+        takeoverY = scene.lookup("#auto-play-toggle").localToScene(0, 0).getY();
         world.toggleAi();
         world.startOrPauseGame();
         later(4000, () -> {
@@ -186,11 +210,337 @@ public final class UiInteractionApplication extends Application {
             check(label(".ai-status").equals("Manual control"), "English manual status is truthful");
             world.toggleAi();
             check(label(".ai-status").equals("AI paused"), "English paused AI status is truthful");
-            System.out.printf(Locale.ROOT, "UI_INTERACTION_RESULT failures=%d plan_updates=%d%n",
-                    FAILURES.get(), observedPlans);
-            stage.close();
-            Platform.exit();
+            verifyCoaching(stage);
         });
+    }
+
+    private void verifyCoaching(Stage stage) {
+        world.toggleAi();
+        Button hints = (Button) scene.lookup("#coach-toggle");
+        Button place = (Button) scene.lookup("#coach-place");
+        ScrollPane actions = (ScrollPane) scene.lookup(".action-scroll");
+        Label actionHeading = (Label) actions.getParent().lookup(".section-heading");
+        Label hintMessage = (Label) scene.lookup(".ai-message");
+        String autoPlayBadge = label(".agent-badge");
+        hints.fire();
+        check(world.coachEnabledProperty().get() && !world.aiEnabledProperty().get()
+                && place.isDisabled(), "coaching stays manual and cannot execute while paused");
+        check(label(".agent-badge").equals("LOCAL"), "coaching identifies its local strategy");
+        check(actionHeading.getText().equals("Action plan"), "English cockpit uses a fixed action heading");
+        world.switchLanguage();
+        check(label(".agent-badge").equals("本地"), "the local strategy badge switches to Chinese");
+        check(actionHeading.getText().equals("动作计划"), "Chinese cockpit uses a fixed action heading");
+        world.switchLanguage();
+        world.startOrPauseGame();
+        check(hintMessage.getText().equals(HINT_DESCRIPTION + "—"),
+                "coaching shows a placeholder before its first estimate");
+        await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
+            GameWorld.CoachAdvice original = world.coachAdviceProperty().get();
+            check(original.landing().size() == 4 && !place.isDisabled(),
+                    "coaching publishes a four-cell landing and enables one-piece execution");
+            Set<BoardPosition> originalLanding = Set.copyOf(original.landing());
+            check(paintedCoachLanding().equals(originalLanding), "the board paints exactly the four suggested cells");
+            check(label(".ai-status").equals("AI hints on"), "active coaching shows a stable mode status");
+            String originalMessage = HINT_DESCRIPTION + original.clearedLines();
+            check(hintMessage.getText().equals(originalMessage), "the estimate describes the latest hint");
+            world.switchLanguage();
+            check(label(".ai-status").equals("AI 建议已开启"), "the coaching mode status is localized");
+            layout();
+            check(hintMessage.getText().equals("虚线标出推荐落点\n最近建议 · 预计消行 " + original.clearedLines())
+                            && !hintMessage.isTextTruncated(),
+                    "the Chinese hint description and estimate fit in the cockpit");
+            world.switchLanguage();
+            layout();
+            Node adviceRow = actions.getContent().lookup(".action-row");
+            double actionViewportWidth = actions.getViewportBounds().getWidth();
+            Bounds headingBounds = actionHeading.localToScene(actionHeading.getLayoutBounds());
+            Bounds messageBounds = hintMessage.localToScene(hintMessage.getLayoutBounds());
+            Bounds placeBounds = place.localToScene(place.getLayoutBounds());
+            double readyOpacity = place.getOpacity();
+            ChangeListener<String> messageChange = (_, _, text) -> {
+                GameWorld.CoachAdvice liveAdvice = world.coachAdviceProperty().get();
+                check(liveAdvice != null && text.equals(HINT_DESCRIPTION + liveAdvice.clearedLines()),
+                        "only a new estimate changes the hint description during a refresh");
+            };
+            hintMessage.textProperty().addListener(messageChange);
+            press(KeyCode.A);
+            check(world.coachAdviceProperty().get() == null && place.isDisabled(),
+                    "manual movement immediately invalidates advice and its execute button");
+            check(paintedCoachLanding().equals(originalLanding),
+                    "manual movement keeps the board hint visible while the replacement is pending");
+            check(label(".ai-status").equals("AI hints on"), "invalidating advice keeps the coaching mode status");
+            layout();
+            check(hintMessage.getText().equals(originalMessage) && hasSceneBounds(hintMessage, messageBounds),
+                    "invalidating advice preserves the latest estimate and the description bounds");
+            check(adviceRow != null && actions.getContent().lookup(".action-row") == adviceRow
+                            && actionHeading.getText().equals("Action plan")
+                            && Math.abs(actions.getViewportBounds().getWidth() - actionViewportWidth) < 1,
+                    "short coaching refresh retains the rows, heading and viewport width");
+            check(hasSceneBounds(actionHeading, headingBounds) && hasSceneBounds(place, placeBounds)
+                            && Math.abs(place.getOpacity() - readyOpacity) < 1e-6,
+                    "invalidating advice keeps the action heading and button in place without dimming");
+            await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
+                GameWorld.CoachAdvice replacement = world.coachAdviceProperty().get();
+                check(replacement != original, "movement obtains fresh advice");
+                Set<BoardPosition> replacementLanding = Set.copyOf(replacement.landing());
+                check(paintedCoachLanding().equals(replacementLanding), "the board switches to the replacement landing");
+                check(label(".ai-status").equals("AI hints on"), "replacing advice keeps the coaching mode status");
+                layout();
+                check(hintMessage.getText().equals(HINT_DESCRIPTION + replacement.clearedLines())
+                                && hasSceneBounds(hintMessage, messageBounds) && !hintMessage.isTextTruncated(),
+                        "fresh advice fits its English estimate in the same description bounds");
+                check(actionHeading.getText().equals("Action plan") && hasSceneBounds(actionHeading, headingBounds)
+                                && hasSceneBounds(place, placeBounds) && !place.isDisabled()
+                                && Math.abs(place.getOpacity() - readyOpacity) < 1e-6,
+                        "fresh advice enables the same button without moving the heading or button");
+                int beforeGravity = positions().getFirst().row();
+                ChangeListener<Cell[]> gravityStep = (_, _, _) -> check(world.coachAdviceProperty().get() == null
+                                && place.isDisabled() && paintedCoachLanding().equals(replacementLanding),
+                        "gravity keeps the board hint visible while the replacement is pending");
+                world.currentCellsProperty().addListener(gravityStep);
+                await(() -> {
+                    GameWorld.CoachAdvice next = world.coachAdviceProperty().get();
+                    return next != null && next != replacement;
+                }, 120, () -> {
+                    world.currentCellsProperty().removeListener(gravityStep);
+                    hintMessage.textProperty().removeListener(messageChange);
+                    layout();
+                    check(paintedCoachLanding().equals(Set.copyOf(world.coachAdviceProperty().get().landing())),
+                            "the board shows only the newly published gravity hint");
+                    check(positions().getFirst().row() > beforeGravity
+                                    && hintMessage.getText().equals(HINT_DESCRIPTION
+                                            + world.coachAdviceProperty().get().clearedLines())
+                                    && hasSceneBounds(hintMessage, messageBounds),
+                            "an automatic gravity refresh keeps the hint description in place");
+                    verifyCoachingPause(stage, hints, place, actions, autoPlayBadge);
+                });
+            });
+        });
+    }
+
+    private void verifyCoachingPause(Stage stage, Button hints, Button place, ScrollPane actions, String autoPlayBadge) {
+        double readyOpacity = place.getOpacity();
+        world.startOrPauseGame();
+        layout();
+        check(world.coachAdviceProperty().get() == null && place.isDisabled() && place.getOpacity() < readyOpacity,
+                "pause clears advice and immediately disables and dims execution");
+        check(label(".ai-status").equals("Hints paused"), "pausing still changes the coaching status");
+        check(label(".ai-message").equals(HINT_DESCRIPTION + "—"), "pause clears the previous estimate");
+        check(paintedCoachLanding().isEmpty(), "pause clears the board hint immediately");
+        check(actions.getContent().lookup(".action-row") == null, "pause clears the previous coaching actions");
+        world.startOrPauseGame();
+        hints.fire();
+        later(150, () -> {
+            check(world.coachAdviceProperty().get() == null, "disabled hints reject an in-flight completion");
+            check(label(".agent-badge").equals(autoPlayBadge),
+                    "turning off coaching restores the configured auto-play badge");
+            hints.fire();
+            await(() -> world.coachAdviceProperty().get() != null, 100, () -> {
+                place.fire();
+                check(!world.aiEnabledProperty().get() && world.coachAdviceProperty().get() == null,
+                        "one-piece execution consumes advice without enabling auto-play");
+                check(paintedCoachLanding().isEmpty(), "starting coached playback clears the board hint immediately");
+                press(KeyCode.D);
+                check(!world.aiDisplayProperty().get().phase().equals("executing"),
+                        "manual input interrupts coached playback immediately");
+                await(() -> world.coachAdviceProperty().get() != null, 100, () -> verifyCoachedLanding(stage, place));
+            });
+        });
+    }
+
+    private void verifyCoachedLanding(Stage stage, Button place) {
+        boolean[] locked = {false};
+        boolean[] checkedNextHint = {false};
+        GameWorld.CoachAdvice advice = world.coachAdviceProperty().get();
+        int initialLines = world.linesProperty().get();
+        world.currentCellsProperty().addListener((_, previous, cells) -> {
+            if (cells == null && !locked[0]) {
+                locked[0] = true;
+                List<BoardPosition> landed = Arrays.stream(previous)
+                        .map(cell -> new BoardPosition(cell.getRow(), cell.getCol())).toList();
+                check(new java.util.HashSet<>(landed).equals(new java.util.HashSet<>(advice.landing())),
+                        "actual coached landing matches the displayed recommendation");
+            }
+        });
+        world.aiDisplayProperty().addListener((_, _, display) -> {
+            if (locked[0] && !checkedNextHint[0] && display.phase().equals("thinking")) {
+                checkedNextHint[0] = true;
+                place.applyCss();
+                check(place.isDisabled() && place.getOpacity() < 1,
+                        "waiting for the next piece's first hint keeps the disabled button dim");
+                check(paintedCoachLanding().isEmpty(), "the next piece does not inherit the previous board hint");
+            }
+        });
+        place.fire();
+        await(() -> locked[0] && world.currentCellsProperty().get() != null, 160, () -> {
+            check(checkedNextHint[0], "observed the next piece waiting for its first hint");
+            check(world.linesProperty().get() - initialLines == advice.clearedLines(),
+                    "actual cleared lines match the displayed simulation");
+            check(!world.aiEnabledProperty().get() && world.coachEnabledProperty().get()
+                            && !world.aiDisplayProperty().get().phase().equals("executing"),
+                    "coached piece locks normally and the next piece returns to manual control");
+            world.toggleAi();
+            check(!world.coachEnabledProperty().get() && world.coachAdviceProperty().get() == null,
+                    "switching to auto-play clears coaching");
+            verifyActionScroll();
+            verifyGameOver(stage);
+        });
+    }
+
+    private void verifyGameOver(Stage stage) {
+        int width = (int) scene.getWidth();
+        int height = (int) scene.getHeight();
+        world.shutdown();
+        // Unmoved O pieces always top out in the same columns.
+        DashboardView view = showWorld(stage, () -> TetrisFactory.create(TetrominoType.O), width, height);
+        view.requestGameFocus();
+        for (int i = 0; i < 30; i++) world.levelPlus();
+        press(KeyCode.ESCAPE);
+        await(() -> world.gameOverDisplayProperty().get(), 400, () -> {
+            Button start = (Button) scene.lookup(".primary-button");
+            check(world.getGameActive() && start.isDisabled() && start.getText().equals("游戏结束"),
+                    "game over disables the start button while its animation plays");
+            check(label(".ai-message").equals("结束动画播放完毕后，可重新开始。"),
+                    "cockpit explains when restart becomes available");
+            start.fire();
+            press(KeyCode.SPACE);
+            key(KeyEvent.KEY_PRESSED, KeyCode.ESCAPE, false);
+            check(world.getGameActive() && world.gameOverDisplayProperty().get(),
+                    "button, Space and Escape leave the game-over animation running");
+            await(() -> !world.getGameActive(), 400, () -> {
+                check(world.gameOverDisplayProperty().get() && !start.isDisabled()
+                                && start.getText().equals("重新开始") && world.settledCellsProperty().get().isEmpty(),
+                        "completed game-over animation clears the board and enables Restart");
+                check(label(".ai-message").equals("本局已结束，可重新开始。"),
+                        "cockpit offers restart once the animation completes");
+                key(KeyEvent.KEY_PRESSED, KeyCode.ESCAPE, false);
+                check(!world.getGameActive(), "Escape held across game over does not restart");
+                key(KeyEvent.KEY_RELEASED, KeyCode.ESCAPE, false);
+                press(KeyCode.ESCAPE);
+                check(world.getGameActive() && !world.gameOverDisplayProperty().get(),
+                        "fresh Escape starts a new game from the finished state");
+                await(() -> world.currentCellsProperty().get() != null, 100, () -> {
+                    System.out.printf(Locale.ROOT, "UI_INTERACTION_RESULT failures=%d plan_updates=%d%n",
+                            FAILURES.get(), observedPlans);
+                    stage.close();
+                    Platform.exit();
+                });
+            });
+        });
+    }
+
+    /** Sample cell interiors so the straight-drop outline cannot be mistaken for a filled coaching hint. */
+    private Set<BoardPosition> paintedCoachLanding() {
+        Canvas overlay = (Canvas) scene.lookup("#landing-overlay");
+        SnapshotParameters parameters = new SnapshotParameters();
+        parameters.setFill(Color.TRANSPARENT);
+        var pixels = overlay.snapshot(parameters, null).getPixelReader();
+        double pitch = (overlay.getWidth() - 1) / world.getCols();
+        Set<BoardPosition> painted = new HashSet<>();
+        for (int row = 0; row < world.getRows(); row++) {
+            for (int col = 0; col < world.getCols(); col++) {
+                Color color = pixels.getColor((int) (1 + (col + 0.5) * pitch), (int) (1 + (row + 0.5) * pitch));
+                if (color.getOpacity() > 0.2 && color.getBlue() - color.getRed() > 0.4) {
+                    painted.add(new BoardPosition(row, col));
+                }
+            }
+        }
+        return painted;
+    }
+
+    private void verifyActionScroll() {
+        ScrollPane actions = (ScrollPane) scene.lookup(".action-scroll");
+        Label actionHeading = (Label) actions.getParent().lookup(".section-heading");
+        // Drive several display updates synchronously so gravity and a changing real plan
+        // cannot invalidate the scrolling assertions between observations.
+        var display = (ObjectProperty<GameWorld.AiDisplay>) world.aiDisplayProperty();
+        display.set(new GameWorld.AiDisplay("thinking", List.of(), 0));
+        layout();
+        double emptyWidth = actions.getViewportBounds().getWidth();
+        if (scene.getWidth() < 820) {
+            verifyCompactWheelChaining(actions);
+        }
+        List<AiAction> plan = List.of(AiAction.LEFT, AiAction.LEFT, AiAction.ROTATE_CLOCKWISE,
+                AiAction.RIGHT, AiAction.ROTATE_COUNTER_CLOCKWISE, AiAction.HARD_DROP);
+        display.set(new GameWorld.AiDisplay("executing", plan, 0));
+        layout();
+        Node firstRow = actions.getContent().lookup(".action-row");
+        check(firstRow != null
+                        && actions.getContent().getLayoutBounds().getHeight() > actions.getViewportBounds().getHeight()
+                        && Math.abs(actions.getViewportBounds().getWidth() - emptyWidth) < 1,
+                "an overflowing action plan keeps the same viewport width as the empty state");
+        actions.setVvalue(0.7);
+        world.switchLanguage();
+        layout();
+        check(actions.getContent().lookup(".action-row") == firstRow
+                        && Math.abs(actions.getVvalue() - 0.7) < 1e-6,
+                "language refresh reuses action rows and keeps manual scrolling");
+        display.set(new GameWorld.AiDisplay("executing", plan, 1));
+        layout();
+        Label actionText = firstRow == null ? null : (Label) firstRow.lookup(".action-text");
+        check(actionText != null && actionText.getText().contains("1/2") && Math.abs(actions.getVvalue() - 0.7) < 1e-6,
+                "progress within the same action row updates text without overriding manual scrolling");
+        actions.setVvalue(actions.getVmin());
+        display.set(new GameWorld.AiDisplay("executing", plan, plan.size() - 1));
+        layout();
+        Node viewport = actions.lookup(".viewport");
+        Node activeRow = ((Parent) actions.getContent()).getChildrenUnmodifiable().getLast();
+        Bounds viewportBounds = viewport.localToScene(viewport.getBoundsInLocal());
+        Bounds activeBounds = activeRow.localToScene(activeRow.getBoundsInLocal());
+        check(actions.getVvalue() > actions.getVmin()
+                        && activeBounds.getMinY() >= viewportBounds.getMinY() - 1
+                        && activeBounds.getMaxY() <= viewportBounds.getMaxY() + 1,
+                "entering a different action row scrolls it into view");
+        display.set(new GameWorld.AiDisplay("advice", plan, 0));
+        actions.setVvalue(0.7);
+        display.set(new GameWorld.AiDisplay("thinking", List.of(), 0));
+        layout();
+        check(Math.abs(actions.getVvalue() - 0.7) < 1e-6,
+                "waiting for a new decision preserves the previous plan scroll");
+        check(actionHeading.getText().equals("动作计划"), "auto-play keeps the action heading while waiting");
+        display.set(new GameWorld.AiDisplay("advice", plan, 0));
+        layout();
+        check(Math.abs(actions.getVvalue() - 0.7) < 1e-6,
+                "receiving the same advice preserves its scroll");
+        display.set(new GameWorld.AiDisplay("thinking", List.of(), 0));
+        List<AiAction> nextAdvice = List.of(AiAction.ROTATE_COUNTER_CLOCKWISE, AiAction.RIGHT, AiAction.LEFT,
+                AiAction.ROTATE_CLOCKWISE, AiAction.RIGHT, AiAction.HARD_DROP);
+        display.set(new GameWorld.AiDisplay("advice", nextAdvice, 0));
+        layout();
+        check(actions.getContent().lookupAll(".action-row").size() == nextAdvice.size()
+                        && actions.getContent().getLayoutBounds().getHeight() > actions.getViewportBounds().getHeight()
+                        && Math.abs(actions.getVvalue() - actions.getVmin()) < 1e-6,
+                "different advice after waiting starts at the top of the overflowing list");
+        display.set(new GameWorld.AiDisplay("executing", List.of(AiAction.HARD_DROP), 0));
+        layout();
+        check(actions.getContent().lookupAll(".action-row").size() == 1
+                        && Math.abs(actions.getViewportBounds().getWidth() - emptyWidth) < 1,
+                "a shorter new plan replaces the previous actions without changing the viewport width");
+    }
+
+    private void verifyCompactWheelChaining(ScrollPane actions) {
+        ScrollPane main = (ScrollPane) scene.lookup(".main-scroll");
+        Node viewport = actions.lookup(".viewport");
+        main.setVvalue(0.5);
+        Event.fireEvent(viewport, new ScrollEvent(ScrollEvent.SCROLL, 0, 0, 0, 0,
+                false, false, false, false, false, false, 0, -120, 0, -120,
+                ScrollEvent.HorizontalTextScrollUnits.NONE, 0,
+                ScrollEvent.VerticalTextScrollUnits.NONE, 0, 0, new PickResult(viewport, 0, 0)));
+        check(main.getVvalue() > 0.5, "scrolling over an empty compact action list scrolls the outer panel");
+    }
+
+    /** Poll asynchronous FX completions with a fixed deadline; a timeout fails the capture. */
+    private void await(BooleanSupplier condition, int remaining, Runnable action) {
+        if (condition.getAsBoolean()) {
+            action.run();
+        }
+        else if (remaining == 0) {
+            check(false, "timed out waiting for the expected game state");
+            Platform.exit();
+        }
+        else {
+            later(25, () -> await(condition, remaining - 1, action));
+        }
     }
 
     private int[] columns() {
@@ -236,6 +586,14 @@ public final class UiInteractionApplication extends Application {
     private void layout() {
         scene.getRoot().applyCss();
         scene.getRoot().layout();
+    }
+
+    private static boolean hasSceneBounds(Node node, Bounds expected) {
+        Bounds actual = node.localToScene(node.getLayoutBounds());
+        return Math.abs(actual.getMinX() - expected.getMinX()) < 1
+                && Math.abs(actual.getMinY() - expected.getMinY()) < 1
+                && Math.abs(actual.getWidth() - expected.getWidth()) < 1
+                && Math.abs(actual.getHeight() - expected.getHeight()) < 1;
     }
 
     private static void later(int milliseconds, Runnable action) {

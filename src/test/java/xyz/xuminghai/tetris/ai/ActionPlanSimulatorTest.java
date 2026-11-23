@@ -18,6 +18,23 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ActionPlanSimulatorTest {
 
     @Test
+    void recommendationCellsAreBeforeClearAndAgreeWithSimulatedLines() {
+        boolean[][] board = new boolean[4][6];
+        for (int row = 2; row < 4; row++) {
+            for (int col = 0; col < 4; col++) board[row][col] = true;
+        }
+        GameSnapshot snapshot = new GameSnapshot(4, 6, board, TetrominoType.O,
+                List.of(new BoardPosition(0, 4), new BoardPosition(0, 5),
+                        new BoardPosition(1, 4), new BoardPosition(1, 5)));
+        AiPlan plan = new AiPlan(List.of(AiAction.HARD_DROP));
+        assertEquals(List.of(new BoardPosition(2, 4), new BoardPosition(2, 5),
+                new BoardPosition(3, 4), new BoardPosition(3, 5)),
+                ActionPlanSimulator.terminalCells(snapshot, plan));
+        assertEquals(2, ActionPlanSimulator.requireTerminalPlacement(snapshot, plan).clearedLines());
+        assertEquals(false, snapshot.occupied()[3][4], "display simulation must not mutate the live snapshot");
+    }
+
+    @Test
     void placementCompatibilityPlanMatchesBoardSimulatorOutcome() {
         GameSnapshot snapshot = snapshot();
         PlacementCandidate expected = BoardSimulator.candidates(snapshot).stream()

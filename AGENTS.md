@@ -29,6 +29,8 @@ GitHub 当前 default branch 是源码事实来源，不假设主分支名称固
 
 AI 已通过 `GameSnapshot -> TetrisAgent -> AiMove` 建立最小边界。新增搜索深度、look-ahead 或其他算法时应复用该状态/动作契约，不把 JavaFX runtime 引入搜索路径，也不提前建立通用 Agent/Plugin/DSL 框架。
 
+可选 AI 教练模式由 `GameWorld` 使用独立的本地 SURVIVAL heuristic 执行器生成建议，`ActionPlanSimulator` 提供消行前落点与消行后的客观事实；View 不重算规则。建议绑定当前方块 identity、rotation、坐标及请求 generation，状态改变即失效。单块执行复用原动作播放，保持自动玩关闭；重力改变后剩余动作若不再到达推荐落点则取消并更新建议，不能悄悄改放其它位置。教练与自动玩互斥，人工输入、暂停、关提示和关闭窗口清理对应工作。
+
 ## Build and Tooling
 
 - JDK: 27

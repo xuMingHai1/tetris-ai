@@ -118,6 +118,7 @@
     -fx-border-radius: 8; -fx-background-radius: 8; -fx-text-fill: #627ba9;
     -fx-font-size: 12px; -fx-min-height: 40;
 }
+#coach-place:disabled:refreshing-hint { -fx-opacity: 1; }
 .shortcuts, .creative-pane { -fx-font-size: 11px; -fx-text-fill: #6c7a8f; }
 .shortcuts > .title { -fx-background-color: #edf1f7; -fx-background-radius: 8; -fx-padding: 10; }
 .shortcuts > .content { -fx-background-color: #fcfdff; -fx-border-color: #dbe2ec; }

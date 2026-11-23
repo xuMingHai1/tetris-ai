@@ -1,9 +1,11 @@
 package xyz.xuminghai.tetris.view;
 
 import javafx.animation.AnimationTimer;
+import javafx.animation.PauseTransition;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.paint.Color;
+import javafx.util.Duration;
 import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.game.GameWorld;
@@ -22,6 +24,8 @@ final class GhostLandingView extends Canvas {
     private final double cellSize;
     private final boolean showTarget;
     private final BooleanSupplier reducedMotion;
+    private final PauseTransition hintExpiry = new PauseTransition(Duration.millis(150));
+    private List<BoardPosition> displayedLanding = List.of();
     private final List<TrailCell> trail = new ArrayList<>();
     private final AnimationTimer trailTimer = new AnimationTimer() {
         @Override
@@ -45,9 +49,26 @@ final class GhostLandingView extends Canvas {
         this.cellSize = (board.getWidth() - 1) / world.getCols();
         this.showTarget = showTarget;
         this.reducedMotion = reducedMotion;
+        setId("landing-overlay");
         setMouseTransparent(true);
         world.ghostCellsProperty().addListener((_, _, _) -> redraw());
+        hintExpiry.setOnFinished(_ -> clearDisplayedHint());
+        world.coachAdviceProperty().addListener((_, _, advice) -> {
+            if (advice == null) {
+                // The old plan is already unusable. Bridge a short redraw gap for the same piece only.
+                if (!displayedLanding.isEmpty()) hintExpiry.playFromStart();
+            }
+            else {
+                hintExpiry.stop();
+                displayedLanding = advice.landing();
+                redraw();
+            }
+        });
+        world.coachEnabledProperty().addListener((_, _, enabled) -> {
+            if (!enabled) clearDisplayedHint();
+        });
         world.currentCellsProperty().addListener((_, oldCells, newCells) -> {
+            if (newCells == null) clearDisplayedHint();
             if (newCells != null && oldCells != null
                     && isHardDropInProgress() && !reducedMotion.getAsBoolean()) {
                 long now = System.nanoTime();
@@ -59,16 +80,30 @@ final class GhostLandingView extends Canvas {
             redraw();
         });
         world.activeDisplayProperty().addListener((_, _, active) -> {
-            if (!active) clearTrail();
+            if (!active) {
+                clearDisplayedHint();
+                clearTrail();
+            }
         });
         world.aiEnabledProperty().addListener((_, _, enabled) -> {
             if (!enabled) clearTrail();
         });
         world.aiDisplayProperty().addListener((_, _, state) -> {
+            if (state.phase().equals("executing") || state.phase().equals("failed")) clearDisplayedHint();
             if (state.phase().equals("cancelled") || state.phase().equals("paused")
                     || state.phase().equals("game-over")) clearTrail();
         });
+        GameWorld.CoachAdvice initialAdvice = world.coachAdviceProperty().get();
+        if (initialAdvice != null) displayedLanding = initialAdvice.landing();
         redraw();
+    }
+
+    private void clearDisplayedHint() {
+        hintExpiry.stop();
+        if (!displayedLanding.isEmpty()) {
+            displayedLanding = List.of();
+            redraw();
+        }
     }
 
     private boolean isHardDropInProgress() {
@@ -121,6 +156,19 @@ final class GhostLandingView extends Canvas {
             double x = 1 + cell.col() * cellSize;
             double y = 1 + cell.row() * cellSize;
             graphics.strokeRoundRect(x + 2, y + 2, cellSize - 5, cellSize - 5, 2, 2);
+        }
+        if (!displayedLanding.isEmpty()) {
+            graphics.setFill(Color.web("#6366f1", 0.28));
+            graphics.setStroke(Color.web("#4f46e5"));
+            graphics.setLineWidth(2.5);
+            graphics.setLineDashes(4, 2);
+            for (BoardPosition cell : displayedLanding) {
+                double x = 3 + cell.col() * cellSize;
+                double y = 3 + cell.row() * cellSize;
+                graphics.fillRoundRect(x, y, cellSize - 5, cellSize - 5, 3, 3);
+                graphics.strokeRoundRect(x, y, cellSize - 5, cellSize - 5, 3, 3);
+            }
+            graphics.setLineDashes();
         }
     }
 }
