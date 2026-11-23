@@ -35,7 +35,6 @@ import xyz.xuminghai.tetris.ai.AiAction;
 import xyz.xuminghai.tetris.ai.AiPlanningAgent;
 import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
 import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
-import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.BoardPosition;
@@ -87,7 +86,6 @@ public final class UiInteractionApplication extends Application {
         view.requestGameFocus();
         later(300, () -> {
             check(label(".page-title").equals("自由对局"), "the dashboard initializes its Chinese title");
-            verifyHeartProgress();
             pressHeld(KeyCode.SPACE, false);
             check(world.getGameActive(), "held Space starts once without immediately pausing");
             press(KeyCode.SPACE);
@@ -218,32 +216,6 @@ public final class UiInteractionApplication extends Application {
             check(label(".ai-status").equals("AI paused"), "English paused AI status is truthful");
             verifyCoaching(stage);
         });
-    }
-
-    private void verifyHeartProgress() {
-        if (!"build-shape".equalsIgnoreCase(
-                System.getenv().getOrDefault(AiPlanningAgentFactory.OBJECTIVE_ENV, "").trim())) return;
-        TitledPane pane = (TitledPane) scene.lookup(".creative-pane");
-        check(pane != null, "the build-shape dashboard includes the HEART panel");
-        if (pane == null) return;
-        Label progressLabel = (Label) pane.getContent().lookup(".shape-progress");
-        int required = ShapeTarget.HEART.requiredCells();
-        check(progressLabel.getText().equals("目标覆盖 0/" + required + " · 背景侵入 0"),
-                "HEART initializes the empty board in Chinese");
-        world.settledCellsProperty().addListener((_, _, _) ->
-                checkHeartCounts(progressLabel, "HEART displays the progress of the newly settled board"));
-        world.languageProperty().addListener((_, _, _) ->
-                checkHeartCounts(progressLabel, "switching language preserves HEART progress"));
-    }
-
-    private void checkHeartCounts(Label label, String message) {
-        boolean[][] board = new boolean[world.getRows()][world.getCols()];
-        world.settledCellsProperty().get().forEach(cell -> board[cell.row()][cell.col()] = true);
-        ShapeProgress progress = ShapeTarget.HEART.progress(board);
-        String counts = progress.matchedRequiredCells() + "/" + progress.requiredCells();
-        String expected = world.languageProperty().get().equals(Locale.ENGLISH)
-                ? "Coverage " + counts + " · Intrusions " : "目标覆盖 " + counts + " · 背景侵入 ";
-        check(label.getText().equals(expected + progress.forbiddenOccupiedCells()), message);
     }
 
     private void verifyCoaching(Stage stage) {
@@ -426,9 +398,27 @@ public final class UiInteractionApplication extends Application {
         // Unmoved O pieces always top out in the same columns.
         DashboardView view = showWorld(stage, () -> TetrisFactory.create(TetrominoType.O), width, height);
         view.requestGameFocus();
+        boolean heart = "build-shape".equalsIgnoreCase(
+                System.getenv().getOrDefault(AiPlanningAgentFactory.OBJECTIVE_ENV, "").trim());
+        AtomicInteger spawns = new AtomicInteger();
+        if (heart) {
+            checkHeartProgress(0, 0);
+            world.nextTetrisProperty().addListener((_, _, _) -> {
+                // The third spawn follows two completed locks. The second O covers four required cells.
+                if (spawns.incrementAndGet() == 3) checkHeartProgress(4, 0);
+            });
+        }
         for (int i = 0; i < 30; i++) world.levelPlus();
         press(KeyCode.ESCAPE);
         await(() -> world.gameOverDisplayProperty().get(), 400, () -> {
+            if (heart) {
+                check(spawns.get() >= 3, "observed the spawn after the second O locked");
+                // A locked tower in columns 4 and 5 fills five required pairs and one forbidden pair.
+                checkHeartProgress(10, 2);
+                world.switchLanguage();
+                checkHeartProgress(10, 2);
+                world.switchLanguage();
+            }
             Button start = (Button) scene.lookup(".primary-button");
             check(world.getGameActive() && start.isDisabled() && start.getText().equals("游戏结束"),
                     "game over disables the start button while its animation plays");
@@ -440,6 +430,7 @@ public final class UiInteractionApplication extends Application {
             check(world.getGameActive() && world.gameOverDisplayProperty().get(),
                     "button, Space and Escape leave the game-over animation running");
             await(() -> !world.getGameActive(), 400, () -> {
+                if (heart) checkHeartProgress(0, 0);
                 check(world.gameOverDisplayProperty().get() && !start.isDisabled()
                                 && start.getText().equals("重新开始") && world.settledCellsProperty().get().isEmpty(),
                         "completed game-over animation clears the board and enables Restart");
@@ -459,6 +450,16 @@ public final class UiInteractionApplication extends Application {
                 });
             });
         });
+    }
+
+    private void checkHeartProgress(int covered, int intrusions) {
+        TitledPane pane = (TitledPane) scene.lookup(".creative-pane");
+        String counts = covered + "/" + ShapeTarget.HEART.requiredCells();
+        String expected = world.languageProperty().get().equals(Locale.ENGLISH)
+                ? "Coverage " + counts + " · Intrusions " + intrusions
+                : "目标覆盖 " + counts + " · 背景侵入 " + intrusions;
+        Label progress = pane == null ? null : (Label) pane.getContent().lookup(".shape-progress");
+        check(progress != null && expected.equals(progress.getText()), "HEART panel displays " + expected);
     }
 
     /** Sample cell interiors so the straight-drop outline cannot be mistaken for a filled coaching hint. */
