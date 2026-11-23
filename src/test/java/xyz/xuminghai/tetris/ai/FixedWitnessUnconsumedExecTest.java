@@ -31,7 +31,7 @@ class FixedWitnessUnconsumedExecTest {
             assertTrue(process.waitFor(30, TimeUnit.SECONDS), "synthetic cleanup tests timed out");
             var output = Files.readString(log);
             assertEquals(0, process.exitValue(), output);
-            assertTrue(output.contains("Ran 47 tests"), output);
+            assertTrue(output.contains("Ran 51 tests"), output);
             assertTrue(output.contains("\nOK\n"), output);
             assertFalse(output.contains("skipped"), output);
         } finally {

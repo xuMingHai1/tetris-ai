@@ -529,3 +529,18 @@ compatibility/inputhash 和唯一登记。现有 artifact/report/execution/JVM �
 writer 已接线，仍须在完整入口中验证。整体里程碑与原生/network/history验收
 尚未完成，研究和游戏功能本轮无新增。170A/174 接受、冻结协议/guard/预算与
 其他停止门不变；仅研究清理集成，README/AGENTS/ADR 无需修改。
+
+### 本次新增修改：P2 原 ENTRY 的线程组连续性
+
+原 wait owner 在 wait/dispatch/resume 之前冻结 live group 成员和同组所有待决
+creation obligations。只有该 ENTRY 当时已是原 leader/executor 双成员组、
+无待决创建且 dispatch 后仍一致，才保留其 receipt；每次后续正常 dispatch
+均复核成员与 obligations，变化立即永久移除旧 ENTRY。cleanup 再比较原快照，
+不能把第三成员退出后的当前双成员组追认为 ENTRY 时的双成员组。
+
+新增4项 fake-only 回归覆盖 execve/execveat ENTRY 时存在第三线程、随后第三线程
+经原 wait owner terminal reap 后清理仍拒绝（无 poll/pin/signal、无预算变化）；
+ENTRY 后创建再退出的成员也撤销凭据；ENTRY 时的 pending group creation 失败
+退出后不能使旧凭据变得有效。第三成员在 ENTRY 前已正常 reap 的独立用例仍
+允许新双成员凭据走原 EXEC/kill/reap。Linux bridge 现强制51项、零skip。
+修复仅研究监督器的凭据收紧，整体原生/网络/历史输入门禁及未完成项保持。

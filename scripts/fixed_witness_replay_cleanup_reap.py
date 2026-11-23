@@ -300,6 +300,8 @@ class CleanupReaper:
             if dispatcher._task(executor.birth, executor.tid) is not executor_wire:
                 raise CleanupReapError('in-flight exec original executor wire changed')
             leader, access = dispatcher.cleanup_inflight_exec_binding(executor, entry)
+            if receipt.exec_group != owner._exec_group(executor):
+                raise CleanupReapError('in-flight exec original group changed')
             receipt.adopted = True
             target = leader
             while True:
