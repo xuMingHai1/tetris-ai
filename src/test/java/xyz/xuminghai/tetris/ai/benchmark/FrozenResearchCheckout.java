@@ -31,7 +31,8 @@ final class FrozenResearchCheckout {
             "src/main/java/xyz/xuminghai/tetris/game/GameOverAnimation.java",
             "src/main/java/xyz/xuminghai/tetris/game/GameWorld.java",
             "src/main/java/xyz/xuminghai/tetris/view/DashboardView.java",
-            "src/main/java/xyz/xuminghai/tetris/view/GhostLandingView.java");
+            "src/main/java/xyz/xuminghai/tetris/view/GhostLandingView.java",
+            "src/main/resources/css/dashboard.css");
     private final Path logs;
     private int sequence;
 

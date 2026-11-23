@@ -1,6 +1,7 @@
 package xyz.xuminghai.tetris.view;
 
 import javafx.animation.FadeTransition;
+import javafx.animation.PauseTransition;
 import javafx.animation.ParallelTransition;
 import javafx.animation.ScaleTransition;
 import javafx.animation.TranslateTransition;
@@ -47,6 +48,7 @@ import java.util.ArrayList;
 public final class DashboardView extends BorderPane {
 
     private static final PseudoClass SELECTED = PseudoClass.getPseudoClass("selected");
+    private static final PseudoClass REFRESHING_HINT = PseudoClass.getPseudoClass("refreshing-hint");
 
     private final GameWorld world;
     private final String agent;
@@ -98,19 +100,23 @@ public final class DashboardView extends BorderPane {
     private final Button takeoverButton = button("takeover-button");
     private final Button coachButton = button("quiet-button");
     private final Button placeAdviceButton = button("takeover-button");
+    private final PauseTransition hintRefreshFeedback = new PauseTransition(Duration.millis(150));
     private final Button languageButton = button("quiet-button");
     private final Tooltip startTooltip = new Tooltip();
     private final Tooltip takeoverTooltip = new Tooltip();
+    private final Label emptyActions = label("empty-actions");
     private final VBox actions = new VBox(3);
     private final ScrollPane actionScroll = new ScrollPane(actions);
     private final VBox overlayContent = new VBox(6, overlayTitle, overlayMessage);
     private final StackPane boardWell = new StackPane();
     private final StackPane overlay = new StackPane(overlayContent);
+    private GameWorld.AiDisplay shownDisplay;
     private List<AiAction> shownPlan = List.of();
     private List<ActionGroup> actionGroups = List.of();
-    private final List<HBox> actionRows = new ArrayList<>();
-    private final List<Label> actionBadges = new ArrayList<>();
-    private final List<Label> actionTexts = new ArrayList<>();
+    private final List<ActionRow> actionRows = new ArrayList<>();
+    private int followedActionRow = -1;
+    private boolean waitingForReplacementHint;
+    private Integer lastHintClearedLines;
     private boolean everStarted;
     private Boolean chineseFont;
 
@@ -381,9 +387,10 @@ public final class DashboardView extends BorderPane {
         VBox goalSection = new VBox(12, goalTitle, goalCard);
         goalSection.getStyleClass().add("cockpit-section");
         actionScroll.setFitToWidth(true);
-        double actionHeight = boardCellSide < 20 ? 105 : 140;
-        actionScroll.setPrefViewportHeight(actionHeight);
-        actionScroll.setMaxHeight(actionHeight);
+        // Keep the text width stable even when the current plan does not overflow.
+        actionScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
+        emptyActions.setWrapText(true);
+        actions.getChildren().add(emptyActions);
         actionScroll.getStyleClass().add("action-scroll");
         VBox actionSection = new VBox(12, actionsTitle, actionScroll);
         actionSection.getStyleClass().add("cockpit-section");
@@ -396,6 +403,8 @@ public final class DashboardView extends BorderPane {
         takeoverButton.setId("auto-play-toggle");
         coachButton.setId("coach-toggle");
         placeAdviceButton.setId("coach-place");
+        hintRefreshFeedback.setOnFinished(_ ->
+                placeAdviceButton.pseudoClassStateChanged(REFRESHING_HINT, false));
         coachButton.setMaxWidth(Double.MAX_VALUE);
         placeAdviceButton.setMaxWidth(Double.MAX_VALUE);
         coachButton.setOnAction(_ -> {
@@ -512,6 +521,11 @@ public final class DashboardView extends BorderPane {
         boolean active = world.activeDisplayProperty().get();
         boolean over = world.gameOverDisplayProperty().get();
         GameWorld.AiDisplay display = world.aiDisplayProperty().get();
+        String phase = display.phase();
+        boolean showCoach = coaching && !over;
+        boolean previousPlan = active && !over && !shownPlan.isEmpty()
+                && ((enabled || coaching) && phase.equals("thinking")
+                || coaching && phase.equals("advice") && advice == null);
 
         title.setText(zh ? "自由对局" : "Free play");
         subtitle.setText((zh ? "经典模式 · " : "Classic mode · ")
@@ -522,16 +536,16 @@ public final class DashboardView extends BorderPane {
         durationTitle.setText(zh ? "游戏时长" : "DURATION");
         nextTitle.setText(zh ? "下一块" : "NEXT PIECE");
         agentTitle.setText(zh ? "AI 驾驶舱" : "AI cockpit");
-        agentBadge.setText(coaching && !over ? (zh ? "本地" : "LOCAL") : agent.toUpperCase(Locale.ROOT));
+        agentBadge.setText(showCoach ? (zh ? "本地" : "LOCAL") : agent.toUpperCase(Locale.ROOT));
         goalTitle.setText(zh ? "当前目标" : "Objective");
-        actionsTitle.setText(zh ? "本次动作" : "Current plan");
+        actionsTitle.setText(zh ? "动作计划" : "Action plan");
         languageButton.setText(zh ? "EN" : "中文");
         manualButton.setText(zh ? "手动" : "Manual");
         aiButton.setText(agent);
         manualButton.pseudoClassStateChanged(SELECTED, !enabled);
         aiButton.pseudoClassStateChanged(SELECTED, enabled);
         controller.setText(enabled ? agent : (zh ? "手动控制" : "Manual"));
-        goal.setText(switch (objective) {
+        goal.setText(showCoach ? (zh ? "本地生存建议 · 由你控制" : "Local survival hints · you control") : switch (objective) {
             case "build-shape" -> zh ? "心形构造 · 生存优先" : "Build a heart · survival first";
             case "tuck-hunter" -> zh ? "凹槽探索 · 生存优先" : "Tuck hunting · survival first";
             default -> zh ? "优先生存，持续消行" : "Survive and clear lines";
@@ -559,7 +573,7 @@ public final class DashboardView extends BorderPane {
         coachButton.setText(coaching ? (zh ? "关闭 AI 建议" : "Turn off AI hints")
                 : (zh ? "开启 AI 建议" : "Turn on AI hints"));
         placeAdviceButton.setText(zh ? "按建议放这一块" : "Place this piece as suggested");
-        placeAdviceButton.setDisable(advice == null || !active);
+        updateHintButton(showCoach && previousPlan && advice == null, showCoach && active && advice != null);
 
         overlay.setVisible(!active);
         overlayTitle.setText(over ? (zh ? "游戏结束" : "Game over")
@@ -573,7 +587,49 @@ public final class DashboardView extends BorderPane {
                 : everStarted ? (zh ? "已暂停" : "Paused")
                 : (zh ? "准备就绪" : "Ready"));
 
-        String phase = display.phase();
+        // Keep the last published estimate readable while this coaching session recalculates.
+        if (!showCoach || !active) lastHintClearedLines = null;
+        else if (advice != null) lastHintClearedLines = advice.clearedLines();
+        if (showCoach) {
+            aiStatus.setText(!active ? (zh ? "建议已暂停" : "Hints paused")
+                    : phase.equals("executing") ? (zh ? "只执行当前块" : "Playing this piece only")
+                    : phase.equals("failed") ? (zh ? "建议暂不可用" : "Hint unavailable")
+                    : (zh ? "AI 建议已开启" : "AI hints on"));
+            aiMessage.setText((zh ? "虚线标出推荐落点\n最近建议 · 预计消行 "
+                    : "Dashed outline marks the hint\nLatest hint · expected lines: ")
+                    + (lastHintClearedLines == null ? "—" : lastHintClearedLines.toString()));
+        }
+        else {
+            refreshAiMessage(phase, zh, active, over, enabled, previousPlan);
+        }
+        keys.setText(zh
+                ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
+                : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space / Esc  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
+        reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
+        boardHint.setText(finishing ? (zh ? "正在播放结束动画" : "Playing the end animation")
+                : over ? (zh ? "Space / Esc · 重新开始" : "Space / Esc · restart")
+                : (zh ? "Space / Esc · 开始或暂停" : "Space / Esc · start or pause"));
+        startTooltip.setText(boardHint.getText());
+        takeoverTooltip.setText(zh ? "F2：切换 AI / 手动控制" : "F2: toggle AI / manual control");
+        refreshActions(display, zh, previousPlan, active && !over && (enabled || coaching));
+    }
+
+    private void updateHintButton(boolean replacingHint, boolean canPlace) {
+        if (replacingHint && !placeAdviceButton.isDisabled()) {
+            // Keep quick recomputations from flashing while the action itself is already disabled.
+            placeAdviceButton.pseudoClassStateChanged(REFRESHING_HINT, true);
+            hintRefreshFeedback.playFromStart();
+        }
+        else if (!replacingHint && waitingForReplacementHint) {
+            hintRefreshFeedback.stop();
+            placeAdviceButton.pseudoClassStateChanged(REFRESHING_HINT, false);
+        }
+        waitingForReplacementHint = replacingHint;
+        placeAdviceButton.setDisable(!canPlace);
+    }
+
+    private void refreshAiMessage(String phase, boolean zh, boolean active, boolean over,
+                                  boolean enabled, boolean previousPlan) {
         aiStatus.setText(over ? (zh ? "对局结束" : "Game over")
                 : !enabled ? (zh ? "手动控制" : "Manual control")
                 : !active ? (everStarted ? (zh ? "AI 已暂停" : "AI paused")
@@ -586,104 +642,112 @@ public final class DashboardView extends BorderPane {
             case "completed" -> zh ? "本步完成" : "Plan completed";
             default -> zh ? "等待决策" : "Waiting for a plan";
         });
-        aiMessage.setText(over ? (zh ? "本局已结束，可重新开始。" : "Game finished. Start again when ready.")
+        aiMessage.setText(over && active ? (zh ? "结束动画播放完毕后，可重新开始。" : "You can restart after the end animation.")
+                : over ? (zh ? "本局已结束，可重新开始。" : "Game finished. Start again when ready.")
                 : !enabled ? (zh ? "使用 A / D 移动，← / → 旋转。" : "Use A / D to move and ← / → to rotate.")
                 : !active ? (everStarted ? (zh ? "继续对局后，AI 将重新选择落点。" : "Resume to let AI choose a new placement.")
                         : (zh ? "开始对局后，AI 将自动操作。" : "Start the game to let AI play."))
-                : phase.equals("thinking") ? (zh ? "正在为当前方块寻找落点。" : "Finding a placement for this piece.")
+                : phase.equals("thinking") ? (previousPlan
+                        ? (zh ? "下方是上次动作，新的落点正在计算。" : "Previous plan below. Finding a new placement.")
+                        : (zh ? "正在为当前方块寻找落点。" : "Finding a placement for this piece."))
                 : phase.equals("next-piece") ? (zh ? "当前方块仍可手动操作。" : "You still control the current piece.")
                 : phase.equals("fallback") ? (zh ? "本步使用本地策略继续。" : "Continuing with the local strategy.")
                 : phase.equals("failed") ? (zh ? "暂时无法决策，可接管游戏。" : "Unable to decide. You can take over.")
                 : phase.equals("completed") ? (zh ? "方块已落地，等待下一块。" : "Piece landed. Waiting for the next one.")
                 : (zh ? "随时可接管游戏，切回手动操作。" : "Take over at any time to play manually."));
-        if (coaching && !over) {
-            goal.setText(zh ? "本地生存建议 · 由你控制" : "Local survival hints · you control");
-            aiStatus.setText(!active ? (zh ? "建议已暂停" : "Hints paused")
-                    : advice != null ? (zh ? "建议已就绪" : "Hint ready")
-                    : phase.equals("executing") ? (zh ? "只执行当前块" : "Playing this piece only")
-                    : phase.equals("failed") ? (zh ? "建议暂不可用" : "Hint unavailable")
-                    : (zh ? "正在更新建议" : "Updating hint"));
-            aiMessage.setText(advice != null
-                    ? (zh ? "靛蓝虚线为推荐落点 · 预计消行 " : "Indigo dashed hint · expected lines: ")
-                            + advice.clearedLines()
-                    : (zh ? "灰蓝细框为直落投影；你始终可以手动操作。"
-                            : "Thin blue outlines show a straight drop. Manual input takes priority."));
-        }
-        keys.setText(zh
-                ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
-                : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space / Esc  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
-        reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
-        boardHint.setText(finishing ? (zh ? "正在播放结束动画" : "Playing the end animation")
-                : over ? (zh ? "Space / Esc · 重新开始" : "Space / Esc · restart")
-                : (zh ? "Space / Esc · 开始或暂停" : "Space / Esc · start or pause"));
-        startTooltip.setText(boardHint.getText());
-        takeoverTooltip.setText(zh ? "F2：切换 AI / 手动控制" : "F2: toggle AI / manual control");
-        refreshActions(display, zh);
     }
 
-    private void refreshActions(GameWorld.AiDisplay display, boolean zh) {
-        List<AiAction> plan = display.actions();
-        int completed = display.completedActions();
-        if (!shownPlan.equals(plan) || actions.getChildren().isEmpty()) {
-            shownPlan = List.copyOf(plan);
-            actionGroups = groupActions(plan);
-            actions.getChildren().clear();
-            actionRows.clear();
-            actionBadges.clear();
-            actionTexts.clear();
-            for (int index = 0; index < actionGroups.size(); index++) {
-                Label badge = label("action-number");
-                Label text = label("action-text");
-                text.setWrapText(true);
-                HBox row = new HBox(12, badge, text);
-                row.setAlignment(Pos.CENTER_LEFT);
-                row.getStyleClass().add("action-row");
-                HBox.setHgrow(text, Priority.ALWAYS);
-                actionRows.add(row);
-                actionBadges.add(badge);
-                actionTexts.add(text);
-                actions.getChildren().add(row);
-            }
-            if (plan.isEmpty()) actions.getChildren().add(label("empty-actions"));
-        }
-        double maximumHeight = boardCellSide < 20 ? 90 : getStyleClass().contains("compact-height") ? 120 : 140;
-        // Decisions repeatedly clear/repopulate the plan; controls below must stay stationary.
-        double viewportHeight = maximumHeight;
+    private void refreshActions(GameWorld.AiDisplay display, boolean zh, boolean previousPlan, boolean showPlan) {
+        double viewportHeight = boardCellSide < 20 ? 90 : getStyleClass().contains("compact-height") ? 120 : 140;
         actionScroll.setPrefViewportHeight(viewportHeight);
         actionScroll.setMinHeight(viewportHeight);
         actionScroll.setPrefHeight(viewportHeight);
         actionScroll.setMaxHeight(viewportHeight);
-        actionScroll.setVbarPolicy(plan.isEmpty() ? ScrollPane.ScrollBarPolicy.NEVER : ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        // The last plan is presentation only while the next decision is pending.
+        GameWorld.AiDisplay visibleDisplay = previousPlan ? shownDisplay : display;
+        List<AiAction> plan = showPlan ? visibleDisplay.actions() : List.of();
+        boolean planChanged = !shownPlan.equals(plan);
+        if (planChanged) {
+            shownPlan = plan;
+            actionGroups = groupActions(plan);
+            resizeActionRows();
+        }
+        if (!previousPlan) shownDisplay = display;
+        emptyActions.setVisible(plan.isEmpty());
+        emptyActions.setManaged(plan.isEmpty());
         if (plan.isEmpty()) {
-            Label empty = (Label) actions.getChildren().getFirst();
-            empty.setText(!world.aiEnabledProperty().get()
+            emptyActions.setText(world.coachEnabledProperty().get()
+                    ? (zh ? "建议就绪后显示动作。" : "Moves appear when the hint is ready.")
+                    : !world.aiEnabledProperty().get()
                     ? (zh ? "启用 AI 后，在这里查看动作。" : "Enable AI to see its moves here.")
                     : display.phase().equals("thinking") ? (zh ? "正在生成本次计划…" : "Planning the next moves…")
                     : (zh ? "对局运行后显示本次动作。" : "Moves appear when the game is running."));
-            empty.setWrapText(true);
-            actionScroll.setVvalue(0);
+            if (planChanged) actionScroll.setVvalue(actionScroll.getVmin());
+            followedActionRow = -1;
             return;
         }
-        int activeIndex = 0;
+        int completed = visibleDisplay.completedActions();
+        boolean executing = visibleDisplay.phase().equals("executing");
+        int activeIndex = -1;
         for (int index = 0; index < actionGroups.size(); index++) {
             ActionGroup group = actionGroups.get(index);
             int count = group.end() - group.start();
             boolean done = completed >= group.end();
-            boolean active = !done && completed >= group.start()
-                    && display.phase().equals("executing");
-            HBox row = actionRows.get(index);
-            row.pseudoClassStateChanged(PseudoClass.getPseudoClass("done"), done);
-            row.pseudoClassStateChanged(PseudoClass.getPseudoClass("active"), active);
-            actionBadges.get(index).setText(done ? "✓" : "%02d".formatted(index + 1));
+            boolean active = !done && completed >= group.start() && executing;
+            ActionRow row = actionRows.get(index);
+            row.container().pseudoClassStateChanged(PseudoClass.getPseudoClass("done"), done);
+            row.container().pseudoClassStateChanged(PseudoClass.getPseudoClass("active"), active);
+            row.badge().setText(done ? "✓" : "%02d".formatted(index + 1));
             String text = actionName(group.action(), zh) + (count > 1 ? " × " + count : "");
             int executed = Math.clamp(completed - group.start(), 0, count);
             if (count > 1 && !done && (active || executed > 0)) text += " · " + executed + "/" + count;
-            if (!done && display.phase().equals("completed")) text += zh ? " · 已落地" : " · landed";
-            actionTexts.get(index).setText(text);
-            if (active || done) activeIndex = index;
+            if (!done && visibleDisplay.phase().equals("completed")) text += zh ? " · 已落地" : " · landed";
+            row.text().setText(text);
+            if (active && !previousPlan) activeIndex = index;
         }
-        actionScroll.setVvalue(Math.clamp((activeIndex - 1.0) / Math.max(1, actionGroups.size() - 3), 0, 1));
+        if (activeIndex >= 0 && (activeIndex != followedActionRow || planChanged)) {
+            showActiveAction(actionRows.get(activeIndex).container());
+        }
+        else if (planChanged && display.phase().equals("advice")) {
+            actionScroll.setVvalue(actionScroll.getVmin());
+        }
+        followedActionRow = activeIndex;
     }
+
+    private void resizeActionRows() {
+        while (actionRows.size() > actionGroups.size()) {
+            actions.getChildren().remove(actionRows.removeLast().container());
+        }
+        while (actionRows.size() < actionGroups.size()) {
+            Label badge = label("action-number");
+            Label text = label("action-text");
+            text.setWrapText(true);
+            HBox row = new HBox(12, badge, text);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.getStyleClass().add("action-row");
+            HBox.setHgrow(text, Priority.ALWAYS);
+            actionRows.add(new ActionRow(row, badge, text));
+            actions.getChildren().add(row);
+        }
+    }
+
+    private void showActiveAction(HBox row) {
+        actionScroll.layout();
+        double viewport = actionScroll.getViewportBounds().getHeight();
+        double overflow = actions.getLayoutBounds().getHeight() - viewport;
+        if (viewport <= 0 || overflow <= 0) return;
+        double offset = actionScroll.getVvalue() * overflow;
+        double top = row.getBoundsInParent().getMinY();
+        double bottom = row.getBoundsInParent().getMaxY();
+        if (top < offset) {
+            actionScroll.setVvalue(Math.clamp(top / overflow, 0, 1));
+        }
+        else if (bottom > offset + viewport) {
+            actionScroll.setVvalue(Math.clamp((bottom - viewport) / overflow, 0, 1));
+        }
+    }
+
+    private record ActionRow(HBox container, Label badge, Label text) { }
 
     /** Adjacent equal controls share one visual row; its completion still uses actual action indices. */
     static List<ActionGroup> groupActions(List<AiAction> plan) {
