@@ -498,3 +498,81 @@ job-control/event 与 pin/binding 失败；全套冻结 fixtures/task表及 EXIT
 整体最终 Review/CI、compatibility/inputhash 与唯一登记。整体里程碑及原生/network/
 历史验收尚未完成，研究结果和游戏功能本轮无新增。170A/174 接受与全部原预算、
 guard/协议/停止门不变；仅 test-only 清理行为变化，README/AGENTS 无需修改。
+
+## 本次新增修改：其他 birth 的 completed stop 后保留原 exec ENTRY
+
+`TracerSupervisor -> BoundedWaitOwner` 现在只保留每个 live nonleader birth
+尚未匹配的原 native execve/execveat ENTRY receipt 与原 wire，而非完整 wait
+历史。只有成功 dispatch/resume 后才保留；正常 failed EXIT、EXEC 身份迁移
+（包括旧 leader 退休）及 terminal reap 使原 receipt 失效。其他 birth 的正常
+stop 不再覆盖该凭据，空间受原 live-task cap 约束，不新增任务或预算。
+
+错误后 `SettledProcessCleanup -> CleanupReaper.bind_inflight_exec` 从原 registered
+wait owner 取唯一保留 ENTRY，复核原 completed receipt、birth、同一 ENTRY 对象、
+wire 和双成员组，再走原 leader-first targeted wait：EXEC 安装身份后 pin/kill/reap，
+或 executor failed native EXIT 结算 ENTRY 后原组 kill/逐 birth reap。没有新增
+resume、stop 重复计费、正常 EXEC generation、probe observation 或成功证书。
+后续 stop 未完成/不确定 resume、多个待决 executor、原 wire/ENTRY 改变、未知
+创建、额外 siblings、terminal quarantine、原 deadline/stop budget 耗尽仍拒绝。
+
+Linux JUnit bridge 强制47项 fake-only 回归零skip（新增9项），包括实际 supervisor
+与 typed PtraceAccess 在中间 leader syscall-stop 后的成功 EXEC/失败 EXIT 两条
+清理链、连续20次其他 birth signal-stop、execveat、正常 EXIT/EXEC 凭据撤销，
+以及不确定 resume 与 wire/ENTRY 漂移。Windows bridge 仍为平台 skip。
+所有 kernel transport 均注入；没有原生探针、network clean-build 或历史22步执行。
+
+有限剩余项为可信 host 的完整 source/toolchain/import/manifest/task-fixture 冻结、
+实际 suite/CLI 调度和 traced prepare receipt 的停点交接、完整 filter/external
+no-injection checker、leader已reap/nonleader创建/复杂 job-control/event 清理、
+完整 frozen fixtures/task表与 EXITKILL 负例，再满足整体最终 Review/CI、
+compatibility/inputhash 和唯一登记。现有 artifact/report/execution/JVM 同根
+writer 已接线，仍须在完整入口中验证。整体里程碑与原生/network/history验收
+尚未完成，研究和游戏功能本轮无新增。170A/174 接受、冻结协议/guard/预算与
+其他停止门不变；仅研究清理集成，README/AGENTS/ADR 无需修改。
+
+### 本次新增修改：P2 原 ENTRY 的线程组连续性
+
+原 wait owner 在 wait/dispatch/resume 之前冻结 live group 成员和同组所有待决
+creation obligations。只有该 ENTRY 当时已是原 leader/executor 双成员组、
+无待决创建且 dispatch 后仍一致，才保留其 receipt；每次后续正常 dispatch
+均复核成员与 obligations，变化立即永久移除旧 ENTRY。cleanup 再比较原快照，
+不能把第三成员退出后的当前双成员组追认为 ENTRY 时的双成员组。
+
+新增4项 fake-only 回归覆盖 execve/execveat ENTRY 时存在第三线程、随后第三线程
+经原 wait owner terminal reap 后清理仍拒绝（无 poll/pin/signal、无预算变化）；
+ENTRY 后创建再退出的成员也撤销凭据；ENTRY 时的 pending group creation 失败
+退出后不能使旧凭据变得有效。第三成员在 ENTRY 前已正常 reap 的独立用例仍
+允许新双成员凭据走原 EXEC/kill/reap。Linux bridge 现强制51项、零skip。
+修复仅研究监督器的凭据收紧，整体原生/网络/历史输入门禁及未完成项保持。
+
+### 本次新增修改：P2 全局待决 exec 与清理资格分开核验
+
+保留集合只表示符合双成员/连续性条件的 ENTRY，不能用于证明全局唯一。
+`CleanupReaper.bind_inflight_exec` 现在先遍历原 creation dispatcher 的完整
+syscall sequence，统计所有组尚未配对的 execve/execveat ENTRY（已安装成功 EXEC
+且等待 EXIT 的原 `_exec_exits` 不属于尚未决出的 exec）。多于一个即在首次
+cleanup wait、event read、receipt adoption、stop debit 或 pidfd 操作之前拒绝。
+随后独立检查唯一候选与保留 receipt 的 birth 和 ENTRY 对象相同，再使用既有
+清理资格、成员连续性及精确 wire 检查；没有从较窄的保留集合推导唯一性。
+
+新增2项 fake-only 用例用原 dispatcher/ledger/wait-owner 建立两个不同线程组，
+每组均有未结束 nonleader exec，第二组因第三成员不具资格；分别保持第三成员
+存活或在清理前正常 reap，交叉覆盖59/322。两者均只保留第一组 receipt，但
+必须在首次 cleanup wait 前拒绝，且无 pin/signal、无预算变化、无 receipt adoption。
+Linux bridge 现强制53项零skip。整体原生/网络/历史门禁继续保持。
+
+### 本次新增修改：P2 无接管候选时保留原进程清理路径
+
+全局未配对 exec 的唯一性约束只适用于需要接管 nonleader ENTRY 的分支。
+`bind_inflight_exec` 现在先确认原 wait owner 是否有保留候选；无候选则返回，
+继续原 `_inventory -> pidfd pin/SIGKILL -> terminal reap`，不把多个独立单线程
+进程的 exec ENTRY 当作 nonleader 接管冲突。存在候选时仍先扫描完整 dispatcher
+未配对集合，再独立核验唯一候选资格；前两项 P2 的拒绝条件保持。
+
+新增对照回归通过原 dispatcher/ledger/wait-owner 建立两个独立单线程进程，
+同时处于59/322 ENTRY（四种交叉组合），无保留候选，正常 owner 失败后均应
+先取得两个 pidfd，再分别发送 SIGKILL 并完成两次真实模拟 terminal reap。
+该用例在213f969上四种组合均于首个 pidfd 前失败，修复后 pins=2/reaped=2；
+验证原失败、deadline、累计任务和stop预算不变，无额外 ptrace/read/resume。
+原两个跨组待决 nonleader（仅一组具资格）用例仍须在首次 cleanup wait 前拒绝。
+Linux bridge 现强制54项零skip；所有内核transport注入，整体原生验收未执行。

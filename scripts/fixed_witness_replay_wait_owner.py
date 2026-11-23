@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass, field
 
 from fixed_witness_replay_abi_model import ExecIdentity
+from fixed_witness_replay_ptrace import SyscallInfo
 from fixed_witness_replay_stop_dispatch import PostHandshakeDispatcher
 from fixed_witness_replay_tasks import LIVE_TASKS, TASK_ATTEMPTS
 from fixed_witness_replay_wait import decode_wait_status
@@ -63,6 +64,7 @@ class _OwnedWait:
     resume_attempted: bool = False
     exec_installed: bool = False
     completed: bool = False
+    exec_group: object = None
 
 
 class BoundedWaitOwner:
@@ -94,6 +96,10 @@ class BoundedWaitOwner:
         self.stopped = None
         self.last_wait = None
         self._settled_reaps = {}
+        # One original completed native exec ENTRY per live nonleader birth,
+        # not an unbounded wait history. Other births may stop before this
+        # executor's EXEC/failed EXIT; last_wait alone loses that provenance.
+        self._resumed_exec_entries = {}
         dispatcher._wait_owner = self
 
     def _check(self):
@@ -215,6 +221,9 @@ class BoundedWaitOwner:
             wire = self.launch.dispatcher._tasks.get(ticket, (None, None))[1]
             pending = tuple(item for item in self.launch.ledger.cleanup_pending()
                             if item.parent == ticket and item.child is None)
+            # Capture BEFORE the wait/dispatch/resume, not after another
+            # member may have been reaped or a creation event installed.
+            exec_group = self._exec_group(parent)
             try:
                 result = self.waitpid(tid, WAIT_OPTIONS)
             except InterruptedError:
@@ -244,12 +253,14 @@ class BoundedWaitOwner:
             # No owner/deadline recheck before accept: an observed stop must
             # debit even if the wait crossed the deadline or ownership changed.
             self.last_wait = _OwnedWait(parent, pending, waited, status)
+            self.last_wait.exec_group = exec_group
             facts = self.dispatcher._accept_owned_wait(self, self.last_wait)
             self._retain_reap(parent, waited, status, facts, exec_identity, wire)
             # Only a fully successful dispatch/resume and reap observation retires
             # this receipt. A later pre-wait failure must poll a new event; an
             # uncertain resume or partial observation retains the original stop.
             self.last_wait.completed = True
+            self._retain_exec_entry(self.last_wait, wire)
             self._last_birth = ticket
             return 'event'
         self._check()
@@ -259,6 +270,46 @@ class BoundedWaitOwner:
         self.sleep(min(0.01, remaining))
         self._check()
         return 'idle'
+
+    def _retain_exec_entry(self, receipt, wire):
+        """Keep only still-unmatched original entries after successful dispatch.
+
+        Failed/uncertain resumes never enter this set. EXIT, EXEC (including
+        leader retirement) and actual reap remove obsolete receipts; a later
+        failure preserves the remaining originals for the sole cleanup owner.
+        """
+        creation = self.launch.dispatcher
+        for birth, (previous, _) in tuple(self._resumed_exec_entries.items()):
+            if (creation._sequence.get(birth) is not previous.facts.syscall
+                    or self.launch.ledger.identity(birth) != previous.parent
+                    or self._exec_group(previous.parent) != previous.exec_group):
+                del self._resumed_exec_entries[birth]
+        entry = receipt.facts.syscall
+        parent = receipt.parent
+        if (type(entry) is SyscallInfo and entry.operation == 1
+                and entry.number in (59, 322) and parent.tid != parent.tgid):
+            entry.require_native(1)
+            members, pending = receipt.exec_group
+            if (pending or len(members) != 2 or parent not in members
+                    or not any(item.tid == item.tgid for item in members)
+                    or self._exec_group(parent) != receipt.exec_group):
+                # A larger/unstable original group never becomes eligible
+                # merely because its other births subsequently disappear.
+                return
+            if (creation._sequence.get(parent.birth) is not entry
+                    or self.launch.ledger.identity(parent.birth) != parent
+                    or creation._task(parent.birth, parent.tid) is not wire
+                    or len(self._resumed_exec_entries) >= LIVE_TASKS - 1):
+                raise WaitOwnerError('original completed exec ENTRY binding mismatch')
+            self._resumed_exec_entries[parent.birth] = (receipt, wire)
+
+    def _exec_group(self, parent):
+        """Original live membership and all same-group creation obligations."""
+        ledger = self.launch.ledger
+        return (tuple(item for item in ledger.cleanup_identities()
+                      if item.group_birth == parent.group_birth),
+                tuple(item for item in ledger.cleanup_pending()
+                      if ledger.identity(item.parent).group_birth == parent.group_birth))
 
     def run(self):
         """Run once to drained bookkeeping or fail closed, without cleanup retry."""

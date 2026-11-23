@@ -225,7 +225,7 @@ class UnconsumedExecTest(unittest.TestCase):
 
     def test_second_exec_entry_in_leader_blocks_before_wait(self):
         self.launch.dispatcher._sequence[1] = decode_syscall_info(*entry(59))
-        with self.assertRaisesRegex(ValueError, 'thread/exec'):
+        with self.assertRaisesRegex(ValueError, 'globally unmatched'):
             self.f.owner().run()
         self.f.transport.wait.assert_not_called()
         self.assert_no_pin()
@@ -429,7 +429,13 @@ class UnconsumedExecTest(unittest.TestCase):
     def test_actual_supervisor_typed_wires_preserve_original_failure_and_cleanup(self):
         self.supervisor_composition(failed=False)
 
-    def supervisor_composition(self, *, failed):
+    def test_supervisor_later_leader_stop_preserves_entry_to_exec_and_reap(self):
+        self.supervisor_composition(failed=False, intervening=True)
+
+    def test_supervisor_later_leader_stop_preserves_entry_to_failed_exit_and_reaps(self):
+        self.supervisor_composition(failed=True, intervening=True)
+
+    def supervisor_composition(self, *, failed, intervening=False):
         f = supervisor_fixture.SupervisorTest()
         f.setUp()
         leader, child = f.f.access, Mock()
@@ -465,6 +471,11 @@ class UnconsumedExecTest(unittest.TestCase):
             if index == 6:
                 child.syscall_info.return_value = decode_syscall_info(*entry(59))
                 return (12, 0x857f)
+            if intervening and index == 7:
+                leader.syscall_info.return_value = decode_syscall_info(*entry(39))
+                return (11, 0x857f)
+            if intervening and index > 7:
+                index -= 1
             if index == 7:
                 raise original
             if index == 8:
@@ -491,13 +502,345 @@ class UnconsumedExecTest(unittest.TestCase):
                                    f.ledger.totals.live, f.ledger.totals.pending))
         f.io.open.assert_called_once_with(11, 0)
         f.io.send.assert_called_once_with(70, 9, None, 0)
-        self.assertEqual([11, 11, 11, 12, 11, 12, 11, 11, 12, 11, 12] if failed
-                         else [11, 11, 11, 12, 11, 12, 11, 11, 11],
+        self.assertEqual([11, 11, 11, 12, 11, 12]
+                         + ([11, 12] if intervening else [11])
+                         + ([11, 12, 11, 12] if failed else [11, 11]),
                          [c.args[0] for c in f.io.wait.call_args_list])
         self.assertEqual(2, child.resume_syscall.call_count)  # newborn, exec ENTRY only
         self.assertFalse(leader_wire._unscoped_mutation)
         self.assertFalse(child_wire._unscoped_mutation)
         self.assertEqual({}, owner.dispatcher._exec_generations)
+
+    def history(self, *, number=59, stops=1, executor_exit=False, resume_error=None):
+        """Real normal owner, completed child ENTRY, then other-birth stops."""
+        self.f = fixture.ThreadCleanupTest()
+        self.f.setUp()
+        self.launch, self.ledger = self.f.launch, self.f.ledger
+        self.post = self.f.f.owner
+        self.f.child.syscall_info.return_value = decode_syscall_info(*entry(number))
+        self.f.f.wire.signal_info.return_value = SignalInfo(10, 0, -6, 10, 1000)
+        self.f.f.wire.event_tid.return_value = 12
+        self.f.f.wire.resume_syscall.side_effect = resume_error
+        self.original = OSError('failure after unrelated completed stop')
+        # Each leader signal is followed by an idle poll of the executor.
+        results = [(0, 0), (12, 0x857f)]
+        for _ in range(stops):
+            results.extend(((11, 0xa7f), (0, 0)))
+        if executor_exit:
+            results.extend(((0, 0), (12, 0x857f)))
+        results.append(self.original)
+        def wait(*args):
+            item = results.pop(0)
+            if isinstance(item, BaseException):
+                raise item
+            if executor_exit and not results[1:]:
+                self.f.child.syscall_info.return_value = decode_syscall_info(*exit_info(-2, 1))
+            return item
+        self.normal_wait = Mock(side_effect=wait)
+        self.normal = BoundedWaitOwner(self.post, waitpid=self.normal_wait)
+        with self.assertRaises(OSError):
+            self.normal.run()
+        self.f.child.reset_mock()
+        self.f.f.wire.reset_mock()
+        self.f.transport.wait.side_effect = [(11, 0x4057f), (11, 9)]
+
+    def test_intervening_signal_stop_keeps_original_entry_object_and_budget(self):
+        self.history(stops=20)
+        original, wire = self.normal._resumed_exec_entries[2]
+        self.assertIsNot(original, self.normal.last_wait)
+        self.assertEqual(11, self.normal.last_wait.tid)
+        self.assertIs(original.facts.syscall, self.launch.dispatcher._sequence[2])
+        self.assertIs(wire, self.f.child)
+        self.assertEqual(1, len(self.normal._resumed_exec_entries))
+        before = self.ledger.totals
+        owner = self.f.owner()
+        owner.run()
+        self.assertTrue(original.adopted)
+        self.assertFalse(self.normal.last_wait.adopted)
+        self.assertEqual((before.attempts, before.wait_stops + 1, 1, before.stopped),
+                         (self.ledger.totals.attempts, self.ledger.totals.wait_stops,
+                          self.ledger.totals.live, self.ledger.totals.stopped))
+        self.assertEqual('reaped', self.ledger.identity(2).terminal)
+        self.assertEqual([], self.f.child.mock_calls)
+
+    def test_historical_execveat_entry_failed_exit_uses_original_group_cleanup(self):
+        self.history(number=322)
+        self.pending_failed_exit()
+        self.f.owner().run()
+        self.assertEqual('reaped', self.ledger.identity(1).terminal)
+        self.assertEqual('reaped', self.ledger.identity(2).terminal)
+        self.f.child.syscall_info.assert_called_once_with(12)
+
+    def test_completed_failed_exit_retires_original_entry_before_later_failure(self):
+        self.history(executor_exit=True)
+        self.assertEqual({}, self.normal._resumed_exec_entries)
+        self.f.transport.wait.side_effect = [(11, 9), (12, 9)]
+        self.f.owner().run()
+        self.f.f.wire.event_tid.assert_not_called()
+        self.f.child.syscall_info.assert_not_called()
+        self.assertEqual(1, self.ledger.totals.live)
+
+    def test_uncertain_later_resume_does_not_adopt_old_entry_or_poll(self):
+        self.history(resume_error=OSError('uncertain unrelated resume'))
+        self.assertFalse(self.normal.last_wait.completed)
+        with self.assertRaisesRegex(ValueError, 'thread/exec'):
+            self.f.owner().run()
+        self.f.transport.wait.assert_not_called()
+        self.assert_no_pin()
+
+    def test_historical_entry_wire_replacement_rejects_before_wait_or_pin(self):
+        self.history()
+        self.launch.dispatcher._tasks[2] = (12, Mock())
+        with self.assertRaisesRegex(CleanupReapError, 'executor wire changed'):
+            self.f.owner().run()
+        self.f.transport.wait.assert_not_called()
+        self.assert_no_pin()
+
+    def test_historical_entry_changed_sequence_rejects_before_wait_or_pin(self):
+        self.history()
+        self.launch.dispatcher._sequence[2] = decode_syscall_info(*entry(59))
+        with self.assertRaises(ValueError):
+            self.f.owner().run()
+        self.f.transport.wait.assert_not_called()
+        self.assert_no_pin()
+
+    def test_normal_exec_migration_and_terminal_retire_original_entry(self):
+        f = fixture.ThreadCleanupTest()
+        f.setUp()
+        f.child.syscall_info.return_value = decode_syscall_info(*entry(59))
+        f.f.wire.event_tid.return_value = 12
+        waits = [(0, 0), (12, 0x857f), (11, 0x4057f), (11, 0)]
+        normal = None
+        def wait(*args):
+            if len(waits) == 1:
+                self.assertEqual({}, normal._resumed_exec_entries)
+            return waits.pop(0)
+        normal = BoundedWaitOwner(f.f.owner, waitpid=wait)
+        normal.run()
+        self.assertEqual({}, normal._resumed_exec_entries)
+        self.assertEqual('exec-replaced', f.ledger.identity(1).terminal)
+        self.assertEqual('reaped', f.ledger.identity(2).terminal)
+        self.assertEqual(1, f.ledger.totals.live)
+
+    def add_sibling(self, f):
+        f.launch.dispatcher._factory = lambda: Mock()
+        raw, size = entry(56)
+        raw = bytearray(raw)
+        struct.pack_into('<Q', raw, 32, 0x10000 | 0x800 | 0x100)
+        f.f.syscall((bytes(raw), size))
+        f.f.wire.event_tid.return_value = 13
+        f.f.owner.accept(11, 0x3057f)
+        f.f.syscall(exit_info(13, 0))
+        sibling = f.launch.dispatcher.stop_binding(13)[1]
+        sibling.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
+        f.f.owner.accept(13, 0x137f)
+
+    def test_third_member_at_entry_reaped_before_cleanup_never_authorizes_old_entry(self):
+        for number in (59, 322):
+            with self.subTest(number=number):
+                self.third_member_history(after_entry=False, number=number)
+
+    def test_member_created_after_entry_then_reaped_permanently_revokes_old_entry(self):
+        self.third_member_history(after_entry=True)
+
+    def third_member_history(self, *, after_entry, number=59):
+        f = fixture.ThreadCleanupTest()
+        f.setUp()
+        f.launch.dispatcher._factory = lambda: Mock()
+        if not after_entry:
+            self.add_sibling(f)
+        f.child.syscall_info.return_value = decode_syscall_info(*entry(number))
+        original = OSError('failure after third member terminal reap')
+        if after_entry:
+            raw, size = entry(56)
+            raw = bytearray(raw)
+            struct.pack_into('<Q', raw, 32, 0x10000 | 0x800 | 0x100)
+            events = [(0, 0), (12, 0x857f), (11, 0x857f),
+                      (0, 0), (11, 0x3057f), (0, 0), (13, 0x137f),
+                      (11, 0x857f), (0, 0), (13, 0), original]
+        else:
+            events = [(0, 0), (12, 0x857f), (13, 0), original]
+        normal = None
+        def wait(tid, options):
+            index = transport.call_count
+            if after_entry and index == 3:
+                self.assertEqual(1, len(normal._resumed_exec_entries))
+                f.f.wire.syscall_info.return_value = decode_syscall_info(bytes(raw), size)
+            if after_entry and index == 5:
+                self.assertEqual({}, normal._resumed_exec_entries)
+                f.f.wire.event_tid.return_value = 13
+            if after_entry and index == 7:
+                sibling = f.launch.dispatcher.stop_binding(13)[1]
+                sibling.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
+            if after_entry and index == 8:
+                f.f.wire.syscall_info.return_value = decode_syscall_info(*exit_info(13, 0))
+            event = events.pop(0)
+            if isinstance(event, BaseException):
+                raise event
+            self.assertIn(event[0], (0, tid))
+            return event
+        transport = Mock(side_effect=wait)
+        normal = BoundedWaitOwner(f.f.owner, waitpid=transport)
+        with self.assertRaises(OSError) as raised:
+            normal.run()
+        self.assertIs(raised.exception, original)
+        self.assertEqual('reaped', f.ledger.identity(3).terminal)
+        self.assertEqual(11, f.ledger.identity(1).tid)
+        self.assertEqual(12, f.ledger.identity(2).tid)
+        self.assertEqual({}, normal._resumed_exec_entries)
+        self.assertEqual(2, len(f.ledger.cleanup_identities()))
+        before = f.ledger.totals
+        with self.assertRaisesRegex(ValueError, 'thread/exec'):
+            f.owner().run()
+        f.transport.wait.assert_not_called()
+        f.transport.open.assert_not_called()
+        f.transport.send.assert_not_called()
+        self.assertEqual(before, f.ledger.totals)
+
+    def test_member_reaped_before_entry_does_not_poison_new_pair_receipt(self):
+        f = fixture.ThreadCleanupTest()
+        f.setUp()
+        self.add_sibling(f)
+        f.f.owner.accept(13, 0)
+        f.child.syscall_info.return_value = decode_syscall_info(*entry(59))
+        f.f.wire.event_tid.return_value = 12
+        failure = OSError('later wait failure')
+        normal = BoundedWaitOwner(f.f.owner, waitpid=Mock(side_effect=[
+            (0, 0), (12, 0x857f), failure]))
+        with self.assertRaises(OSError):
+            normal.run()
+        f.f.wire.reset_mock()
+        f.transport.wait.side_effect = [(11, 0x4057f), (11, 9)]
+        f.owner().run()
+        self.assertEqual('reaped', f.ledger.identity(2).terminal)
+        self.assertEqual(1, f.ledger.totals.live)
+
+    def test_pending_group_creation_at_entry_cannot_become_eligible_after_failure_exit(self):
+        f = fixture.ThreadCleanupTest()
+        f.setUp()
+        raw, size = entry(56)
+        raw = bytearray(raw)
+        struct.pack_into('<Q', raw, 32, 0x10000 | 0x800 | 0x100)
+        f.f.syscall((bytes(raw), size))
+        f.child.syscall_info.return_value = decode_syscall_info(*entry(59))
+        f.f.wire.syscall_info.return_value = decode_syscall_info(*exit_info(-2, 1))
+        normal = BoundedWaitOwner(f.f.owner, waitpid=Mock(side_effect=[
+            (0, 0), (12, 0x857f), (11, 0x857f), OSError('later wait failure')]))
+        with self.assertRaises(OSError):
+            normal.run()
+        self.assertEqual((), f.ledger.cleanup_pending())
+        self.assertEqual({}, normal._resumed_exec_entries)
+        with self.assertRaisesRegex(ValueError, 'thread/exec'):
+            f.owner().run()
+        f.transport.wait.assert_not_called()
+        f.transport.open.assert_not_called()
+        f.transport.send.assert_not_called()
+
+    def test_two_groups_one_ineligible_executor_reject_before_first_cleanup_wait(self):
+        self.two_group_pending(reap_sibling=False)
+
+    def test_independent_single_thread_execs_without_candidate_keep_original_process_cleanup(self):
+        for first, second in ((59, 59), (59, 322), (322, 59), (322, 322)):
+            with self.subTest(first=first, second=second):
+                f = fixture.ThreadCleanupTest()
+                f.setUp()
+                # Reap the fixture's thread before constructing two independent
+                # single-thread process groups through the original dispatcher.
+                f.f.owner.accept(12, 0)
+                f.launch.dispatcher._factory = lambda: Mock()
+                f.f.syscall(entry(57))
+                f.f.wire.event_tid.return_value = 13
+                f.f.owner.accept(11, 0x1057f)
+                f.f.syscall(exit_info(13, 0))
+                child = f.launch.dispatcher.stop_binding(13)[1]
+                child.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
+                f.f.owner.accept(13, 0x137f)
+                f.f.wire.syscall_info.return_value = decode_syscall_info(*entry(first))
+                child.syscall_info.return_value = decode_syscall_info(*entry(second))
+                original = OSError('normal owner fails with two process exec entries')
+                normal = BoundedWaitOwner(f.f.owner, waitpid=Mock(side_effect=[
+                    (11, 0x857f), (13, 0x857f), original]))
+                with self.assertRaises(OSError) as raised:
+                    normal.run()
+                self.assertIs(original, raised.exception)
+                self.assertEqual({}, normal._resumed_exec_entries)
+                self.assertEqual({1, 3}, {birth for birth, info in f.launch.dispatcher._sequence.items()
+                                 if getattr(info, 'number', None) in (59, 322)})
+                before, failure = f.ledger.totals, f.launch.stopped
+                f.f.wire.reset_mock()
+                child.reset_mock()
+                f.transport.wait.side_effect = [(11, 9), (13, 9)]
+                owner = f.owner()
+                result = owner.run()
+                self.assertEqual([call.open(11, 0), call.open(13, 0),
+                                  call.send(70, 9, None, 0), call.send(71, 9, None, 0),
+                                  call.wait(11, WAIT_OPTIONS), call.wait(13, WAIT_OPTIONS),
+                                  call.close(71), call.close(70)], f.transport.mock_calls)
+                self.assertEqual([(1, 11), (3, 13)], [(birth, tid) for birth, tid, _ in result])
+                self.assertEqual((before.attempts, before.wait_stops, 1, before.pending, before.stopped),
+                                 (f.ledger.totals.attempts, f.ledger.totals.wait_stops,
+                                  f.ledger.totals.live, f.ledger.totals.pending, f.ledger.totals.stopped))
+                self.assertEqual(failure, f.launch.stopped)
+                self.assertFalse(normal.last_wait.adopted)
+                self.assertEqual([], f.f.wire.mock_calls + child.mock_calls)
+
+    def test_two_groups_ineligible_executor_sibling_reaped_still_reject_before_wait(self):
+        self.two_group_pending(reap_sibling=True)
+
+    def two_group_pending(self, *, reap_sibling):
+        for first, second in ((59, 322), (322, 59)):
+            with self.subTest(first=first, second=second):
+                f = fixture.ThreadCleanupTest()
+                f.setUp()
+                f.launch.dispatcher._factory = lambda: Mock()
+                def create(parent_tid, child_tid, thread):
+                    wire = f.launch.dispatcher.stop_binding(parent_tid)[1]
+                    raw, size = entry(56 if thread else 57)
+                    if thread:
+                        raw = bytearray(raw)
+                        struct.pack_into('<Q', raw, 32, 0x10000 | 0x800 | 0x100)
+                        raw = bytes(raw)
+                    wire.syscall_info.return_value = decode_syscall_info(raw, size)
+                    f.f.owner.accept(parent_tid, 0x857f)
+                    wire.event_tid.return_value = child_tid
+                    f.f.owner.accept(parent_tid, 0x3057f if thread else 0x1057f)
+                    wire.syscall_info.return_value = decode_syscall_info(*exit_info(child_tid, 0))
+                    f.f.owner.accept(parent_tid, 0x857f)
+                    child = f.launch.dispatcher.stop_binding(child_tid)[1]
+                    child.signal_info.return_value = SignalInfo(19, 0, 0, 0, 0)
+                    f.f.owner.accept(child_tid, 0x137f)
+                    return child
+                create(11, 13, False)
+                other = create(13, 14, True)
+                sibling = create(13, 15, True)
+                f.child.syscall_info.return_value = decode_syscall_info(*entry(first))
+                other.syscall_info.return_value = decode_syscall_info(*entry(second))
+                sibling.signal_info.return_value = SignalInfo(10, 0, -6, 10, 1000)
+                original = OSError('two groups have outstanding exec entries')
+                events = [(0, 0), (12, 0x857f), (0, 0), (14, 0x857f),
+                          (15, 0 if reap_sibling else 0xa7f), original]
+                def wait(tid, options):
+                    event = events.pop(0)
+                    if isinstance(event, BaseException):
+                        raise event
+                    self.assertIn(event[0], (0, tid))
+                    return event
+                normal = BoundedWaitOwner(f.f.owner, waitpid=wait)
+                with self.assertRaises(OSError) as raised:
+                    normal.run()
+                self.assertIs(original, raised.exception)
+                self.assertEqual({2}, set(normal._resumed_exec_entries))
+                self.assertEqual({2, 4}, {birth for birth, info in f.launch.dispatcher._sequence.items()
+                                 if getattr(info, 'number', None) in (59, 322)})
+                before = f.ledger.totals
+                owner = f.owner()
+                with self.assertRaisesRegex(CleanupReapError, 'globally unmatched'):
+                    owner.run()
+                f.transport.wait.assert_not_called()
+                f.transport.open.assert_not_called()
+                f.transport.send.assert_not_called()
+                self.assertEqual(before, f.ledger.totals)
+                self.assertFalse(normal._resumed_exec_entries[2][0].adopted)
 
 
 if __name__ == '__main__':

@@ -21,6 +21,7 @@ from fixed_witness_replay_launch import CoordinatorLaunch
 from fixed_witness_replay_wait import decode_wait_status
 from fixed_witness_replay_wait_owner import WAIT_OPTIONS, BoundedWaitOwner, _OwnedWait
 from fixed_witness_replay_stops import StopFacts
+from fixed_witness_replay_ptrace import SyscallInfo
 
 
 class CleanupReapError(ValueError):
@@ -252,13 +253,14 @@ class CleanupReaper:
             raise
 
     def bind_inflight_exec(self):
-        """Finish the original owner's last fully resumed nonleader exec ENTRY.
+        """Finish one retained fully resumed original nonleader exec ENTRY.
 
         Poll the original TGID first for EXEC(old TID), then the executor for
         a failed native EXIT. ECHILD on the old executor proves nothing; keep
         polling the TGID within the original deadline. Never resume, retry a
         read, reset failure/deadline or mint an EXEC observation/generation.
-        Other unmatched entries remain unsupported by the existing inventory.
+        Intervening completed stops of other births do not erase the original
+        receipt. Multiple pending executors and partial later stops stay closed.
         """
         if self.inflight_exec_started or self.started or self._killed_births:
             raise CleanupReapError('in-flight cleanup exec already attempted or too late')
@@ -269,11 +271,30 @@ class CleanupReaper:
             owner = getattr(post, '_wait_owner', None)
             if type(owner) is not BoundedWaitOwner or owner.last_wait is None:
                 return
-            receipt = owner.last_wait
-            if type(receipt) is not _OwnedWait:
+            if type(owner.last_wait) is not _OwnedWait:
                 raise CleanupReapError('original in-flight exec wait required')
-            if not receipt.completed:
+            if not owner.last_wait.completed:
                 return
+            retained = tuple(owner._resumed_exec_entries.values())
+            if not retained:
+                # No nonleader receipt is being taken over. Leave ordinary
+                # process-only pin/kill/reap eligibility to the original path;
+                # independent single-thread execs need no unique takeover.
+                return
+            dispatcher = self.launch.dispatcher
+            # Eligibility retention is deliberately narrower than the complete
+            # native dispatch inventory. An ineligible executor in ANOTHER
+            # group still prevents a unique in-flight exec cleanup selection.
+            unmatched = tuple((birth, info) for birth, info in dispatcher._sequence.items()
+                              if type(info) is SyscallInfo and info.operation == 1
+                              and info.number in (59, 322) and birth not in dispatcher._exec_exits)
+            if len(unmatched) > 1:
+                raise CleanupReapError('one globally unmatched exec ENTRY required')
+            if len(retained) != 1:
+                raise CleanupReapError('one original in-flight exec ENTRY required')
+            receipt, executor_wire = retained[0]
+            if type(receipt) is not _OwnedWait or not receipt.completed:
+                raise CleanupReapError('original completed exec ENTRY required')
             facts = receipt.facts
             entry = getattr(facts, 'syscall', None)
             executor = receipt.parent
@@ -288,12 +309,20 @@ class CleanupReaper:
                     or decode_wait_status(receipt.raw).kind != 'syscall-stop'
                     or facts.tid != executor.tid):
                 raise CleanupReapError('in-flight exec owner or completed entry mismatch')
-            dispatcher = self.launch.dispatcher
+            if (len(unmatched) != 1 or unmatched[0][0] != executor.birth
+                    or unmatched[0][1] is not entry):
+                raise CleanupReapError('original globally unmatched exec ENTRY required')
+            if dispatcher._task(executor.birth, executor.tid) is not executor_wire:
+                raise CleanupReapError('in-flight exec original executor wire changed')
             leader, access = dispatcher.cleanup_inflight_exec_binding(executor, entry)
+            if receipt.exec_group != owner._exec_group(executor):
+                raise CleanupReapError('in-flight exec original group changed')
             receipt.adopted = True
             target = leader
             while True:
                 self._check()
+                if dispatcher._task(executor.birth, executor.tid) is not executor_wire:
+                    raise CleanupReapError('in-flight exec original executor wire changed')
                 if dispatcher.cleanup_inflight_exec_binding(executor, entry) != (leader, access):
                     raise CleanupReapError('in-flight exec original binding changed')
                 if any(item.tid in self.launch.unsettled_terminal_waits
