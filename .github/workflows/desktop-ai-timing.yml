@@ -72,6 +72,10 @@ jobs:
           for dimensions in 950x850 750x700 1024x950; do
             export TETRIS_UI_CAPTURE_WIDTH="${dimensions%x*}"
             export TETRIS_UI_CAPTURE_HEIGHT="${dimensions#*x}"
+            export TETRIS_AI_OBJECTIVE=survival
+            if [[ "$dimensions" == 1024x950 ]]; then
+              export TETRIS_AI_OBJECTIVE=build-shape
+            fi
             if ! timeout 120 ./mvnw --batch-mode --no-transfer-progress \
               -Dmain.class=xyz.xuminghai.tetris/xyz.xuminghai.tetris.UiInteractionApplication \
               compile javafx:run > "$RUNNER_TEMP/ui-interaction-$dimensions.log" 2>&1; then

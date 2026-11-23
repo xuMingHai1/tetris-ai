@@ -5,6 +5,8 @@ import javafx.animation.PauseTransition;
 import javafx.animation.ParallelTransition;
 import javafx.animation.ScaleTransition;
 import javafx.animation.TranslateTransition;
+import javafx.beans.InvalidationListener;
+import javafx.beans.binding.Bindings;
 import javafx.css.PseudoClass;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -33,6 +35,7 @@ import xyz.xuminghai.tetris.ai.AiPlanningAgentFactory;
 import xyz.xuminghai.tetris.ai.ShapeProgress;
 import xyz.xuminghai.tetris.ai.ShapeTarget;
 import xyz.xuminghai.tetris.game.GameWorld;
+import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.Cell;
 import xyz.xuminghai.tetris.util.Version;
 import javafx.util.Duration;
@@ -92,8 +95,6 @@ public final class DashboardView extends BorderPane {
     private final Label agentBadge = label("agent-badge");
     private final Label actionsTitle = label("section-heading");
     private final Label keys = label("keyboard-note");
-    private final Label shapeProgress = label("shape-progress");
-    private TitledPane creativePane;
     private final Button manualButton = button("mode-button");
     private final Button aiButton = button("mode-button");
     private final Button startButton = button("primary-button");
@@ -118,7 +119,6 @@ public final class DashboardView extends BorderPane {
     private boolean waitingForReplacementHint;
     private Integer lastHintClearedLines;
     private boolean everStarted;
-    private Boolean chineseFont;
 
     /** Uses the same startup configuration already validated by the planning-agent factory. */
     public static DashboardView fromEnvironment(GameWorld world, HostServices hostServices,
@@ -140,7 +140,6 @@ public final class DashboardView extends BorderPane {
         DashboardView view = new DashboardView(world, hostServices, agentLabel, objective,
                 cellSide, viewportWidth);
         if (viewportHeight < 900) view.getStyleClass().add("compact-height");
-        view.refresh();
         return view;
     }
 
@@ -149,6 +148,7 @@ public final class DashboardView extends BorderPane {
                          int boardCellSide, double viewportWidth) {
         this.world = world;
         this.agent = configuredAgent;
+        aiButton.setText(agent);
         this.objective = configuredObjective;
         this.boardCellSide = boardCellSide;
         this.viewportWidth = viewportWidth;
@@ -214,9 +214,8 @@ public final class DashboardView extends BorderPane {
         world.aiDisplayProperty().addListener((_, _, _) -> refresh());
         world.coachEnabledProperty().addListener((_, _, _) -> refresh());
         world.coachAdviceProperty().addListener((_, _, _) -> refresh());
-        world.settledCellsProperty().addListener((_, _, _) -> refresh());
-        world.languageProperty().addListener((_, _, _) -> refresh());
-        refresh();
+        world.languageProperty().addListener((_, _, _) -> refreshLanguage());
+        refreshLanguage();
     }
 
     /** Makes game shortcuts immediately usable after a mouse or keyboard game-control action. */
@@ -387,6 +386,8 @@ public final class DashboardView extends BorderPane {
         VBox goalSection = new VBox(12, goalTitle, goalCard);
         goalSection.getStyleClass().add("cockpit-section");
         actionScroll.setFitToWidth(true);
+        updateActionViewportHeight();
+        getStyleClass().addListener((InvalidationListener) _ -> updateActionViewportHeight());
         // Keep the text width stable even when the current plan does not overflow.
         actionScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.ALWAYS);
         emptyActions.setWrapText(true);
@@ -430,10 +431,20 @@ public final class DashboardView extends BorderPane {
         VBox card = new VBox(heading, body);
         card.getStyleClass().add("cockpit-card");
         if (objective.equals("build-shape")) {
-            creativePane = new TitledPane();
+            TitledPane creativePane = new TitledPane();
+            creativePane.textProperty().bind(world.languageProperty().map(locale ->
+                    locale.getLanguage().equals("zh") ? "创意目标 · HEART" : "Creative goal · HEART"));
             creativePane.setExpanded(false);
             creativePane.getStyleClass().add("creative-pane");
             Canvas target = targetPreview();
+            Label shapeProgress = label("shape-progress");
+            var boardProgress = world.settledCellsProperty().map(this::heartProgress);
+            shapeProgress.textProperty().bind(Bindings.createStringBinding(() -> {
+                ShapeProgress progress = boardProgress.getValue();
+                String coverage = progress.matchedRequiredCells() + "/" + progress.requiredCells();
+                return isChinese() ? "目标覆盖 " + coverage + " · 背景侵入 " + progress.forbiddenOccupiedCells()
+                        : "Coverage " + coverage + " · Intrusions " + progress.forbiddenOccupiedCells();
+            }, boardProgress, world.languageProperty()));
             VBox creativeContent = new VBox(10, target, shapeProgress);
             creativeContent.getStyleClass().add("creative-content");
             creativePane.setContent(creativeContent);
@@ -512,9 +523,43 @@ public final class DashboardView extends BorderPane {
         return footer;
     }
 
-    private void refresh() {
-        boolean zh = world.languageProperty().get().getLanguage().equals("zh");
+    private ShapeProgress heartProgress(List<BoardPosition> settled) {
+        boolean[][] occupied = new boolean[world.getRows()][world.getCols()];
+        for (BoardPosition cell : settled) occupied[cell.row()][cell.col()] = true;
+        return ShapeTarget.HEART.progress(occupied);
+    }
+
+    private boolean isChinese() {
+        return world.languageProperty().get().getLanguage().equals("zh");
+    }
+
+    private void refreshLanguage() {
+        boolean zh = isChinese();
         useSystemFont(zh);
+        title.setText(zh ? "自由对局" : "Free play");
+        subtitle.setText((zh ? "经典模式 · " : "Classic mode · ")
+                + world.getCols() + " × " + world.getRows());
+        scoreTitle.setText(zh ? "本局得分" : "SCORE");
+        linesTitle.setText(zh ? "消行" : "LINES");
+        levelTitle.setText(zh ? "等级" : "LEVEL");
+        durationTitle.setText(zh ? "游戏时长" : "DURATION");
+        nextTitle.setText(zh ? "下一块" : "NEXT PIECE");
+        agentTitle.setText(zh ? "AI 驾驶舱" : "AI cockpit");
+        goalTitle.setText(zh ? "当前目标" : "Objective");
+        actionsTitle.setText(zh ? "动作计划" : "Action plan");
+        languageButton.setText(zh ? "EN" : "中文");
+        manualButton.setText(zh ? "手动" : "Manual");
+        placeAdviceButton.setText(zh ? "按建议放这一块" : "Place this piece as suggested");
+        keys.setText(zh
+                ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
+                : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space / Esc  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
+        reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
+        takeoverTooltip.setText(zh ? "F2：切换 AI / 手动控制" : "F2: toggle AI / manual control");
+        refresh();
+    }
+
+    private void refresh() {
+        boolean zh = isChinese();
         boolean enabled = world.aiEnabledProperty().get();
         boolean coaching = world.coachEnabledProperty().get();
         GameWorld.CoachAdvice advice = world.coachAdviceProperty().get();
@@ -527,21 +572,7 @@ public final class DashboardView extends BorderPane {
                 && ((enabled || coaching) && phase.equals("thinking")
                 || coaching && phase.equals("advice") && advice == null);
 
-        title.setText(zh ? "自由对局" : "Free play");
-        subtitle.setText((zh ? "经典模式 · " : "Classic mode · ")
-                + world.getCols() + " × " + world.getRows());
-        scoreTitle.setText(zh ? "本局得分" : "SCORE");
-        linesTitle.setText(zh ? "消行" : "LINES");
-        levelTitle.setText(zh ? "等级" : "LEVEL");
-        durationTitle.setText(zh ? "游戏时长" : "DURATION");
-        nextTitle.setText(zh ? "下一块" : "NEXT PIECE");
-        agentTitle.setText(zh ? "AI 驾驶舱" : "AI cockpit");
         agentBadge.setText(showCoach ? (zh ? "本地" : "LOCAL") : agent.toUpperCase(Locale.ROOT));
-        goalTitle.setText(zh ? "当前目标" : "Objective");
-        actionsTitle.setText(zh ? "动作计划" : "Action plan");
-        languageButton.setText(zh ? "EN" : "中文");
-        manualButton.setText(zh ? "手动" : "Manual");
-        aiButton.setText(agent);
         manualButton.pseudoClassStateChanged(SELECTED, !enabled);
         aiButton.pseudoClassStateChanged(SELECTED, enabled);
         controller.setText(enabled ? agent : (zh ? "手动控制" : "Manual"));
@@ -550,18 +581,6 @@ public final class DashboardView extends BorderPane {
             case "tuck-hunter" -> zh ? "凹槽探索 · 生存优先" : "Tuck hunting · survival first";
             default -> zh ? "优先生存，持续消行" : "Survive and clear lines";
         });
-        if (creativePane != null) {
-            creativePane.setText(zh ? "创意目标 · HEART" : "Creative goal · HEART");
-            boolean[][] occupied = new boolean[world.getRows()][world.getCols()];
-            world.settledCellsProperty().get().forEach(cell ->
-                    occupied[cell.row()][cell.col()] = true);
-            ShapeProgress progress = ShapeTarget.HEART.progress(occupied);
-            shapeProgress.setText(zh
-                    ? "目标覆盖 " + progress.matchedRequiredCells() + "/" + progress.requiredCells()
-                            + " · 背景侵入 " + progress.forbiddenOccupiedCells()
-                    : "Coverage " + progress.matchedRequiredCells() + "/" + progress.requiredCells()
-                            + " · Intrusions " + progress.forbiddenOccupiedCells());
-        }
         boolean finishing = over && active;
         startButton.setDisable(finishing);
         startButton.setText(finishing ? (zh ? "游戏结束" : "Game over")
@@ -572,7 +591,6 @@ public final class DashboardView extends BorderPane {
                 : (zh ? "交给 AI 操作" : "Let AI play"));
         coachButton.setText(coaching ? (zh ? "关闭 AI 建议" : "Turn off AI hints")
                 : (zh ? "开启 AI 建议" : "Turn on AI hints"));
-        placeAdviceButton.setText(zh ? "按建议放这一块" : "Place this piece as suggested");
         updateHintButton(showCoach && previousPlan && advice == null, showCoach && active && advice != null);
 
         overlay.setVisible(!active);
@@ -602,15 +620,10 @@ public final class DashboardView extends BorderPane {
         else {
             refreshAiMessage(phase, zh, active, over, enabled, previousPlan);
         }
-        keys.setText(zh
-                ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
-                : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space / Esc  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
-        reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
         boardHint.setText(finishing ? (zh ? "正在播放结束动画" : "Playing the end animation")
                 : over ? (zh ? "Space / Esc · 重新开始" : "Space / Esc · restart")
                 : (zh ? "Space / Esc · 开始或暂停" : "Space / Esc · start or pause"));
         startTooltip.setText(boardHint.getText());
-        takeoverTooltip.setText(zh ? "F2：切换 AI / 手动控制" : "F2: toggle AI / manual control");
         refreshActions(display, zh, previousPlan, active && !over && (enabled || coaching));
     }
 
@@ -657,12 +670,15 @@ public final class DashboardView extends BorderPane {
                 : (zh ? "随时可接管游戏，切回手动操作。" : "Take over at any time to play manually."));
     }
 
-    private void refreshActions(GameWorld.AiDisplay display, boolean zh, boolean previousPlan, boolean showPlan) {
+    private void updateActionViewportHeight() {
         double viewportHeight = boardCellSide < 20 ? 90 : getStyleClass().contains("compact-height") ? 120 : 140;
         actionScroll.setPrefViewportHeight(viewportHeight);
         actionScroll.setMinHeight(viewportHeight);
         actionScroll.setPrefHeight(viewportHeight);
         actionScroll.setMaxHeight(viewportHeight);
+    }
+
+    private void refreshActions(GameWorld.AiDisplay display, boolean zh, boolean previousPlan, boolean showPlan) {
         // The last plan is presentation only while the next decision is pending.
         GameWorld.AiDisplay visibleDisplay = previousPlan ? shownDisplay : display;
         List<AiAction> plan = showPlan ? visibleDisplay.actions() : List.of();
@@ -764,8 +780,6 @@ public final class DashboardView extends BorderPane {
     record ActionGroup(AiAction action, int start, int end) { }
 
     private void useSystemFont(boolean chinese) {
-        if (chineseFont != null && chineseFont == chinese) return;
-        chineseFont = chinese;
         List<String> candidates = chinese
                 ? List.of("Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC", "Segoe UI", "System")
                 : List.of("Segoe UI", "Noto Sans", "DejaVu Sans", "System");
