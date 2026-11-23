@@ -1131,45 +1131,47 @@ public final class GameWorld {
     private final Robot robot = new Robot();
 
     /**
-     * 启动或暂停游戏
+     * 启动、暂停或重新开始游戏。对局结束动画播放期间，等待动画完成。
      */
     public void startOrPauseGame() {
-        invalidateCoachAdvice();
-        final Optional<Boolean> keyLocked = Platform.isKeyLocked(KeyCode.CAPS);
         if (gameActive) {
-            cancelPendingAiDecision();
-            cancelAiPlayback("paused");
-            keyLocked.ifPresent(b -> {
-                if (b) {
-                    robot.keyType(KeyCode.CAPS);
-                }
-            });
-            if (audioEnabled) {
-                AudioManager.getBgmMediaPlayer().stop();
+            if (!gameOverDisplay.get()) {
+                pauseGame();
             }
-            gameTimeLine.stop();
-            aiDisplay.set(new AiDisplay("paused", List.of(), 0));
+            return;
         }
-        else {
-            gameOverDisplay.set(false);
-            // 大写锁定处理
-            keyLocked.ifPresent(b -> {
-                if (!b) {
-                    robot.keyType(KeyCode.CAPS);
-                }
-            });
-            if (audioEnabled) {
-                AudioManager.getBgmMediaPlayer().play();
-            }
-            gameTimeLine.start();
-            aiDisplay.set(new AiDisplay(aiEnabled.get() ? "ready" : "manual", List.of(), 0));
+        invalidateCoachAdvice();
+        gameOverDisplay.set(false);
+        // 大写锁定处理
+        Platform.isKeyLocked(KeyCode.CAPS).filter(locked -> !locked)
+                .ifPresent(_ -> robot.keyType(KeyCode.CAPS));
+        if (audioEnabled) {
+            AudioManager.getBgmMediaPlayer().play();
         }
-        gameActive = !gameActive;
-        activeDisplay.set(gameActive);
-        if (gameActive && aiEnabled.get() && currentTetris.get() != null) {
+        gameTimeLine.start();
+        aiDisplay.set(new AiDisplay(aiEnabled.get() ? "ready" : "manual", List.of(), 0));
+        gameActive = true;
+        activeDisplay.set(true);
+        if (aiEnabled.get() && currentTetris.get() != null) {
             requestAiMove(currentTetris.get());
         }
         refreshCoachAdvice();
+    }
+
+    /** Stops an active timeline, including when the end animation finishes or the window closes. */
+    void pauseGame() {
+        invalidateCoachAdvice();
+        cancelPendingAiDecision();
+        cancelAiPlayback("paused");
+        Platform.isKeyLocked(KeyCode.CAPS).filter(Boolean::booleanValue)
+                .ifPresent(_ -> robot.keyType(KeyCode.CAPS));
+        if (audioEnabled) {
+            AudioManager.getBgmMediaPlayer().stop();
+        }
+        gameTimeLine.stop();
+        aiDisplay.set(new AiDisplay("paused", List.of(), 0));
+        gameActive = false;
+        activeDisplay.set(false);
     }
 
     /** Stops the live timeline and invalidates work that must not update a closed view. */
@@ -1177,7 +1179,7 @@ public final class GameWorld {
         coachEnabled.set(false);
         invalidateCoachAdvice();
         if (gameActive) {
-            startOrPauseGame();
+            pauseGame();
         }
         else {
             cancelPendingAiDecision();

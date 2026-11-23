@@ -721,7 +721,7 @@ public class GameOverAnimation implements GameTimer {
             }
         }
         gameWorld.publishSettledCells();
-        gameWorld.startOrPauseGame();
+        gameWorld.pauseGame();
         // 清除消除行数
         gameWorld.lines.set(0);
         // 重置等级

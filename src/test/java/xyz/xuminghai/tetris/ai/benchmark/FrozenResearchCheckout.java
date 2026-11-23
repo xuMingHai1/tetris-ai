@@ -28,6 +28,7 @@ final class FrozenResearchCheckout {
     private static final Set<String> RESTORABLE = Set.of(
             "src/main/java/xyz/xuminghai/tetris/UiInteractionApplication.java",
             "src/main/java/xyz/xuminghai/tetris/ai/ActionPlanSimulator.java",
+            "src/main/java/xyz/xuminghai/tetris/game/GameOverAnimation.java",
             "src/main/java/xyz/xuminghai/tetris/game/GameWorld.java",
             "src/main/java/xyz/xuminghai/tetris/view/DashboardView.java",
             "src/main/java/xyz/xuminghai/tetris/view/GhostLandingView.java",

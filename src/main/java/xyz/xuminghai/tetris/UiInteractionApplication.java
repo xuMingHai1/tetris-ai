@@ -37,6 +37,9 @@ import xyz.xuminghai.tetris.ai.HeuristicTetrisAgent;
 import xyz.xuminghai.tetris.core.BagPieceGenerator;
 import xyz.xuminghai.tetris.core.BoardPosition;
 import xyz.xuminghai.tetris.core.Cell;
+import xyz.xuminghai.tetris.core.PieceGenerator;
+import xyz.xuminghai.tetris.core.TetrisFactory;
+import xyz.xuminghai.tetris.core.TetrominoType;
 import xyz.xuminghai.tetris.game.GameKeyCodeAction;
 import xyz.xuminghai.tetris.game.GameWorld;
 import xyz.xuminghai.tetris.view.DashboardView;
@@ -74,14 +77,9 @@ public final class UiInteractionApplication extends Application {
                 && Font.loadFont(Path.of(captureFont).toUri().toString(), 14) == null) {
             throw new IllegalArgumentException("Unable to load TETRIS_UI_CAPTURE_FONT");
         }
-        world = new GameWorld(AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()),
-                false, new BagPieceGenerator(1000));
-        input = new GameKeyCodeAction(world);
         int width = Integer.parseInt(System.getenv().getOrDefault("TETRIS_UI_CAPTURE_WIDTH", "950"));
         int height = Integer.parseInt(System.getenv().getOrDefault("TETRIS_UI_CAPTURE_HEIGHT", "850"));
-        DashboardView view = DashboardView.fromEnvironment(world, getHostServices(), width, height);
-        scene = GameInputBindings.install(new Scene(view, width, height), world, input);
-        stage.setScene(scene);
+        DashboardView view = showWorld(stage, new BagPieceGenerator(1000), width, height);
         stage.show();
         view.requestGameFocus();
         later(300, () -> {
@@ -136,6 +134,16 @@ public final class UiInteractionApplication extends Application {
                     "Enter activates Start once and returns focus to the board");
             later(700, () -> verifyLiveMovement(stage, view));
         });
+    }
+
+    private DashboardView showWorld(Stage stage, PieceGenerator pieces, int width, int height) {
+        world = new GameWorld(AiPlanningAgent.fromPlacementAgent(new HeuristicTetrisAgent()),
+                false, pieces);
+        input = new GameKeyCodeAction(world);
+        DashboardView view = DashboardView.fromEnvironment(world, getHostServices(), width, height);
+        scene = GameInputBindings.install(new Scene(view, width, height), world, input);
+        stage.setScene(scene);
+        return view;
     }
 
     private void verifyLiveMovement(Stage stage, DashboardView view) {
@@ -375,11 +383,49 @@ public final class UiInteractionApplication extends Application {
             check(!world.coachEnabledProperty().get() && world.coachAdviceProperty().get() == null,
                     "switching to auto-play clears coaching");
             verifyActionScroll();
-            world.startOrPauseGame();
-            System.out.printf(Locale.ROOT, "UI_INTERACTION_RESULT failures=%d plan_updates=%d%n",
-                    FAILURES.get(), observedPlans);
-            stage.close();
-            Platform.exit();
+            verifyGameOver(stage);
+        });
+    }
+
+    private void verifyGameOver(Stage stage) {
+        int width = (int) scene.getWidth();
+        int height = (int) scene.getHeight();
+        world.shutdown();
+        // Unmoved O pieces always top out in the same columns.
+        DashboardView view = showWorld(stage, () -> TetrisFactory.create(TetrominoType.O), width, height);
+        view.requestGameFocus();
+        for (int i = 0; i < 30; i++) world.levelPlus();
+        press(KeyCode.ESCAPE);
+        await(() -> world.gameOverDisplayProperty().get(), 400, () -> {
+            Button start = (Button) scene.lookup(".primary-button");
+            check(world.getGameActive() && start.isDisabled() && start.getText().equals("游戏结束"),
+                    "game over disables the start button while its animation plays");
+            check(label(".ai-message").equals("结束动画播放完毕后，可重新开始。"),
+                    "cockpit explains when restart becomes available");
+            start.fire();
+            press(KeyCode.SPACE);
+            key(KeyEvent.KEY_PRESSED, KeyCode.ESCAPE, false);
+            check(world.getGameActive() && world.gameOverDisplayProperty().get(),
+                    "button, Space and Escape leave the game-over animation running");
+            await(() -> !world.getGameActive(), 400, () -> {
+                check(world.gameOverDisplayProperty().get() && !start.isDisabled()
+                                && start.getText().equals("重新开始") && world.settledCellsProperty().get().isEmpty(),
+                        "completed game-over animation clears the board and enables Restart");
+                check(label(".ai-message").equals("本局已结束，可重新开始。"),
+                        "cockpit offers restart once the animation completes");
+                key(KeyEvent.KEY_PRESSED, KeyCode.ESCAPE, false);
+                check(!world.getGameActive(), "Escape held across game over does not restart");
+                key(KeyEvent.KEY_RELEASED, KeyCode.ESCAPE, false);
+                press(KeyCode.ESCAPE);
+                check(world.getGameActive() && !world.gameOverDisplayProperty().get(),
+                        "fresh Escape starts a new game from the finished state");
+                await(() -> world.currentCellsProperty().get() != null, 100, () -> {
+                    System.out.printf(Locale.ROOT, "UI_INTERACTION_RESULT failures=%d plan_updates=%d%n",
+                            FAILURES.get(), observedPlans);
+                    stage.close();
+                    Platform.exit();
+                });
+            });
         });
     }
 
@@ -489,7 +535,7 @@ public final class UiInteractionApplication extends Application {
             action.run();
         }
         else if (remaining == 0) {
-            check(false, "timed out waiting for coaching state");
+            check(false, "timed out waiting for the expected game state");
             Platform.exit();
         }
         else {

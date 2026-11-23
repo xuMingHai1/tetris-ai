@@ -562,8 +562,11 @@ public final class DashboardView extends BorderPane {
                     : "Coverage " + progress.matchedRequiredCells() + "/" + progress.requiredCells()
                             + " · Intrusions " + progress.forbiddenOccupiedCells());
         }
-        startButton.setText(active ? (zh ? "暂停" : "Pause")
+        boolean finishing = over && active;
+        startButton.setDisable(finishing);
+        startButton.setText(finishing ? (zh ? "游戏结束" : "Game over")
                 : over ? (zh ? "重新开始" : "Restart")
+                : active ? (zh ? "暂停" : "Pause")
                 : everStarted ? (zh ? "继续" : "Resume") : (zh ? "开始游戏" : "Start game"));
         takeoverButton.setText(enabled ? (zh ? "接管游戏 · 手动" : "Take over · manual")
                 : (zh ? "交给 AI 操作" : "Let AI play"));
@@ -603,8 +606,10 @@ public final class DashboardView extends BorderPane {
                 ? "A / D  左右移动   ·   S  下移\n← / →  旋转   ·   Space / Esc  开始或暂停\nF2  AI 开关   ·   + / −  调整等级\nCtrl + Tab  切换语言"
                 : "A / D  Move   ·   S  Soft drop\n← / →  Rotate   ·   Space / Esc  Start or pause\nF2  Toggle AI   ·   + / −  Level\nCtrl + Tab  Language");
         reducedMotion.setText(zh ? "减少界面动效" : "Reduce UI motion");
-        boardHint.setText(zh ? "Space / Esc · 开始或暂停" : "Space / Esc · start or pause");
-        startTooltip.setText(zh ? "Space / Esc：开始或暂停" : "Space / Esc: start or pause");
+        boardHint.setText(finishing ? (zh ? "正在播放结束动画" : "Playing the end animation")
+                : over ? (zh ? "Space / Esc · 重新开始" : "Space / Esc · restart")
+                : (zh ? "Space / Esc · 开始或暂停" : "Space / Esc · start or pause"));
+        startTooltip.setText(boardHint.getText());
         takeoverTooltip.setText(zh ? "F2：切换 AI / 手动控制" : "F2: toggle AI / manual control");
         refreshActions(display, zh, previousPlan, active && !over && (enabled || coaching));
     }
@@ -637,7 +642,8 @@ public final class DashboardView extends BorderPane {
             case "completed" -> zh ? "本步完成" : "Plan completed";
             default -> zh ? "等待决策" : "Waiting for a plan";
         });
-        aiMessage.setText(over ? (zh ? "本局已结束，可重新开始。" : "Game finished. Start again when ready.")
+        aiMessage.setText(over && active ? (zh ? "结束动画播放完毕后，可重新开始。" : "You can restart after the end animation.")
+                : over ? (zh ? "本局已结束，可重新开始。" : "Game finished. Start again when ready.")
                 : !enabled ? (zh ? "使用 A / D 移动，← / → 旋转。" : "Use A / D to move and ← / → to rotate.")
                 : !active ? (everStarted ? (zh ? "继续对局后，AI 将重新选择落点。" : "Resume to let AI choose a new placement.")
                         : (zh ? "开始对局后，AI 将自动操作。" : "Start the game to let AI play."))
