@@ -664,6 +664,9 @@ import java.util.function.Function;
 public final class GameWorld {
 
     private static final int MAX_LEVEL = 30;
+    private static final int MID_LEVEL = 15;
+    private static final int MID_LEVEL_GRAVITY_MS = 250;
+    private static final int MAX_LEVEL_GRAVITY_MS = 125;
     private static final int AI_CONTROL_INTERVAL_MS = 45;
     private static final int AI_DROP_INTERVAL_MS = 20;
 
@@ -817,6 +820,16 @@ public final class GameWorld {
         };
     }
 
+    /** Above level 15, shorten each step more gradually to leave time for manual controls. */
+    static int gravityIntervalMillis(int level) {
+        if (level <= MID_LEVEL) {
+            return GameTimeLine.DEFAULT_PULSE
+                    - (GameTimeLine.DEFAULT_PULSE - MID_LEVEL_GRAVITY_MS) * level / MID_LEVEL;
+        }
+        return MID_LEVEL_GRAVITY_MS
+                - (MID_LEVEL_GRAVITY_MS - MAX_LEVEL_GRAVITY_MS) * (level - MID_LEVEL) / (MAX_LEVEL - MID_LEVEL);
+    }
+
     /**
      * 等级
      */
@@ -835,7 +848,7 @@ public final class GameWorld {
         protected void invalidated() {
             final int levelValue = super.get();
             // 方块下落速度
-            gameTimeLine.setPulse(GameTimeLine.DEFAULT_PULSE - levelValue * 16.67);
+            gameTimeLine.setPulse(gravityIntervalMillis(levelValue));
             // 背景音乐播放速度
             if (audioEnabled) {
                 AudioManager.getBgmMediaPlayer().setRate(1 + (double) levelValue / MAX_LEVEL);

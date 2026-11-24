@@ -24,12 +24,17 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 final class FrozenResearchCheckout {
     private static final String BENCHMARK = "src/main/java/xyz/xuminghai/tetris/ai/benchmark/";
-    private static final String PRODUCT_TEST = "src/test/java/xyz/xuminghai/tetris/ai/ActionPlanSimulatorTest.java";
+    private static final String ACTION_SIMULATOR = "src/main/java/xyz/xuminghai/tetris/ai/ActionPlanSimulator.java";
+    private static final String GAME_WORLD = "src/main/java/xyz/xuminghai/tetris/game/GameWorld.java";
+    // These tests call APIs (terminalCells and gravityIntervalMillis) added after the frozen base.
+    private static final Map<String, String> COMPANION_TESTS = Map.of(
+            ACTION_SIMULATOR, "src/test/java/xyz/xuminghai/tetris/ai/ActionPlanSimulatorTest.java",
+            GAME_WORLD, "src/test/java/xyz/xuminghai/tetris/game/GameWorldLineLevelTest.java");
     private static final Set<String> RESTORABLE = Set.of(
             "src/main/java/xyz/xuminghai/tetris/UiInteractionApplication.java",
-            "src/main/java/xyz/xuminghai/tetris/ai/ActionPlanSimulator.java",
+            ACTION_SIMULATOR,
             "src/main/java/xyz/xuminghai/tetris/game/GameOverAnimation.java",
-            "src/main/java/xyz/xuminghai/tetris/game/GameWorld.java",
+            GAME_WORLD,
             "src/main/java/xyz/xuminghai/tetris/view/DashboardView.java",
             "src/main/java/xyz/xuminghai/tetris/view/GhostLandingView.java",
             "src/main/resources/css/dashboard.css");
@@ -66,9 +71,11 @@ final class FrozenResearchCheckout {
         assertGuard(checkout, drift);
         assertTrue(RESTORABLE.containsAll(drift), "Unregistered protected drift: " + drift);
         var replaced = new ArrayList<>(drift);
-        if (!drift.isEmpty() && !java.util.Objects.equals(original.get(PRODUCT_TEST), frozen.get(PRODUCT_TEST))) {
-            // This sole companion test calls terminalCells(), absent in the frozen production API.
-            replaced.add(PRODUCT_TEST);
+        for (var path : drift) {
+            var companion = COMPANION_TESTS.get(path);
+            if (companion != null && !java.util.Objects.equals(original.get(companion), frozen.get(companion))) {
+                replaced.add(companion);
+            }
         }
         for (var path : replaced) {
             git(checkout, "restore", "--source=" + base, "--staged", "--worktree", "--", path);

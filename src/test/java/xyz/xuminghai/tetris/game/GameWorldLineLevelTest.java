@@ -10,8 +10,23 @@ import javafx.beans.property.SimpleIntegerProperty;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GameWorldLineLevelTest {
+
+    @Test
+    void gravityAcceleratesThroughEveryLevelWithTimeForManualInputAtLevelThirty() {
+        for (int level = 0; level <= 15; level++) {
+            assertEquals((int) Math.ceil(500 - level * 16.67), GameWorld.gravityIntervalMillis(level));
+        }
+        int previous = GameWorld.gravityIntervalMillis(15);
+        for (int level = 16; level <= 30; level++) {
+            int interval = GameWorld.gravityIntervalMillis(level);
+            assertTrue(interval < previous, "gravity should speed up at level " + level);
+            previous = interval;
+        }
+        assertEquals(125, GameWorld.gravityIntervalMillis(30));
+    }
 
     @Test
     void resetsAutomaticProgressAcrossConsecutiveGames() {
