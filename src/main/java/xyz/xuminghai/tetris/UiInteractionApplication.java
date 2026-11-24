@@ -297,7 +297,7 @@ public final class UiInteractionApplication extends Application {
                                 && hasSceneBounds(place, placeBounds) && !place.isDisabled()
                                 && Math.abs(place.getOpacity() - readyOpacity) < 1e-6,
                         "fresh advice enables the same button without moving the heading or button");
-                int beforeGravity = positions().getFirst().row();
+                int beforeGravity = lowestVisibleRow();
                 ChangeListener<Cell[]> gravityStep = (_, _, _) -> check(world.coachAdviceProperty().get() == null
                                 && place.isDisabled() && paintedCoachLanding().equals(replacementLanding),
                         "gravity keeps the board hint visible while the replacement is pending");
@@ -311,10 +311,11 @@ public final class UiInteractionApplication extends Application {
                     layout();
                     check(paintedCoachLanding().equals(Set.copyOf(world.coachAdviceProperty().get().landing())),
                             "the board shows only the newly published gravity hint");
-                    check(positions().getFirst().row() > beforeGravity
-                                    && hintMessage.getText().equals(HINT_DESCRIPTION
-                                            + world.coachAdviceProperty().get().clearedLines())
-                                    && hasSceneBounds(hintMessage, messageBounds),
+                    check(lowestVisibleRow() > beforeGravity, "gravity moves the coached piece down");
+                    check(hintMessage.getText().equals(HINT_DESCRIPTION
+                                    + world.coachAdviceProperty().get().clearedLines()),
+                            "an automatic gravity refresh describes the new hint");
+                    check(hasSceneBounds(hintMessage, messageBounds),
                             "an automatic gravity refresh keeps the hint description in place");
                     verifyCoachingPause(stage, hints, place, actions, autoPlayBadge);
                 });
@@ -579,6 +580,11 @@ public final class UiInteractionApplication extends Application {
 
     private int[] columns() {
         return Arrays.stream(world.currentCellsProperty().get()).mapToInt(cell -> cell.getCol()).toArray();
+    }
+
+    // Near spawn, another cell may enter the visible board without changing the top visible row.
+    private int lowestVisibleRow() {
+        return positions().stream().mapToInt(BoardPosition::row).max().orElseThrow();
     }
 
     private List<BoardPosition> positions() {
