@@ -410,7 +410,8 @@ public final class UiInteractionApplication extends Application {
         }
         for (int i = 0; i < 30; i++) world.levelPlus();
         press(KeyCode.ESCAPE);
-        await(() -> world.gameOverDisplayProperty().get(), 400, () -> {
+        // At 125 ms per row, stacking the O tower under natural gravity takes over ten seconds.
+        await(() -> world.gameOverDisplayProperty().get(), 1200, () -> {
             if (heart) {
                 check(spawns.get() >= 3, "observed the spawn after the second O locked");
                 // A locked tower in columns 4 and 5 fills five required pairs and one forbidden pair.
